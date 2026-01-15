@@ -43,6 +43,15 @@ public class ActionRecorder {
 		if (!(driver instanceof JavascriptExecutor)) return;
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
+		String buttonXpath =  "(//button[contains(.//span, '') " +
+				"or contains(@ng-reflect-message, '') " +
+				"or contains(@aria-label, '') " +
+				"or contains(.//@aria-label, '') " +
+				"or contains(text(), '') " +
+				"or contains(., '')] | " +
+				"//*[@data-testid='button' " +
+				"and ./span[contains(text(), '')] and not(contains(@class, '-trigger'))])";
+
 		String data = """
 				window.recordedClicks = [];
 				window.recordedInputs = [];
