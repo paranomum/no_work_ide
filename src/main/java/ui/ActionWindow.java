@@ -159,6 +159,7 @@ public class ActionWindow extends JFrame {
 		themeSelect.setSelectedItem("Light");
 
 		driverPathField = new JTextField(20);
+		driverPathField.setText("/Applications/chrome/chrome/Google Chrome for Testing.app");
 	}
 
 	private void toggleRecording() {

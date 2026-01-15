@@ -1,11 +1,9 @@
 package ui.action;
 
-import lombok.val;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import javax.swing.table.DefaultTableModel;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 public class ActionRecorder {
@@ -97,11 +95,69 @@ public class ActionRecorder {
 				function isClickableElement(element) {
 					if (!element) return false;
 					var tagName = element.tagName ? element.tagName.toUpperCase() : '';
-					if (tagName === 'BUTTON' || tagName === 'A' || tagName === 'LABEL') return true;
+					if (isButton(element)) return true;
+					if (tagName === 'A' || tagName === 'LABEL') return true;
 					if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) return true;
 					var role = element.getAttribute('role');
 					if (role === 'button' || role === 'tab' || role === 'menuitem') return true;
 					return false;
+				}
+				""";
+
+		String buttonConditions = """
+				function buttonConditions(element) {
+				    // Проверяем data-testid='button' + span + not class '-trigger'
+				    if (element.getAttribute('data-testid') === 'button') {
+				        var spanChild = element.querySelector('span');
+				        if (spanChild && spanChild.textContent.trim() !== '' &&
+				            !element.className.includes('-trigger')) {
+				            return true;
+				        }
+				    }
+
+				    // Проверяем button или любые элементы с нужными атрибутами/текстом
+				    var conditions = [
+				        'span',
+				        'ng-reflect-message',
+				        'aria-label',
+				        'text()',
+				        '.'
+				    ];
+				    // Проверяем наличие span с текстом
+				    var spans = element.querySelectorAll('span');
+				    for (var i = 0; i < spans.length; i++) {
+				        if (spans[i].textContent.trim() !== '') return true;
+				    }
+				    // Проверяем aria-label на элементе и его детях
+				    if (element.getAttribute('aria-label') && element.getAttribute('aria-label').trim() !== '') return true;
+				    var ariaLabels = element.querySelectorAll('[aria-label]');
+				    for (var j = 0; j < ariaLabels.length; j++) {
+				        if (ariaLabels[j].getAttribute('aria-label').trim() !== '') return true;
+				    }
+				    // Проверяем ng-reflect-message
+				    if (element.getAttribute('ng-reflect-message') && element.getAttribute('ng-reflect-message').trim() !== '') return true;
+				    // Проверяем текст самого элемента
+				    if (element.textContent.trim() !== '') return true;
+				    return false;
+				}
+				""";
+
+		String isButton = """
+				function isButton(element) {
+				    // Идем вверх по DOM до button или корня
+				    var currentElement = element;
+				    while (currentElement) {
+				        var currentTagName = currentElement.tagName ? currentElement.tagName.toUpperCase() : '';
+				        // Если нашли button - проверяем условия XPath
+				        if (currentTagName === 'BUTTON') {
+				            if (buttonConditions(currentElement)) {
+				                return true;
+				            }
+				            break; // Если button не подходит - дальше не идем
+				        }
+				        currentElement = currentElement.parentElement;
+				    }
+				    return false;
 				}
 				""";
 
@@ -186,6 +242,8 @@ public class ActionRecorder {
 		String script = data
 				+ getXPath
 				+ isClickableElement
+				+ isButton
+				+ buttonConditions
 				+ isEditableInput
 				+ findClickable
 				+ addEventListenerClick
