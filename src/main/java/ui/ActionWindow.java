@@ -340,14 +340,15 @@ public class ActionWindow extends JFrame {
 
 			driver.navigate().to("about:blank");
 
-			JOptionPane.showMessageDialog(
-					this,
-					"Browser opened successfully",
-					"Success",
-					JOptionPane.INFORMATION_MESSAGE
-			);
+//			JOptionPane.showMessageDialog(
+//					this,
+//					"Browser opened successfully",
+//					"Success",
+//					JOptionPane.INFORMATION_MESSAGE
+//			);
 
 			System.out.println("ChromeDriver initialized successfully with: " + driverPath);
+			driver.navigate().to("https://test-iqhr.rt.ru/");
 		} catch (Exception e) {
 			String errorMessage = e.getMessage();
 
