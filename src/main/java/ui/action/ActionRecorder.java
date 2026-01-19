@@ -54,9 +54,10 @@ public class ActionRecorder {
 				"//*[@data-testid='button' " +
 				"and ./span[contains(text(), '')] and not(contains(@class, '-trigger'))])";
 
+		String buttons = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
 		String script = new String(Files.readAllBytes(Paths.get("src/main/resources/actions.js")));
 
-		js.executeScript(script);
+		js.executeScript(buttons + script);
 		startCapture();
 	}
 
