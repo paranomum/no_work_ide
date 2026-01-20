@@ -5,7 +5,7 @@ function isClickableElement(element) {
 	var javaData = null;
 	var isClickable = false;
 	if (tagName === 'BUTTON' || tagName === 'A') {
-		buttonInfo = isButton(element);
+		buttonInfo = isButtonOrLink(element);
 		console.log("BUTTONAINFO", buttonInfo);
 		isClickable = true;
 		tagName === 'BUTTON' ?
@@ -16,7 +16,8 @@ function isClickableElement(element) {
 			init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
 		};
 	}
-	if (tagName === 'LABEL') {
+	if (tagName === 'LABEL' || tagName === 'INPUT') {
+		buttonInfo = isRadioOrCheckBox(element);
 		isClickable = true;
 	}
 	if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
@@ -138,15 +139,23 @@ function isRadioOrCheckBox(element) {
 	var currentElement = element;
 	while (currentElement) {
 		var currentTagName = currentElement.tagName ? currentElement.tagName.toUpperCase() : '';
+		var currentClass = currentElement.getAttribute('class')
 		if (currentTagName === 'MAT-RADIO-BUTTON' || currentTagName === 'MAT-CHECKBOX'
-			|| currentTagName === 'LABEL') {
-			var checkbox = checkboxConditions(currentElement);
-			var radio = checkboxConditions(currentElement);
-			if (checkbox != null) {
-				return checkbox;
-			}
-			if (radio != null) {
-				return radio
+			|| (currentTagName === 'LABEL' && currentClass &&
+				(currentClass.includes('ant-checkbox-wrapper') ||
+				currentClass.includes('ant-radio-wrapper') ||
+				currentClass.includes('ant-radio-button-wrapper') ||
+				currentClass.includes('ant-segmented-item')))) {
+			if (currentClass.includes('checkbox') || currentTagName.includes('CHECKBOX')) {
+				var checkbox = checkboxConditions(currentElement);
+				if (checkbox != null) {
+					return checkbox;
+				}
+			} else {
+				var radio = checkboxConditions(currentElement);
+				if (radio != null) {
+					return radio
+				}
 			}
 			break;
 		}
@@ -158,13 +167,17 @@ function isRadioOrCheckBox(element) {
 //todo здесь надо проработать то, что мы поднимаемся наверх, чтобы найти группу и вытащить ее, а не элемент!
 function checkboxConditions(element) {
 	var textContent = element.textContent.trim();
+	var currentElement = element;
+	if (element.tagName.toUpperCase() === 'LABEL') {
+		while (!currentElement.getAttribute('data-testid') && currentElement.parentElement != null) {
+			if (currentElement.getAttribute('data-testid') === 'form-checkbox') {
+				element = currentElement;
+				break;
+			}
+			currentElement = currentElement.parentElement
+		}
+	}
 
-	// if (element.tagName.toUpperCase() === 'LABEL') {
-	// 	while (!element.getAttribute('data-testid') && currentElement.parentElement != null) {
-
-	// 	}
-	// }
-	// Проверяем data-testid='form-checkbox' + label/title (группа чекбоксов)
 	if (element.getAttribute('data-testid') === 'form-checkbox') {
 		// Ищем label внутри или рядом
 		var label = element.querySelector('label') ||
@@ -184,14 +197,21 @@ function checkboxConditions(element) {
 			}
 		}
 	}
-
 	// Обычный чекбокс (fallback)
 	if (textContent !== '') {
-		return {
-			xpath: "(//mat-checkbox[contains(., '" + textContent + "')] | //label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')])",
+		if (element.tagName === 'LABEL') {
+			return {
+			xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
 			name: textContent,
 			type: 'checkbox-single'  // Маркер одиночного
 		};
+		} else {
+			return {
+				xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
+				name: textContent,
+				type: 'checkbox-single'  // Маркер одиночного
+			};
+		}
 	}
 
 	return null;
@@ -200,6 +220,17 @@ function checkboxConditions(element) {
 //todo здесь надо проработать то, что мы поднимаемся наверх, чтобы найти группу и вытащить ее, а не элемент!
 function radioConditions(element) {
     var textContent = element.textContent.trim();
+
+	var currentElement = element;
+	if (element.tagName.toUpperCase() === 'LABEL') {
+		while (!currentElement.getAttribute('data-testid') && currentElement.parentElement != null) {
+			if (currentElement.getAttribute('data-testid') === 'form-radio') {
+				element = currentElement;
+				break;
+			}
+			currentElement = currentElement.parentElement
+		}
+	}
 
     // Проверяем data-testid='form-radio' + label/title (группа радио)
     if (element.getAttribute('data-testid') === 'form-radio') {
