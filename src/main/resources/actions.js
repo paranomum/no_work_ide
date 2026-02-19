@@ -56,24 +56,32 @@ function getButtonIndex(buttonElement) {
 }
 
 function isEditableInput(element) {
-	if (!element) return false;
-	var tagName = element.tagName ? element.tagName.toUpperCase() : '';
-	if (tagName !== 'INPUT' && tagName !== 'TEXTAREA') return false;
-	if (element.getAttribute('aria-haspopup')) return false;
-	return true;
+    if (!element) return false;
+
+    var tagName = element.tagName ? element.tagName.toUpperCase().trim() : '';
+    console.log("MY TAAAAAGNAAAAME is '" + tagName + "'");
+    var isEditable = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD';
+    console.log("IS EDITSBLE = ", isEditable)
+    return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD';
 }
+
 function findClickable(element) {
-	var current = element;
-	var depth = 0;
-	while (current && depth < 20) {
-		var cur = isClickableElement(current);
-		if (cur.isClickable) return cur;
-		if (current.tagName && current.tagName.toUpperCase() === 'BODY') break;
-		current = current.parentElement;
-		depth++;
-	}
-	return null;
+    var current = element;
+    var depth = 0;
+
+    while (current && depth < 20) {
+        var cur = isClickableElement(current);
+        if (cur && cur.isClickable) {
+            return cur;
+        }
+        if (current.tagName && current.tagName.toUpperCase() === 'BODY') break;
+        current = current.parentElement;
+        depth++;
+    }
+
+    return { isClickable: false, buttonInfo: null, javaData: null };
 }
+
 
 document.addEventListener('click', function(e) {
 var element = e.target;
@@ -99,25 +107,28 @@ var element = e.target;
 }, true);
 
 document.addEventListener('blur', function(e) {
-		if (isEditableInput(e.target) && window.currentFocusedXPath) {
-			var currentValue = e.target.value || '';
-			if (window.currentFocusedValue !== currentValue) {
-					window.recordedInputs.push({
-					xpath: window.currentFocusedXPath,
-					value: currentValue,
-					id: e.target.id || '',
-					timestamp: Date.now()
-					});
-			} else {
-					window.recordedClicks.push({
-					xpath: window.currentFocusedXPath,
-					id: e.target.id || '',
-					tag: e.target.tagName.toUpperCase(),
-					text: ''
-					});
-			}
-			window.currentFocusedXPath = null;
-			window.currentFocusedElement = null;
-			window.currentFocusedValue = '';
-		}
+ console.log("I AM BLUUUR!");
+    if (isEditableInput(e.target) && window.currentFocusedXPath) {
+        var currentValue = e.target.value || '';
+
+        // Логируем только изменение значения
+        console.log("I AM EDITABLE!");
+        if (window.currentFocusedValue !== currentValue) {
+            var fieldInfo = getFieldInfoFromInput(e.target);
+            console.log("FIELD INFO!", fieldInfo);
+            window.recordedInputs.push({
+                xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
+                value: currentValue,
+                id: e.target.id || '',
+                type: fieldInfo ? fieldInfo.type : 'field',
+                name: fieldInfo ? fieldInfo.name : '',
+                timestamp: Date.now()
+            });
+        }
+
+        window.currentFocusedXPath = null;
+        window.currentFocusedElement = null;
+        window.currentFocusedValue = '';
+    }
 }, true);
+

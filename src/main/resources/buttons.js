@@ -4,8 +4,10 @@ function isClickableElement(element) {
 	var buttonInfo = null;
 	var javaData = null;
 	var isClickable = false;
+	var role = element.getAttribute('role');
 	if (tagName === 'BUTTON' || tagName === 'A') {
 		buttonInfo = isButtonOrLink(element);
+		if (buttonInfo != null) {
 		console.log("BUTTONAINFO", buttonInfo);
 		isClickable = true;
 		tagName === 'BUTTON' ?
@@ -15,18 +17,30 @@ function isClickableElement(element) {
 		javaData = {
 			init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
 		};
+		}
 	}
-	if (tagName === 'LABEL' || tagName === 'INPUT') {
+	else if (tagName === 'LABEL' || tagName === 'INPUT') {
 		buttonInfo = isRadioOrCheckBox(element);
+		if (buttonInfo != null) {
+		isClickable = true;
+		}
+	}
+	else if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
 		isClickable = true;
 	}
-	if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
-		isClickable = true;
+	else if (tagName == 'DIV' && (element.className.includes('ant-tabs-tab') && (role == 'tab' || element.getAttribute('data-node-key') != null))) {
+	    buttonInfo = isTab(element);
+	    if (buttonInfo != null) {
+	    console.log("BUTTONAINFO", buttonInfo);
+	    isClickable = true;
+	    javaData = {
+        			init_string: buttonInfo === null ? "new TabButton(" + buttonInfo.name + ")" : ""
+        		};
+        		}
 	}
-	var role = element.getAttribute('role');
-	if (role === 'button' || role === 'tab' || role === 'menuitem') {
-		isClickable = true;
-	}
+//	else if (role === 'button' || role === 'tab' || role === 'menuitem') {
+//		isClickable = true;
+//	}
 	return {
 		isClickable: isClickable,
 		buttonInfo: buttonInfo,
@@ -50,6 +64,46 @@ function isButtonOrLink(element) {
 		currentElement = currentElement.parentElement;
 	}
 	return null;
+}
+
+function isTab(element) {
+    var tabBtn = element;
+	if (!tabBtn.className.includes('ant-tabs-tab-btn')) {
+		tabBtn = element.querySelector('.ant-tabs-tab-btn') || element;
+	}
+	 // Подстрахуемся: таб должен иметь role="tab"
+    var role = tabBtn.getAttribute && tabBtn.getAttribute('role');
+    if (role !== 'tab') {
+        return null;
+    }
+
+    // Дальше забираем info по образцу getElementConditions
+    return getTabConditions(tabBtn);
+}
+
+function getTabConditions(tabBtn) {
+    // 1. Берём текст таба
+    var titleSpan =
+            tabBtn.querySelector('.ant-typography') ||          // основной текст
+            tabBtn.querySelector('.ant-tabs-tab-btn span');     // запасной вариант
+
+    var text = titleSpan
+        ? (titleSpan.textContent || '').trim()
+        : (tabBtn.textContent || '').trim(); // fallback
+
+    if (!text) return null;
+
+    var safeText = text.replace(/'/g, "\\'");
+
+    // 2. Строим XPath строго по TabButton.java
+    var xpath =
+        "//div[@role='tab' and contains(., '" + safeText + "')]";
+
+    return {
+        xpath: xpath,
+        name: safeText,
+        type: 'tab'
+    };
 }
 
 function getElementConditions(element, tagName) {
@@ -134,7 +188,6 @@ function getElementConditions(element, tagName) {
 	return null;
 }
 
-//todo понять на что тыкаем в чекбоксах и радио. кажись инпут, но я не уверена
 function isRadioOrCheckBox(element) {
 	var currentElement = element;
 	while (currentElement) {
@@ -180,9 +233,16 @@ function checkboxConditions(element) {
 
 	if (element.getAttribute('data-testid') === 'form-checkbox') {
 		// Ищем label внутри или рядом
-		var label = element.querySelector('label') ||
-				   element.querySelector('.ant-checkbox-wrapper') ||
-				   element.closest('label');
+		var label =
+                // 1. Лейбл заголовка в той же строке формы (основной кейс React)
+                element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
+
+                // 2. Лейбл с title внутри form-radio (если вдруг так верстали)
+                element.querySelector('label[title]') ||
+
+                // 3. Старый запасной вариант
+                element.querySelector('label') ||
+                element.closest('label');
 
 		if (label) {
 			var labelText = label.textContent.trim();
@@ -234,8 +294,16 @@ function radioConditions(element) {
 
     // Проверяем data-testid='form-radio' + label/title (группа радио)
     if (element.getAttribute('data-testid') === 'form-radio') {
-        var label = element.querySelector('label') ||
-                   element.closest('label');
+        var label =
+                // 1. Лейбл заголовка в той же строке формы (основной кейс React)
+                element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
+
+                // 2. Лейбл с title внутри form-radio (если вдруг так верстали)
+                element.querySelector('label[title]') ||
+
+                // 3. Старый запасной вариант
+                element.querySelector('label') ||
+                element.closest('label');
 
         if (label) {
             var labelText = label.textContent.trim();
