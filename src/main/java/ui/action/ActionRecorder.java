@@ -44,22 +44,12 @@ public class ActionRecorder {
 	@SneakyThrows
 	private void injectListeners() {
 		if (!(driver instanceof JavascriptExecutor)) return;
+
+		injectScriptsIntoCurrentTab();
 		JavascriptExecutor js = (JavascriptExecutor) driver;
+		js.executeScript("window.recordedClicks = [];");
+		js.executeScript("window.recordedInputs = [];");
 
-		String buttonXpath =  "(//button[contains(.//span, '') " +
-				"or contains(@ng-reflect-message, '') " +
-				"or contains(@aria-label, '') " +
-				"or contains(.//@aria-label, '') " +
-				"or contains(text(), '') " +
-				"or contains(., '')] | " +
-				"//*[@data-testid='button' " +
-				"and ./span[contains(text(), '')] and not(contains(@class, '-trigger'))])";
-
-		String buttons = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
-		String script = new String(Files.readAllBytes(Paths.get("src/main/resources/actions.js")));
-		String fields = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
-
-		js.executeScript(buttons + fields + script);
 		startCapture();
 	}
 
@@ -69,47 +59,79 @@ public class ActionRecorder {
 				try {
 					JavascriptExecutor js = (JavascriptExecutor) driver;
 
+					// ===== КЛИКИ =====
 					Object clicks = js.executeScript("return window.recordedClicks;");
 					if (clicks instanceof java.util.List) {
 						@SuppressWarnings("unchecked")
 						java.util.List<Map<String, ?>> clickList = (java.util.List<Map<String, ?>>) clicks;
 						if (!clickList.isEmpty()) {
 							Map<String, ?> click = clickList.get(clickList.size() - 1);
-							String xpath = (String) click.get("xpath");
-							String text  = (String) click.get("text");
 
-							Object rawEventType = click.get("eventType");
-							String eventType = rawEventType != null ? rawEventType.toString() : "click";
+							String xpath = (String) click.get("xpath");
+							String text = (String) click.get("text");
+							String selectXpath = (String) click.get("selectXpath");
+							Object rawEvent = click.get("eventType");
+							String eventType = rawEvent != null ? rawEvent.toString() : "click";
+
+							Object newTabRaw = click.get("newTab");
+							boolean newTab = false;
+							if (newTabRaw instanceof Boolean) {
+								newTab = (Boolean) newTabRaw;
+							} else if (newTabRaw != null) {
+								newTab = Boolean.parseBoolean(newTabRaw.toString());
+							}
+
+
+							System.out.println("[CAPTURE] raw click: eventType=" + eventType
+									+ ", xpath=" + xpath
+									+ ", selectXpath=" + selectXpath
+									+ ", text=" + text
+									+ ", newTab=" + newTab);
+
+							if (newTab) {
+								// клик по ссылке, открывающей новую вкладку
+								record("click", xpath, text);
+								System.out.println("[CAPTURE] newTab click recorded before any switch");
+								continue; // к следующему циклу while
+							}
 
 							switch (eventType) {
+								case "tab-inactive":
+									System.out.println("[CAPTURE] EVENT tab-inactive");
+									handleTabInactive();
+									break;
+
+								case "tab-active":
+									System.out.println("[CAPTURE] EVENT tab-active, handle=" +
+											driver.getWindowHandle() + ", url=" + driver.getCurrentUrl());
+									break;
+
 								case "select-open":
-									// просто перезаписываем — без record("select", ...)
-									// если до этого был "подвешенный" селект, считаем его несостоявшимся
 									lastSelectOpenXpath = xpath;
+									System.out.println("[CAPTURE] select-open, remember xpath=" + lastSelectOpenXpath);
 									break;
 
 								case "select-option":
-									// пишем select ТОЛЬКО если есть актуальный open
-									if (lastSelectOpenXpath != null) {
-										record("select", lastSelectOpenXpath, text);
+									if (selectXpath != null && !selectXpath.isEmpty()) {
+										System.out.println("[CAPTURE] select-option with selectXpath=" + selectXpath
+												+ ", text=" + text);
+										record("select", selectXpath, text);
 									} else {
-										// опция без зафиксированного open — считаем обычным кликом
-										record("click", xpath, text);
+										System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 									}
-									// в любом случае, цикл select-open → select-option завершён
 									lastSelectOpenXpath = null;
 									break;
 
 								default:
-									// любой другой клик убивает висящий селект
+									System.out.println("[CAPTURE] normal click -> record(click): xpath=" + xpath
+											+ ", text=" + text);
 									record("click", xpath, text);
 									lastSelectOpenXpath = null;
 							}
-
-							js.executeScript("window.recordedClicks = [];");
 						}
 					}
 
+					// ===== ВВОД ТЕКСТА =====
 					Object inputs = js.executeScript("return window.recordedInputs;");
 					if (inputs instanceof java.util.List) {
 						@SuppressWarnings("unchecked")
@@ -118,14 +140,18 @@ public class ActionRecorder {
 							Map<String, ?> input = inputList.get(inputList.size() - 1);
 							String xpath = (String) input.get("xpath");
 							String value = (String) input.get("value");
+
+							System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
+
 							record("fill", xpath, value);
-							js.executeScript("window.recordedInputs = [];");
 						}
 					}
-
-					Thread.sleep(500);
+					js.executeScript("window.recordedClicks = [];");
+					js.executeScript("window.recordedInputs = [];");
+					Thread.sleep(200);
 				} catch (Exception e) {
 					System.err.println("Error in capture loop: " + e.getMessage());
+					e.printStackTrace();
 				}
 			}
 		}).start();
@@ -144,7 +170,75 @@ public class ActionRecorder {
 		});
 	}
 
-	public Map<String, String> getVariables() {
-		return variables;
+	private void handleTabInactive() {
+		try {
+			if (driver == null) {
+				System.out.println("[TAB] tab-inactive: driver is null, nothing to do");
+				return;
+			}
+
+			String currentHandle = driver.getWindowHandle();
+			String currentUrl = driver.getCurrentUrl();
+
+			System.out.println("[TAB] tab-inactive on handle=" + currentHandle +
+					", url=" + currentUrl);
+
+			java.util.Set<String> handles = driver.getWindowHandles();
+			if (handles.size() < 2) {
+				System.out.println("[TAB] only one window handle, nothing to switch");
+				return;
+			}
+
+			String targetHandle = null;
+			for (String handle : handles) {
+				if (!handle.equals(currentHandle)) {
+					targetHandle = handle;
+					break;
+				}
+			}
+
+			if (targetHandle == null) {
+				System.out.println("[TAB] no other handle found, abort switch");
+				return;
+			}
+
+			// переключаемся на новую вкладку
+			driver.switchTo().window(targetHandle);
+			String newUrl = driver.getCurrentUrl();
+
+			System.out.println("[TAB] SWITCH TAB from " + currentHandle + " (" + currentUrl +
+					") to " + targetHandle + " (" + newUrl + ")");
+
+			// записываем switchTab
+			record("switchTab", null, newUrl);
+			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
+
+			// закрываем старую вкладку
+			driver.switchTo().window(currentHandle);
+			driver.close();
+			System.out.println("[TAB] closed previous tab handle=" + currentHandle +
+					", url=" + currentUrl);
+
+			// остаёмся на новой вкладке и реинжектим скрипты
+			driver.switchTo().window(targetHandle);
+			injectScriptsIntoCurrentTab();
+
+		} catch (Exception e) {
+			System.err.println("[TAB] Error during handleTabInactive: " + e.getMessage());
+			e.printStackTrace();
+		}
+	}
+
+	@SneakyThrows
+	private void injectScriptsIntoCurrentTab() {
+		if (!(driver instanceof JavascriptExecutor)) return;
+		JavascriptExecutor js = (JavascriptExecutor) driver;
+
+		String buttons = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
+		String fields  = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
+		String script  = new String(Files.readAllBytes(Paths.get("src/main/resources/actions.js")));
+
+		js.executeScript(buttons + fields + script);
+		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
 	}
 }

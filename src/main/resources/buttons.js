@@ -1,52 +1,188 @@
 function isClickableElement(element) {
-	if (!element) return { isClickable: false, buttonInfo: null };
-	var tagName = element.tagName ? element.tagName.toUpperCase() : '';
-	var buttonInfo = null;
-	var javaData = null;
-	var isClickable = false;
-	var role = element.getAttribute('role');
-	if (tagName === 'BUTTON' || tagName === 'A') {
-		buttonInfo = isButtonOrLink(element);
-		if (buttonInfo != null) {
-		console.log("BUTTONAINFO", buttonInfo);
-		isClickable = true;
-		tagName === 'BUTTON' ?
-		javaData = {
-			init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ")" : ""
-		} :
-		javaData = {
-			init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
-		};
-		}
-	}
-	else if (tagName === 'LABEL' || tagName === 'INPUT') {
-		buttonInfo = isRadioOrCheckBox(element);
-		if (buttonInfo != null) {
-		isClickable = true;
-		}
-	}
-	else if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
-		isClickable = true;
-	}
-	else if (tagName == 'DIV' && (element.className.includes('ant-tabs-tab') && (role == 'tab' || element.getAttribute('data-node-key') != null))) {
-	    buttonInfo = isTab(element);
-	    if (buttonInfo != null) {
-	    console.log("BUTTONAINFO", buttonInfo);
-	    isClickable = true;
-	    javaData = {
-        			init_string: buttonInfo === null ? "new TabButton(" + buttonInfo.name + ")" : ""
-        		};
-        		}
-	}
-//	else if (role === 'button' || role === 'tab' || role === 'menuitem') {
-//		isClickable = true;
-//	}
-	return {
-		isClickable: isClickable,
-		buttonInfo: buttonInfo,
-		javaData: javaData
-	};
+
+    if (!element) return { isClickable: false, buttonInfo: null, javaData: null, eventType: null };
+
+    var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    var buttonInfo = null;
+    var javaData = null;
+    var isClickable = false;
+    var role = element.getAttribute('role');
+    var eventType = null;
+
+    // ===== Кнопки и ссылки =====
+    if (tagName === 'BUTTON' || tagName === 'A') {
+
+        buttonInfo = isButtonOrLink(element);
+        if (buttonInfo != null) {
+
+            console.log("[CLICKABLE] BUTTON/LINK", buttonInfo);
+            isClickable = true;
+
+            if (tagName === 'BUTTON') {
+                javaData = {
+                    init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ")" : ""
+                };
+            } else {
+                javaData = {
+                    init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
+                };
+            }
+        }
+
+    // ===== Радио/чекбоксы =====
+    } else if (tagName === 'LABEL' || tagName === 'INPUT') {
+
+        buttonInfo = isRadioOrCheckBox(element);
+        if (buttonInfo != null) {
+            console.log("[CLICKABLE] RADIO/CHECKBOX", buttonInfo);
+            isClickable = true;
+        }
+
+    // ===== input с aria-haspopup =====
+    } else if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
+
+        console.log("[CLICKABLE] INPUT aria-haspopup", element);
+        isClickable = true;
+
+    // ===== Табы =====
+    } else if (
+        tagName === 'DIV' &&
+        element.className &&
+        element.className.includes('ant-tabs-tab') &&
+        (role == 'tab' || element.getAttribute('data-node-key') != null)
+    ) {
+
+        buttonInfo = isTab(element);
+        if (buttonInfo != null) {
+
+            console.log("[CLICKABLE] TAB", buttonInfo);
+            isClickable = true;
+            javaData = {
+                init_string: buttonInfo === null ? "new TabButton(" + buttonInfo.name + ")" : ""
+            };
+        }
+    }
+
+    // ===== form-select (открытие селекта) =====
+    if (!isClickable) {
+        var selectRoot = element.closest && element.closest("[data-testid='form-select']");
+        if (selectRoot) {
+            var selectInfo = getSelectInfoFromRoot(selectRoot);
+            if (selectInfo) {
+                isClickable = true;
+                eventType = "select-open";
+                buttonInfo = {
+                    xpath: selectInfo.xpath,
+                    name: selectInfo.name,
+                    type: "select",
+                    domElement: null
+                };
+            }
+        }
+    }
+
+    // ===== элемент списка для этого селекта =====
+    if (
+        !isClickable &&
+        tagName === 'DIV' &&
+        element.className &&
+        element.className.includes('ant-select-item-option')
+    ) {
+        var title = element.getAttribute('title') || (element.textContent || '').trim();
+        if (title) {
+            var dropdown = element.closest("div.ant-select-dropdown");
+            if (dropdown) {
+                var listbox = dropdown.querySelector("div[role='listbox'][id]");
+                if (listbox) {
+                    var listId = listbox.getAttribute("id");
+                    var input = document.querySelector(
+                        "[data-testid='form-select'] input[aria-controls='" + listId + "']"
+                    );
+                    if (input) {
+                        var selectRoot2 = input.closest("[data-testid='form-select']");
+                        var selectInfo2 = getSelectInfoFromRoot(selectRoot2);
+                        if (selectInfo2) {
+                            var safeTitle = title.replace(/'/g, "\\'");
+                            buttonInfo = {
+                                xpath: "//div[./div[@role='listbox' and @id='" + listId + "']]//" +
+                                       "div[contains(@class,'ant-select-item-option') and @title='" + safeTitle + "']",
+                                name: title,
+                                type: "select-option",
+                                selectXpath: selectInfo2.xpath,
+                                selectName: selectInfo2.name,
+                                domElement: null
+                            };
+                            isClickable = true;
+                            eventType = "select-option";
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return {
+        isClickable: isClickable,
+        buttonInfo: buttonInfo,
+        javaData: javaData,
+        eventType: eventType
+    };
 }
+
+function isOpenNewTab(element) {
+    if (element === null || element.domElement === null) return false;
+    var dom = element.domElement
+    var tag = dom.tagName ? dom.tagName.toUpperCase() : '';
+    if (tag !== 'A') return false;
+    var target = dom.getAttribute('target');
+    return target === '_blank';
+}
+
+function getSelectInfoFromRoot(selectRoot) {
+    if (!selectRoot) return null;
+
+    var name = "";
+
+    // 1. Если есть label[title] — используем его (как во второй части условия)
+    var label = selectRoot.querySelector("label[title]");
+    if (label) {
+        name = (label.getAttribute("title") || "").trim();
+    }
+
+    // 2. Иначе берём любой видимый текст внутри form-select (placeholder / выбранное значение),
+    //    чтобы сработал contains(., 'name')
+    if (!name) {
+        // прицелимся в placeholder ant-select
+        var placeholderEl = selectRoot.querySelector(".ant-select-placeholder");
+        if (placeholderEl) {
+            name = (placeholderEl.textContent || "").trim();
+        }
+
+        // если даже placeholder не нашли — можно попробовать общее textContent
+        if (!name) {
+            name = (selectRoot.textContent || "").trim();
+        }
+    }
+
+    console.log("[SELECT-INFO] label:", label, "name:", name);
+
+    if (!name) return null;
+
+    var safeName = name.replace(/'/g, "\\'");
+
+    // XPath ТОЧНО как в Select.java
+    var xpath =
+        "//*[@data-testid='form-select' and " +
+        "(contains(., '" + safeName + "') or .//label[contains(@title, '" + safeName + "')])]";
+
+    return {
+        name: name,
+        safeName: safeName,
+        xpath: xpath
+    };
+}
+
+
 
 function isButtonOrLink(element) {
 	// Идем вверх по DOM до button или корня
@@ -77,7 +213,6 @@ function isTab(element) {
         return null;
     }
 
-    // Дальше забираем info по образцу getElementConditions
     return getTabConditions(tabBtn);
 }
 
@@ -102,7 +237,8 @@ function getTabConditions(tabBtn) {
     return {
         xpath: xpath,
         name: safeText,
-        type: 'tab'
+        type: 'tab',
+        domElement: element
     };
 }
 
@@ -129,7 +265,8 @@ function getElementConditions(element, tagName) {
 			return {
 				xpath: "//*[@data-testid='" + dataTestId + "' and contains(., '" + elText + "')]" +
 						(tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : ""),
-				name: elText
+				name: elText,
+				domElement: element
 			};
 		}
 	}
@@ -146,7 +283,8 @@ function getElementConditions(element, tagName) {
 		if (attrValue && attrValue.trim() !== '') {
 			return {
 				xpath: "//" + baseTag + "[contains(" + checks[i].xpath + ", '" + attrValue.trim() + "')]",
-				name: attrValue.trim()
+				name: attrValue.trim(),
+				domElement: element
 			};
 		}
 	}
@@ -159,7 +297,8 @@ function getElementConditions(element, tagName) {
 			if (childAria && childAria.trim() !== '') {
 				return {
 					xpath: "//" + baseTag + "[contains(.//@aria-label, '" + childAria.trim() + "')]",
-					name: childAria.trim()
+					name: childAria.trim(),
+					domElement: element
 				};
 			}
 		}
@@ -170,7 +309,8 @@ function getElementConditions(element, tagName) {
 	if (textContent !== '') {
 		return {
 			xpath: "//" + baseTag + "[contains(., '" + textContent + "')]",
-			name: textContent
+			name: textContent,
+			domElement: element
 		};
 	}
 
@@ -180,7 +320,8 @@ function getElementConditions(element, tagName) {
 		if (hrefText && !/\d/.test(hrefText)) {
 			return {
 				xpath: "//a[contains(@href, '" + hrefText + "')]",
-				name: hrefText
+				name: hrefText,
+				domElement: element
 			};
 		}
 	}
@@ -252,7 +393,8 @@ function checkboxConditions(element) {
 				return {
 					xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + labelText + "') or contains(@title, '" + labelText + "')])]",
 					name: labelText,
-					type: 'checkbox-group'  // Маркер группы
+					type: 'checkbox-group',  // Маркер группы
+					domElement: element
 				};
 			}
 		}
@@ -263,13 +405,15 @@ function checkboxConditions(element) {
 			return {
 			xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
 			name: textContent,
-			type: 'checkbox-single'  // Маркер одиночного
+			type: 'checkbox-single',  // Маркер одиночного
+			domElement: element
 		};
 		} else {
 			return {
 				xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
 				name: textContent,
-				type: 'checkbox-single'  // Маркер одиночного
+				type: 'checkbox-single',  // Маркер одиночного,
+				domElement: element
 			};
 		}
 	}
@@ -314,7 +458,8 @@ function radioConditions(element) {
                 return {
                     xpath: "//*[@data-testid='form-radio' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
                     name: nameText,
-                    type: 'radio-group'
+                    type: 'radio-group',
+                    domElement: element
                 };
             }
         }
@@ -325,9 +470,11 @@ function radioConditions(element) {
         return {
             xpath: "(//mat-radio-button[contains(., '" + textContent + "')] | //label[(contains(@class, 'ant-radio-wrapper') or contains(@class, 'ant-radio-button-wrapper') or contains(@class, 'ant-segmented-item')) and (contains(., '" + textContent + "') or .//div[@class='ant-segmented-item-label' and contains(@title, '" + textContent + "')])])",
             name: textContent,
-            type: 'radio-single'
+            type: 'radio-single',
+            domElement: element
         };
     }
 
     return null;
 }
+

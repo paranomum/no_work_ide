@@ -1,8 +1,9 @@
-window.recordedClicks = [];
-window.recordedInputs = [];
-window.currentFocusedElement = null;
-window.currentFocusedXPath = null;
-window.currentFocusedValue = '';
+window.recordedClicks = window.recordedClicks || [];
+window.recordedInputs = window.recordedInputs || [];
+window.currentFocusedElement = window.currentFocusedElement || null;
+window.currentFocusedXPath = window.currentFocusedXPath || null;
+window.currentFocusedValue = window.currentFocusedValue || '';
+window.currentTabState = document.visibilityState === 'visible' ? 'active' : 'inactive';
 
 function getXPath(element) {
 	if (!element || element.nodeType !== 1) return '';
@@ -59,9 +60,7 @@ function isEditableInput(element) {
     if (!element) return false;
 
     var tagName = element.tagName ? element.tagName.toUpperCase().trim() : '';
-    console.log("MY TAAAAAGNAAAAME is '" + tagName + "'");
     var isEditable = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD';
-    console.log("IS EDITSBLE = ", isEditable)
     return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD';
 }
 
@@ -82,40 +81,65 @@ function findClickable(element) {
     return { isClickable: false, buttonInfo: null, javaData: null };
 }
 
-
 document.addEventListener('click', function(e) {
-var element = e.target;
-	var tagName = element.tagName ? element.tagName.toUpperCase() : '';
-	var clickable = findClickable(element);
-	if (clickable.isClickable) {
-		window.recordedClicks.push({
-		xpath: clickable.buttonInfo ? clickable.buttonInfo.xpath : getXPath(element),
-		id: element.id || '',
-		tag: tagName,
-		text: clickable.buttonInfo ? clickable.buttonInfo.name : ''
-		});
-	return;
-	}
-	if (isEditableInput(element)) {
-	var xpath = getXPath(element);
-	if (xpath) {
-		window.currentFocusedXPath = xpath;
-		window.currentFocusedElement = element;
-		window.currentFocusedValue = element.value || '';
-	}
-	}
+    var element = e.target;
+    var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    var clickable = findClickable(element);
+
+    if (clickable.isClickable) {
+        var info = clickable.buttonInfo || {};
+        console.log("CLICKED ON ", info);
+        var isNewTab = isOpenNewTab(info);
+
+        console.log("[ACTIONS] CLICK captured:", {
+            tag: tagName,
+            info: info,
+            eventType: clickable.eventType,
+            isNewTab: isNewTab
+        });
+
+        window.recordedClicks.push({
+            xpath: info.xpath || getXPath(element),
+            id: element.id || '',
+            tag: tagName,
+            text: info.name || '',
+            eventType: clickable.eventType || 'click',
+            selectXpath: info.selectXpath || null,
+            selectName: info.selectName || null,
+            newTab: isNewTab
+        });
+
+        // Если ссылка открывает новую вкладку, тормозим переход,
+        // чтобы Java успела забрать записанный клик
+        if (isNewTab && element.href) {
+            e.preventDefault();
+            var href = element.href;
+            setTimeout(function() {
+                window.open(href, '_blank');
+            }, 500);
+        }
+
+        return;
+    }
+}, true);
+
+document.addEventListener('focus', function(e) {
+    var element = e.target;
+    if (isEditableInput(element)) {
+        var fieldInfo = getFieldInfoFromInput(element); // из input.js
+        window.currentFocusedXPath = fieldInfo ? fieldInfo.xpath : getXPath(element);
+        window.currentFocusedElement = element;
+        window.currentFocusedValue = element.value || '';
+    }
 }, true);
 
 document.addEventListener('blur', function(e) {
- console.log("I AM BLUUUR!");
     if (isEditableInput(e.target) && window.currentFocusedXPath) {
         var currentValue = e.target.value || '';
 
         // Логируем только изменение значения
-        console.log("I AM EDITABLE!");
         if (window.currentFocusedValue !== currentValue) {
             var fieldInfo = getFieldInfoFromInput(e.target);
-            console.log("FIELD INFO!", fieldInfo);
             window.recordedInputs.push({
                 xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
                 value: currentValue,
@@ -132,3 +156,20 @@ document.addEventListener('blur', function(e) {
     }
 }, true);
 
+document.addEventListener('visibilitychange', function() {
+    var state = document.visibilityState === 'visible' ? 'active' : 'inactive';
+    window.currentTabState = state;
+
+    // ставим событие таба в очередь после обработки клика
+    setTimeout(function() {
+        window.recordedClicks.push({
+            xpath: null,
+            id: '',
+            tag: 'DOCUMENT',
+            text: '',
+            eventType: state === 'active' ? 'tab-active' : 'tab-inactive',
+            selectXpath: null,
+            selectName: null
+        });
+    }, 0);
+});
