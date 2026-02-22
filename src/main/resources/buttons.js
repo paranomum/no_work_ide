@@ -217,28 +217,26 @@ function isTab(element) {
 }
 
 function getTabConditions(tabBtn) {
-    // 1. Берём текст таба
     var titleSpan =
-            tabBtn.querySelector('.ant-typography') ||          // основной текст
-            tabBtn.querySelector('.ant-tabs-tab-btn span');     // запасной вариант
+        tabBtn.querySelector('.ant-typography') ||
+        tabBtn.querySelector('.ant-tabs-tab-btn span');
 
     var text = titleSpan
         ? (titleSpan.textContent || '').trim()
-        : (tabBtn.textContent || '').trim(); // fallback
+        : (tabBtn.textContent || '').trim();
 
     if (!text) return null;
 
-    var safeText = text.replace(/'/g, "\\'");
+    text = sanitizeText(text); // если хочешь фильтрацию и тут
 
-    // 2. Строим XPath строго по TabButton.java
-    var xpath =
-        "//div[@role='tab' and contains(., '" + safeText + "')]";
+    var safeText = text.replace(/'/g, "\\'");
+    var xpath = "//div[@role='tab' and contains(., '" + safeText + "')]";
 
     return {
         xpath: xpath,
         name: safeText,
         type: 'tab',
-        domElement: element
+        domElement: tabBtn   // ← вот так, не element
     };
 }
 
@@ -262,6 +260,7 @@ function getElementConditions(element, tagName) {
 
 		if (elText && elText !== '' &&
 			!(tagName === 'BUTTON' && element.className.includes('-trigger'))) {
+			    elText = sanitizeText(elText);
 			return {
 				xpath: "//*[@data-testid='" + dataTestId + "' and contains(., '" + elText + "')]" +
 						(tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : ""),
@@ -281,9 +280,10 @@ function getElementConditions(element, tagName) {
 	for (var i = 0; i < checks.length; i++) {
 		var attrValue = element.getAttribute(checks[i].attr);
 		if (attrValue && attrValue.trim() !== '') {
+		    var name = sanitizeText(attrValue.trim());
 			return {
-				xpath: "//" + baseTag + "[contains(" + checks[i].xpath + ", '" + attrValue.trim() + "')]",
-				name: attrValue.trim(),
+				xpath: "//" + baseTag + "[contains(" + checks[i].xpath + ", '" + name + "')]",
+				name: name,
 				domElement: element
 			};
 		}
@@ -295,9 +295,10 @@ function getElementConditions(element, tagName) {
 		for (var j = 0; j < ariaLabels.length; j++) {
 			var childAria = ariaLabels[j].getAttribute('aria-label');
 			if (childAria && childAria.trim() !== '') {
+               var name = sanitizeText(childAria.trim());
 				return {
-					xpath: "//" + baseTag + "[contains(.//@aria-label, '" + childAria.trim() + "')]",
-					name: childAria.trim(),
+					xpath: "//" + baseTag + "[contains(.//@aria-label, '" + name + "')]",
+					name: name,
 					domElement: element
 				};
 			}
@@ -307,6 +308,7 @@ function getElementConditions(element, tagName) {
 	// 3. Текст элемента (универсально)
 	var textContent = element.textContent.trim();
 	if (textContent !== '') {
+	    textContent = sanitizeText(textContent.trim());
 		return {
 			xpath: "//" + baseTag + "[contains(., '" + textContent + "')]",
 			name: textContent,
@@ -386,13 +388,15 @@ function checkboxConditions(element) {
                 element.closest('label');
 
 		if (label) {
-			var labelText = label.textContent.trim();
-			var titleText = label.getAttribute('title')?.trim();
+            var labelText = label.textContent.trim();
+            var titleText = label.getAttribute('title')?.trim();
+            var nameText = labelText || titleText;
+            nameText = sanitizeText(nameText);
 
 			if (labelText) {
 				return {
-					xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + labelText + "') or contains(@title, '" + labelText + "')])]",
-					name: labelText,
+					xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
+					name: nameText,
 					type: 'checkbox-group',  // Маркер группы
 					domElement: element
 				};
@@ -401,6 +405,7 @@ function checkboxConditions(element) {
 	}
 	// Обычный чекбокс (fallback)
 	if (textContent !== '') {
+	    textContent = sanitizeText(textContent);
 		if (element.tagName === 'LABEL') {
 			return {
 			xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
@@ -421,7 +426,6 @@ function checkboxConditions(element) {
 	return null;
 }
 
-//todo здесь надо проработать то, что мы поднимаемся наверх, чтобы найти группу и вытащить ее, а не элемент!
 function radioConditions(element) {
     var textContent = element.textContent.trim();
 
@@ -450,9 +454,10 @@ function radioConditions(element) {
                 element.closest('label');
 
         if (label) {
-            var labelText = label.textContent.trim();
+             var labelText = label.textContent.trim();
             var titleText = label.getAttribute('title')?.trim();
             var nameText = labelText || titleText;
+            nameText = sanitizeText(nameText);
 
             if (nameText) {
                 return {
@@ -467,6 +472,7 @@ function radioConditions(element) {
 
     // Одиночная радио кнопка (fallback)
     if (textContent !== '') {
+        textContent = sanitizeText(textContent);
         return {
             xpath: "(//mat-radio-button[contains(., '" + textContent + "')] | //label[(contains(@class, 'ant-radio-wrapper') or contains(@class, 'ant-radio-button-wrapper') or contains(@class, 'ant-segmented-item')) and (contains(., '" + textContent + "') or .//div[@class='ant-segmented-item-label' and contains(@title, '" + textContent + "')])])",
             name: textContent,
