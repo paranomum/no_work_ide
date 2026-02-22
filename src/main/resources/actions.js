@@ -5,6 +5,11 @@ window.currentFocusedXPath = window.currentFocusedXPath || null;
 window.currentFocusedValue = window.currentFocusedValue || '';
 window.currentTabState = document.visibilityState === 'visible' ? 'active' : 'inactive';
 
+function sanitizeText(text) {
+    if (!text) return '';
+    return text.replace('Created with Pixso.', '').trim();
+}
+
 function getXPath(element) {
 	if (!element || element.nodeType !== 1) return '';
 		if (element.id && document.getElementById(element.id) === element) {

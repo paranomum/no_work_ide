@@ -64,69 +64,76 @@ public class ActionRecorder {
 					if (clicks instanceof java.util.List) {
 						@SuppressWarnings("unchecked")
 						java.util.List<Map<String, ?>> clickList = (java.util.List<Map<String, ?>>) clicks;
+
 						if (!clickList.isEmpty()) {
-							Map<String, ?> click = clickList.get(clickList.size() - 1);
+							// Сначала очищаем очередь в браузере,
+							// чтобы новые события не смешивались с текущими
+							js.executeScript("window.recordedClicks = [];");
 
-							String xpath = (String) click.get("xpath");
-							String text = (String) click.get("text");
-							String selectXpath = (String) click.get("selectXpath");
-							Object rawEvent = click.get("eventType");
-							String eventType = rawEvent != null ? rawEvent.toString() : "click";
+							for (Map<String, ?> click : clickList) {
+								String xpath = (String) click.get("xpath");
+								String text = (String) click.get("text");
+								String selectXpath = (String) click.get("selectXpath");
+								Object rawEvent = click.get("eventType");
+								String eventType = rawEvent != null ? rawEvent.toString() : "click";
 
-							Object newTabRaw = click.get("newTab");
-							boolean newTab = false;
-							if (newTabRaw instanceof Boolean) {
-								newTab = (Boolean) newTabRaw;
-							} else if (newTabRaw != null) {
-								newTab = Boolean.parseBoolean(newTabRaw.toString());
-							}
+								Object newTabRaw = click.get("newTab");
+								boolean newTab = false;
+								if (newTabRaw instanceof Boolean) {
+									newTab = (Boolean) newTabRaw;
+								} else if (newTabRaw != null) {
+									newTab = Boolean.parseBoolean(newTabRaw.toString());
+								}
 
+								System.out.println("[CAPTURE] raw click: eventType=" + eventType
+										+ ", xpath=" + xpath
+										+ ", selectXpath=" + selectXpath
+										+ ", text=" + text
+										+ ", newTab=" + newTab);
 
-							System.out.println("[CAPTURE] raw click: eventType=" + eventType
-									+ ", xpath=" + xpath
-									+ ", selectXpath=" + selectXpath
-									+ ", text=" + text
-									+ ", newTab=" + newTab);
-
-							if (newTab) {
-								// клик по ссылке, открывающей новую вкладку
-								record("click", xpath, text);
-								System.out.println("[CAPTURE] newTab click recorded before any switch");
-								continue; // к следующему циклу while
-							}
-
-							switch (eventType) {
-								case "tab-inactive":
-									System.out.println("[CAPTURE] EVENT tab-inactive");
-									handleTabInactive();
-									break;
-
-								case "tab-active":
-									System.out.println("[CAPTURE] EVENT tab-active, handle=" +
-											driver.getWindowHandle() + ", url=" + driver.getCurrentUrl());
-									break;
-
-								case "select-open":
-									lastSelectOpenXpath = xpath;
-									System.out.println("[CAPTURE] select-open, remember xpath=" + lastSelectOpenXpath);
-									break;
-
-								case "select-option":
-									if (selectXpath != null && !selectXpath.isEmpty()) {
-										System.out.println("[CAPTURE] select-option with selectXpath=" + selectXpath
-												+ ", text=" + text);
-										record("select", selectXpath, text);
-									} else {
-										System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
-									}
-									lastSelectOpenXpath = null;
-									break;
-
-								default:
-									System.out.println("[CAPTURE] normal click -> record(click): xpath=" + xpath
-											+ ", text=" + text);
+								if (newTab) {
+									// клик по ссылке, открывающей новую вкладку
 									record("click", xpath, text);
-									lastSelectOpenXpath = null;
+									System.out.println("[CAPTURE] newTab click recorded before any switch");
+									// НЕ делаем continue всего while — только переходим к следующему click
+									continue;
+								}
+
+								switch (eventType) {
+									case "tab-inactive":
+										System.out.println("[CAPTURE] EVENT tab-inactive");
+										handleTabInactive();
+										break;
+
+									case "tab-active":
+										System.out.println("[CAPTURE] EVENT tab-active, handle="
+												+ driver.getWindowHandle()
+												+ ", url=" + driver.getCurrentUrl());
+										break;
+
+									case "select-open":
+										lastSelectOpenXpath = xpath;
+										System.out.println("[CAPTURE] select-open, remember xpath="
+												+ lastSelectOpenXpath);
+										break;
+
+									case "select-option":
+										if (selectXpath != null && !selectXpath.isEmpty()) {
+											System.out.println("[CAPTURE] select-option with selectXpath="
+													+ selectXpath + ", text=" + text);
+											record("select", selectXpath, text);
+										} else {
+											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
+										}
+										lastSelectOpenXpath = null;
+										break;
+
+									default:
+										System.out.println("[CAPTURE] normal click -> record(click): xpath="
+												+ xpath + ", text=" + text);
+										record("click", xpath, text);
+										lastSelectOpenXpath = null;
+								}
 							}
 						}
 					}
@@ -136,18 +143,23 @@ public class ActionRecorder {
 					if (inputs instanceof java.util.List) {
 						@SuppressWarnings("unchecked")
 						java.util.List<Map<String, ?>> inputList = (java.util.List<Map<String, ?>>) inputs;
+
 						if (!inputList.isEmpty()) {
-							Map<String, ?> input = inputList.get(inputList.size() - 1);
-							String xpath = (String) input.get("xpath");
-							String value = (String) input.get("value");
+							// Очищаем очередь в браузере перед обработкой пачки
+							js.executeScript("window.recordedInputs = [];");
 
-							System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
+							for (Map<String, ?> input : inputList) {
+								String xpath = (String) input.get("xpath");
+								String value = (String) input.get("value");
 
-							record("fill", xpath, value);
+								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
+
+								record("fill", xpath, value);
+							}
 						}
 					}
-					js.executeScript("window.recordedClicks = [];");
-					js.executeScript("window.recordedInputs = [];");
+
+					// Слип между циклами
 					Thread.sleep(200);
 				} catch (Exception e) {
 					System.err.println("Error in capture loop: " + e.getMessage());
