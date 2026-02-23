@@ -9,8 +9,12 @@ function isClickableElement(element) {
     var role = element.getAttribute('role');
     var eventType = null;
 
+    console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
+
     // ===== Кнопки и ссылки =====
-    if (tagName === 'BUTTON' || tagName === 'A') {
+    if (tagName === 'BUTTON' || tagName === 'A'  || role === 'button') {
+
+        console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
         buttonInfo = isButtonOrLink(element);
         if (buttonInfo != null) {
@@ -22,10 +26,14 @@ function isClickableElement(element) {
                 javaData = {
                     init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ")" : ""
                 };
-            } else {
+            } else if (tagName === 'A') {
                 javaData = {
                     init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
                 };
+            } else {
+                    javaData = {
+                        init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ", $x(" + buttonInfo.xpath + "))" : ""
+                    };
             }
         }
 
@@ -305,16 +313,39 @@ function getElementConditions(element, tagName) {
 		}
 	}
 
-	// 3. Текст элемента (универсально)
-	var textContent = element.textContent.trim();
-	if (textContent !== '') {
-	    textContent = sanitizeText(textContent.trim());
-		return {
-			xpath: "//" + baseTag + "[contains(., '" + textContent + "')]",
-			name: textContent,
-			domElement: element
-		};
-	}
+	if (element.tagName &&
+            element.tagName.toUpperCase() === 'MAT-EXPANSION-PANEL-HEADER') {
+
+            var nameSpan =
+                element.querySelector('.iqhr-menu-list__item-name') ||
+                element.querySelector('.mat-content span');
+
+            var text = nameSpan
+                ? (nameSpan.textContent || "").trim()
+                : (element.textContent || "").trim();
+
+            if (text) {
+                text = sanitizeText(text);
+                var safeText = text.replace(/'/g, "\\'");
+
+                return {
+                    xpath: "//mat-expansion-panel-header[contains(., '" + safeText + "')]",
+                    name: text,
+                    domElement: element
+                };
+            }
+        }
+
+        // 4. Текст элемента (универсально)
+        var textContent = element.textContent.trim();
+        if (textContent !== '') {
+            textContent = sanitizeText(textContent.trim());
+            return {
+                xpath: "//" + baseTag + "[contains(., '" + textContent + "')]",
+                name: textContent,
+                domElement: element
+            };
+        }
 
 	// 4. Специально для ссылок - href без цифр
 	if (tagName === 'A') {
@@ -332,130 +363,153 @@ function getElementConditions(element, tagName) {
 }
 
 function isRadioOrCheckBox(element) {
-	var currentElement = element;
-	while (currentElement) {
-		var currentTagName = currentElement.tagName ? currentElement.tagName.toUpperCase() : '';
-		var currentClass = currentElement.getAttribute('class')
-		if (currentTagName === 'MAT-RADIO-BUTTON' || currentTagName === 'MAT-CHECKBOX'
-			|| (currentTagName === 'LABEL' && currentClass &&
-				(currentClass.includes('ant-checkbox-wrapper') ||
-				currentClass.includes('ant-radio-wrapper') ||
-				currentClass.includes('ant-radio-button-wrapper') ||
-				currentClass.includes('ant-segmented-item')))) {
-			if (currentClass.includes('checkbox') || currentTagName.includes('CHECKBOX')) {
-				var checkbox = checkboxConditions(currentElement);
-				if (checkbox != null) {
-					return checkbox;
-				}
-			} else {
-				var radio = checkboxConditions(currentElement);
-				if (radio != null) {
-					return radio
-				}
-			}
-			break;
-		}
-		currentElement = currentElement.parentElement;
-	}
-	return null;
+    var currentElement = element;
+
+    while (currentElement) {
+        var currentTagName = currentElement.tagName ? currentElement.tagName.toUpperCase() : '';
+        var currentClass = currentElement.getAttribute('class') || '';
+
+        var isAntCheckboxLabel =
+            currentTagName === 'LABEL' && currentClass.includes('ant-checkbox-wrapper');
+
+        var isAntRadioLabel =
+            currentTagName === 'LABEL' && (
+                currentClass.includes('ant-radio-wrapper') ||
+                currentClass.includes('ant-radio-button-wrapper') ||
+                currentClass.includes('ant-segmented-item')
+            );
+
+        var isMatCheckbox = currentTagName === 'MAT-CHECKBOX';
+        var isMatRadio = currentTagName === 'MAT-RADIO-BUTTON';
+
+        if (isAntCheckboxLabel || isMatCheckbox) {
+            var checkbox = checkboxConditions(currentElement);
+            if (checkbox != null) return checkbox;
+            break;
+        }
+
+        if (isAntRadioLabel || isMatRadio) {
+            var radio = radioConditions(currentElement);
+            if (radio != null) return radio;
+            break;
+        }
+
+        currentElement = currentElement.parentElement;
+    }
+
+    return null;
 }
 
-//todo здесь надо проработать то, что мы поднимаемся наверх, чтобы найти группу и вытащить ее, а не элемент!
 function checkboxConditions(element) {
-	var textContent = element.textContent.trim();
-	var currentElement = element;
-	if (element.tagName.toUpperCase() === 'LABEL') {
-		while (!currentElement.getAttribute('data-testid') && currentElement.parentElement != null) {
-			if (currentElement.getAttribute('data-testid') === 'form-checkbox') {
-				element = currentElement;
-				break;
-			}
-			currentElement = currentElement.parentElement
-		}
-	}
+    // Нормализация: если кликнули по вложенному input/span внутри ant-checkbox-wrapper,
+    // всегда поднимаемся до самого label.ant-checkbox-wrapper
+    var rootLabel = element.closest &&
+        element.closest("label.ant-checkbox-wrapper");
 
-	if (element.getAttribute('data-testid') === 'form-checkbox') {
-		// Ищем label внутри или рядом
-		var label =
-                // 1. Лейбл заголовка в той же строке формы (основной кейс React)
-                element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
+    if (rootLabel) {
+        element = rootLabel;
+    }
 
-                // 2. Лейбл с title внутри form-radio (если вдруг так верстали)
-                element.querySelector('label[title]') ||
+    var textContent = (element.textContent || "").trim();
+    var currentElement = element;
 
-                // 3. Старый запасной вариант
-                element.querySelector('label') ||
-                element.closest('label');
+    // Если это label и ещё не поднялись до data-testid='form-checkbox',
+    // идём вверх, как и раньше
+    if (element.tagName.toUpperCase() === 'LABEL') {
+        while (!currentElement.getAttribute('data-testid') &&
+               currentElement.parentElement != null) {
 
-		if (label) {
-            var labelText = label.textContent.trim();
-            var titleText = label.getAttribute('title')?.trim();
+            if (currentElement.getAttribute('data-testid') === 'form-checkbox') {
+                element = currentElement;
+                break;
+            }
+
+            currentElement = currentElement.parentElement;
+        }
+    }
+
+    // Группа чекбоксов form-checkbox
+    if (element.getAttribute('data-testid') === 'form-checkbox') {
+        var label =
+            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
+            element.querySelector('label[title]') ||
+            element.querySelector('label') ||
+            element.closest('label');
+
+        if (label) {
+            var labelText = (label.textContent || "").trim();
+            var titleText = (label.getAttribute('title') || "").trim();
             var nameText = labelText || titleText;
             nameText = sanitizeText(nameText);
 
-			if (labelText) {
-				return {
-					xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
-					name: nameText,
-					type: 'checkbox-group',  // Маркер группы
-					domElement: element
-				};
-			}
-		}
-	}
-	// Обычный чекбокс (fallback)
-	if (textContent !== '') {
-	    textContent = sanitizeText(textContent);
-		if (element.tagName === 'LABEL') {
-			return {
-			xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
-			name: textContent,
-			type: 'checkbox-single',  // Маркер одиночного
-			domElement: element
-		};
-		} else {
-			return {
-				xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
-				name: textContent,
-				type: 'checkbox-single',  // Маркер одиночного,
-				domElement: element
-			};
-		}
-	}
+            if (nameText) {
+                return {
+                    xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
+                    name: nameText,
+                    type: 'checkbox-group',
+                    domElement: element
+                };
+            }
+        }
+    }
 
-	return null;
+    // Обычный чекбокс (одиночный)
+    if (textContent !== '') {
+        textContent = sanitizeText(textContent);
+
+        if (element.tagName.toUpperCase() === 'LABEL') {
+            return {
+                xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
+                name: textContent,
+                type: 'checkbox-single',
+                domElement: element
+            };
+        } else {
+            return {
+                xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
+                name: textContent,
+                type: 'checkbox-single',
+                domElement: element
+            };
+        }
+    }
+
+    return null;
 }
 
 function radioConditions(element) {
-    var textContent = element.textContent.trim();
+    var textContent = (element.textContent || "").trim();
+    var currentElement = element;
 
-	var currentElement = element;
-	if (element.tagName.toUpperCase() === 'LABEL') {
-		while (!currentElement.getAttribute('data-testid') && currentElement.parentElement != null) {
-			if (currentElement.getAttribute('data-testid') === 'form-radio') {
-				element = currentElement;
-				break;
-			}
-			currentElement = currentElement.parentElement
-		}
-	}
+    var radioRoot = element.closest && element.closest("[data-testid='form-radio']");
+    if (radioRoot) {
+        element = radioRoot;
+        currentElement = radioRoot;
+    }
 
-    // Проверяем data-testid='form-radio' + label/title (группа радио)
+    if (element.tagName.toUpperCase() === 'LABEL') {
+        while (!currentElement.getAttribute('data-testid') &&
+               currentElement.parentElement != null) {
+
+            if (currentElement.getAttribute('data-testid') === 'form-radio') {
+                element = currentElement;
+                break;
+            }
+
+            currentElement = currentElement.parentElement;
+        }
+    }
+
     if (element.getAttribute('data-testid') === 'form-radio') {
         var label =
-                // 1. Лейбл заголовка в той же строке формы (основной кейс React)
-                element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
-
-                // 2. Лейбл с title внутри form-radio (если вдруг так верстали)
-                element.querySelector('label[title]') ||
-
-                // 3. Старый запасной вариант
-                element.querySelector('label') ||
-                element.closest('label');
+            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
+            element.querySelector('label[title]') ||
+            element.querySelector('label') ||
+            element.closest('label');
 
         if (label) {
-             var labelText = label.textContent.trim();
-            var titleText = label.getAttribute('title')?.trim();
+            var labelText = (label.textContent || "").trim();
+            var titleText = (label.getAttribute('title') || "").trim();
             var nameText = labelText || titleText;
             nameText = sanitizeText(nameText);
 
@@ -470,11 +524,49 @@ function radioConditions(element) {
         }
     }
 
-    // Одиночная радио кнопка (fallback)
+    var segmentedRoot = element.closest &&
+        element.closest("div.ant-segmented[role='radiogroup']");
+    if (segmentedRoot) {
+        var nameText =
+            (segmentedRoot.getAttribute("aria-label") || "").trim() ||
+            (segmentedRoot.getAttribute("id") || "").trim();
+
+        nameText = sanitizeText(nameText);
+
+        if (!nameText) {
+            var activeLabel = segmentedRoot.querySelector(
+                ".ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label"
+            );
+            if (activeLabel) {
+                nameText = sanitizeText((activeLabel.textContent || "").trim());
+            }
+        }
+
+        if (nameText) {
+            var safeName = nameText.replace(/'/g, "\\'");
+            var xpath =
+                "//div[@role='radiogroup' and contains(@class, 'ant-segmented') and " +
+                "(@id='" + safeName + "' or @aria-label='" + safeName + "')]";
+
+            return {
+                xpath: xpath,
+                name: nameText,
+                type: 'radio-group',
+                domElement: segmentedRoot
+            };
+        }
+    }
+
     if (textContent !== '') {
         textContent = sanitizeText(textContent);
+
         return {
-            xpath: "(//mat-radio-button[contains(., '" + textContent + "')] | //label[(contains(@class, 'ant-radio-wrapper') or contains(@class, 'ant-radio-button-wrapper') or contains(@class, 'ant-segmented-item')) and (contains(., '" + textContent + "') or .//div[@class='ant-segmented-item-label' and contains(@title, '" + textContent + "')])])",
+            xpath: "(//mat-radio-button[contains(., '" + textContent + "')] | " +
+                   "//label[(contains(@class, 'ant-radio-wrapper') " +
+                   "or contains(@class, 'ant-radio-button-wrapper') " +
+                   "or contains(@class, 'ant-segmented-item')) " +
+                   "and (contains(., '" + textContent + "') " +
+                   "or .//div[@class='ant-segmented-item-label' and contains(@title, '" + textContent + "')])])",
             name: textContent,
             type: 'radio-single',
             domElement: element

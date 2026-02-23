@@ -74,6 +74,9 @@ function getFieldInfoFromInput(element) {
     return {
         xpath: xpath,
         name: safeName,
-        type: 'field'
+        type: 'field',
+        javaData: {
+            init_string: "new Field(" + safeName + ")"
+        }
     };
 }

@@ -59,6 +59,27 @@ public class ActionRecorder {
 				try {
 					JavascriptExecutor js = (JavascriptExecutor) driver;
 
+					// ===== ВВОД ТЕКСТА =====
+					Object inputs = js.executeScript("return window.recordedInputs;");
+					if (inputs instanceof java.util.List) {
+						@SuppressWarnings("unchecked")
+						java.util.List<Map<String, ?>> inputList = (java.util.List<Map<String, ?>>) inputs;
+
+						if (!inputList.isEmpty()) {
+							// Очищаем очередь в браузере перед обработкой пачки
+							js.executeScript("window.recordedInputs = [];");
+
+							for (Map<String, ?> input : inputList) {
+								String xpath = (String) input.get("xpath");
+								String value = (String) input.get("value");
+
+								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
+
+								record("fill", xpath, value);
+							}
+						}
+					}
+
 					// ===== КЛИКИ =====
 					Object clicks = js.executeScript("return window.recordedClicks;");
 					if (clicks instanceof java.util.List) {
@@ -134,27 +155,6 @@ public class ActionRecorder {
 										record("click", xpath, text);
 										lastSelectOpenXpath = null;
 								}
-							}
-						}
-					}
-
-					// ===== ВВОД ТЕКСТА =====
-					Object inputs = js.executeScript("return window.recordedInputs;");
-					if (inputs instanceof java.util.List) {
-						@SuppressWarnings("unchecked")
-						java.util.List<Map<String, ?>> inputList = (java.util.List<Map<String, ?>>) inputs;
-
-						if (!inputList.isEmpty()) {
-							// Очищаем очередь в браузере перед обработкой пачки
-							js.executeScript("window.recordedInputs = [];");
-
-							for (Map<String, ?> input : inputList) {
-								String xpath = (String) input.get("xpath");
-								String value = (String) input.get("value");
-
-								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
-
-								record("fill", xpath, value);
 							}
 						}
 					}

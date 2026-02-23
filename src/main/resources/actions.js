@@ -88,8 +88,46 @@ function findClickable(element) {
 
 document.addEventListener('click', function(e) {
     var element = e.target;
+    console.log('[ACTIONS] RAW CLICK target:', element.tagName, element.className);
+     // 1. Режем дубль для обычных ant-radio
+        if (
+            element.tagName &&
+            element.tagName.toUpperCase() === 'INPUT' &&
+            element.classList &&
+            element.classList.contains('ant-radio-input') &&
+            element.closest &&
+            element.closest('label.ant-radio-wrapper')
+        ) {
+            console.log("[ACTIONS] skip ant-radio input");
+            return;
+        }
+
+        // 2. Режем дубль для ant-segmented
+        if (
+            element.tagName &&
+            element.tagName.toUpperCase() === 'INPUT' &&
+            element.classList &&
+            element.classList.contains('ant-segmented-item-input') &&
+            element.closest &&
+            element.closest('div.ant-segmented[role=\"radiogroup\"]')
+        ) {
+            console.log("[ACTIONS] skip ant-segmented input");
+            return;
+        }
+
+    if (
+            element.tagName &&
+            element.tagName.toUpperCase() === 'INPUT' &&
+            element.closest &&
+            (element.closest('label.ant-checkbox-wrapper') || element.closest('label.ant-radio-wrapper'))
+        ) {
+             console.log("[ACTIONS] skip input inside ant-checkbox-wrapper");
+            return;
+        }
+
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     var clickable = findClickable(element);
+    console.log('[ACTIONS] findClickable result:', clickable);
 
     if (clickable.isClickable) {
         var info = clickable.buttonInfo || {};
@@ -111,6 +149,7 @@ document.addEventListener('click', function(e) {
             eventType: clickable.eventType || 'click',
             selectXpath: info.selectXpath || null,
             selectName: info.selectName || null,
+            javaData: info.javaData || '',
             newTab: isNewTab
         });
 
@@ -151,7 +190,8 @@ document.addEventListener('blur', function(e) {
                 id: e.target.id || '',
                 type: fieldInfo ? fieldInfo.type : 'field',
                 name: fieldInfo ? fieldInfo.name : '',
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                javaData: fieldInfo ? fieldInfo.javaData : ''
             });
         }
 
