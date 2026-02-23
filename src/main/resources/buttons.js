@@ -73,19 +73,27 @@ function isClickableElement(element) {
 
     // ===== form-select (открытие селекта) =====
     if (!isClickable) {
-        var selectRoot = element.closest && element.closest("[data-testid='form-select']");
-        if (selectRoot) {
-            var selectInfo = getSelectInfoFromRoot(selectRoot);
-            if (selectInfo) {
-                isClickable = true;
-                eventType = "select-open";
-                buttonInfo = {
-                    xpath: selectInfo.xpath,
-                    name: selectInfo.name,
-                    type: "select",
-                    domElement: null
-                };
-            }
+        var selectResult = detectFormSelect(element);
+        if (selectResult) {
+            isClickable = true;
+            buttonInfo = selectResult.buttonInfo;
+            eventType = selectResult.eventType;
+            javaData = {
+                init_string: buttonInfo === null ? "new Select(" + buttonInfo.name + ")" : ""
+            };
+        }
+    }
+
+    // ===== dropdown (открытие) =====
+    if (!isClickable) {
+        var dropdownResult = detectDropdown(element);
+        if (dropdownResult) {
+            isClickable = true;
+            buttonInfo = dropdownResult.buttonInfo;
+            eventType = dropdownResult.eventType;
+            javaData = {
+                init_string: buttonInfo === null ? "new Dropdown(" + buttonInfo.name + ")" : ""
+            };
         }
     }
 
@@ -96,36 +104,21 @@ function isClickableElement(element) {
         element.className &&
         element.className.includes('ant-select-item-option')
     ) {
-        var title = element.getAttribute('title') || (element.textContent || '').trim();
-        if (title) {
-            var dropdown = element.closest("div.ant-select-dropdown");
-            if (dropdown) {
-                var listbox = dropdown.querySelector("div[role='listbox'][id]");
-                if (listbox) {
-                    var listId = listbox.getAttribute("id");
-                    var input = document.querySelector(
-                        "[data-testid='form-select'] input[aria-controls='" + listId + "']"
-                    );
-                    if (input) {
-                        var selectRoot2 = input.closest("[data-testid='form-select']");
-                        var selectInfo2 = getSelectInfoFromRoot(selectRoot2);
-                        if (selectInfo2) {
-                            var safeTitle = title.replace(/'/g, "\\'");
-                            buttonInfo = {
-                                xpath: "//div[./div[@role='listbox' and @id='" + listId + "']]//" +
-                                       "div[contains(@class,'ant-select-item-option') and @title='" + safeTitle + "']",
-                                name: title,
-                                type: "select-option",
-                                selectXpath: selectInfo2.xpath,
-                                selectName: selectInfo2.name,
-                                domElement: null
-                            };
-                            isClickable = true;
-                            eventType = "select-option";
-                        }
-                    }
-                }
-            }
+        var selectOptionResult = detectSelectOption(element);
+        if (selectOptionResult) {
+            isClickable = true;
+            buttonInfo = selectOptionResult.buttonInfo;
+            eventType = selectOptionResult.eventType;
+        }
+    }
+
+    // ===== элемент списка для dropdown =====
+    if (!isClickable) {
+        var dropdownOptionResult = detectDropdownOption(element);
+        if (dropdownOptionResult) {
+            isClickable = true;
+            buttonInfo = dropdownOptionResult.buttonInfo;
+            eventType = dropdownOptionResult.eventType;
         }
     }
 
@@ -134,6 +127,162 @@ function isClickableElement(element) {
         buttonInfo: buttonInfo,
         javaData: javaData,
         eventType: eventType
+    };
+}
+
+function detectDropdown(element) {
+  if (!element || !element.closest) return null;
+
+  // ищем ближайшую кнопку-триггер Ant Design
+  var root = element.closest('button.ant-dropdown-trigger');
+  if (!root) return null;
+
+  if (!root.className || !root.className.includes('ant-dropdown-trigger')) return null;
+
+  // текст может быть пустым (иконка)
+  var text = root.textContent ? root.textContent.trim() : '';
+  text = sanitizeText(text || '');
+  var safeText = text.replace(/'/g, "\\'");
+
+  // XPath без завязки на data-testid
+  var xpath;
+  if (text) {
+    xpath = "//button[contains(@class,'ant-dropdown-trigger') and contains(., '" + safeText + "')]";
+  } else {
+    xpath = "//button[contains(@class,'ant-dropdown-trigger')]";
+  }
+
+  return {
+    isClickable: true,
+    buttonInfo: {
+      selectXpath: xpath,
+      name: text || 'dropdown',
+      type: 'dropdown',
+      domElement: root
+    },
+    eventType: 'dropdown-open'
+  };
+}
+
+function detectFormSelect(element) {
+    if (!element.closest) return null;
+
+    var selectRoot = element.closest("[data-testid='form-select']");
+    if (!selectRoot) return null;
+
+    var selectInfo = getSelectInfoFromRoot(selectRoot);
+    if (!selectInfo) return null;
+
+    return {
+        isClickable: true,
+        buttonInfo: {
+            xpath: selectInfo.xpath,
+            name: selectInfo.name,
+            type: "select",
+            domElement: selectRoot
+        },
+        eventType: "select-open"
+    };
+}
+
+function detectSelectOption(element) {
+    if (!element || !element.className) return null;
+
+    var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    if (tagName !== 'DIV' || !element.className.includes('ant-select-item-option')) {
+        return null;
+    }
+
+    var title = element.getAttribute('title') || (element.textContent || '').trim();
+    if (!title) return null;
+
+    title = sanitizeText(title);
+
+    var dropdown = element.closest("div.ant-select-dropdown");
+    if (!dropdown) return null;
+
+    var listbox = dropdown.querySelector("div[role='listbox'][id]");
+    if (!listbox) return null;
+
+    var listId = listbox.getAttribute("id");
+    if (!listId) return null;
+
+    var input = document.querySelector(
+        "[data-testid='form-select'] input[aria-controls='" + listId + "']"
+    );
+    if (!input) return null;
+
+    var selectRoot = input.closest("[data-testid='form-select']");
+    if (!selectRoot) return null;
+
+    var selectInfo = getSelectInfoFromRoot(selectRoot);
+    if (!selectInfo) return null;
+
+    var safeTitle = title.replace(/'/g, "\\'");
+
+    var xpath =
+        "//div[./div[@role='listbox' and @id='" + listId + "']]//" +
+        "div[contains(@class,'ant-select-item-option') and @title='" + safeTitle + "']";
+
+    return {
+        buttonInfo: {
+            xpath: xpath,
+            name: title,
+            type: "select-option",
+            selectXpath: selectInfo.xpath,
+            selectName: selectInfo.name,
+            domElement: element
+        },
+        eventType: "select-option"
+    };
+}
+
+function detectDropdownOption(element) {
+    if (!element || !element.className) return null;
+
+    var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    if (tagName !== 'LI') return null;
+
+    var cls = element.className;
+    if (!cls.includes("ant-dropdown-menu-item") && !cls.includes("ant-menu-item")) {
+        return null;
+    }
+
+    // текст опции — как в Java: span.ant-dropdown-menu-title-content / ant-menu-title-content
+    var span = element.querySelector(
+        "span.ant-dropdown-menu-title-content, span.ant-menu-title-content"
+    ) || element.querySelector("span");
+
+    var text = span ? (span.textContent || "").trim() : (element.textContent || "").trim();
+    if (!text) return null;
+    text = sanitizeText(text);
+
+    var safeText = text.replace(/'/g, "\\'");
+
+    // ul с нужным классом
+    var ul = element.closest("ul");
+    if (!ul || !ul.className) return null;
+    if (!(
+        ul.className.includes("ant-dropdown-menu") ||
+        ul.className.includes("ant-menu")
+    )) {
+        return null;
+    }
+
+    // XPath в духе xpathLi + "/li[contains(., 'option')]"
+    var xpath =
+        "//ul[(contains(@class, 'ant-dropdown-menu') or contains(@class, 'ant-menu')) and " +
+        ".//li[contains(@class, 'ant-dropdown-menu-item') or contains(@class, 'ant-menu-item')]]" +
+        "/li[contains(., '" + safeText + "')]";
+
+    return {
+        buttonInfo: {
+            selectXpath: xpath,
+            name: text,
+            type: "dropdown-option",
+            domElement: element
+        },
+        eventType: "dropdown-option"
     };
 }
 
@@ -197,8 +346,9 @@ function isButtonOrLink(element) {
 	var currentElement = element;
 	while (currentElement) {
 		var currentTagName = currentElement.tagName ? currentElement.tagName.toUpperCase() : '';
+        var role = element.getAttribute('role');
 		// Если нашли button - проверяем условия XPath
-		if (currentTagName === 'BUTTON' || currentTagName === 'A') {
+		if (currentTagName === 'BUTTON' || currentTagName === 'A' || role === 'button') {
 			var buttonInfo = getElementConditions(currentElement, currentTagName);
 			if (buttonInfo != null) {
 				return buttonInfo;

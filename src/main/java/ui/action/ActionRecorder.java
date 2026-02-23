@@ -18,6 +18,7 @@ public class ActionRecorder {
 	private volatile String lastFocusedXPath = null;
 	private volatile String lastFocusedValue = "";
 	private String lastSelectOpenXpath = null;
+	private String lastDropdownOpenXpath = null;
 
 	public ActionRecorder(DefaultTableModel tableModel) {
 		this.tableModel = tableModel;
@@ -142,11 +143,28 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", selectXpath, text);
+											record("select", lastSelectOpenXpath, text);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
 										lastSelectOpenXpath = null;
+										break;
+
+									case "dropdown-open":
+										lastDropdownOpenXpath = selectXpath;
+										System.out.println("[CAPTURE] dropdown-open, remember xpath="
+												+ lastDropdownOpenXpath);
+										break;
+
+									case "dropdown-option":
+										if (selectXpath != null && !selectXpath.isEmpty()) {
+											System.out.println("[CAPTURE] dropdown-option with selectXpath="
+													+ selectXpath + ", text=" + text);
+											record("select", lastDropdownOpenXpath, text);
+										} else {
+											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
+										}
+										lastDropdownOpenXpath = null;
 										break;
 
 									default:
