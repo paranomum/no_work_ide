@@ -149,7 +149,7 @@ document.addEventListener('click', function(e) {
             eventType: clickable.eventType || 'click',
             selectXpath: info.selectXpath || null,
             selectName: info.selectName || null,
-            javaData: info.javaData || '',
+            javaData: clickable.javaData || '',
             newTab: isNewTab
         });
 
@@ -191,7 +191,7 @@ document.addEventListener('blur', function(e) {
                 type: fieldInfo ? fieldInfo.type : 'field',
                 name: fieldInfo ? fieldInfo.name : '',
                 timestamp: Date.now(),
-                javaData: fieldInfo ? fieldInfo.javaData : ''
+                javaData: fieldInfo.javaData ? fieldInfo.javaData : ''
             });
         }
 

@@ -1,6 +1,8 @@
 package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
+import dto.ActionRecord;
+import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
@@ -8,14 +10,30 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.events.EventFiringDecorator;
 import ui.action.ActionRecorder;
 
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
+import javax.swing.KeyStroke;
+import java.awt.event.KeyEvent;
+import java.awt.event.ActionEvent;
+import javax.swing.AbstractAction;
+
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+
+import com.formdev.flatlaf.FlatLightLaf;
+import com.formdev.flatlaf.FlatDarkLaf;
+import javax.swing.UIManager;
+
 
 import static com.codeborne.selenide.Selenide.open;
 
@@ -32,6 +50,7 @@ public class ActionWindow extends JFrame {
 	private ActionRecorder actionRecorder;
 	private WebDriver driver;
 	private JButton recordingButton;
+	private TableColumn hiddenJavaColumn;
 
 	public ActionWindow() {
 		setTitle("Test Recorder – Action Panel");
@@ -49,10 +68,13 @@ public class ActionWindow extends JFrame {
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());
 		content.add(createTopBarPanel(), BorderLayout.NORTH);
-		content.add(new JScrollPane(actionTable), BorderLayout.CENTER);
-		content.add(createBottomPanel(), BorderLayout.SOUTH);
 
-		setVisible(true);
+		JScrollPane scrollPane = new JScrollPane(actionTable);
+//		RowNumberTable rowHeader = new RowNumberTable(actionTable);
+//		scrollPane.setRowHeaderView(rowHeader);
+		content.add(scrollPane, BorderLayout.CENTER);
+
+		content.add(createBottomPanel(), BorderLayout.SOUTH);
 	}
 
 	private void initTopBar() {
@@ -101,9 +123,9 @@ public class ActionWindow extends JFrame {
 		leftButtons.add(separator);
 
 		JButton saveVarButton = new JButton("💾");
-		saveVarButton.setToolTipText("Save to variable");
+		saveVarButton.setToolTipText("Save table to file");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		saveVarButton.addActionListener(e -> saveToVariable());
+		saveVarButton.addActionListener(e -> saveTableToFile());
 		leftButtons.add(saveVarButton);
 
 		topBar.add(leftButtons, BorderLayout.WEST);
@@ -114,15 +136,26 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initActionTable() {
-		String[] columns = {"Action", "Selector", "Value", "Comment", "Element Type"};
-		tableModel = new DefaultTableModel(columns, 0);
+		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type"};
+		tableModel = new DefaultTableModel(columns, 0) {
+			@Override
+			public boolean isCellEditable(int row, int column) {
+				// колонка с индексом не редактируется
+				return column != 0;
+			}
+		};
+
 		actionTable = new JTable(tableModel);
 		actionTable.setFillsViewportHeight(true);
-
 		actionTable.setRowHeight(28);
 		actionTable.setShowGrid(true);
 		actionTable.setGridColor(new Color(180, 180, 180));
 		actionTable.setIntercellSpacing(new Dimension(2, 2));
+
+		actionTable.setDragEnabled(true);
+		actionTable.setDropMode(DropMode.INSERT_ROWS);
+		actionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable));
 
 		JTableHeader header = actionTable.getTableHeader();
 		header.setBackground(new Color(200, 200, 200));
@@ -133,12 +166,28 @@ public class ActionWindow extends JFrame {
 		headerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
 		header.setDefaultRenderer(headerRenderer);
 
-		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
-		actionTable.getColumnModel().getColumn(0).setCellEditor(
-				new DefaultCellEditor(actionComboBox)
+		// колонка с индексом (#)
+		actionTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+		actionTable.getColumnModel().getColumn(0).setMaxWidth(50);
+		actionTable.getColumnModel().getColumn(0).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						setHorizontalAlignment(SwingConstants.CENTER);
+						return c;
+					}
+				}
 		);
 
-		actionTable.getColumnModel().getColumn(0).setCellRenderer(
+		// колонка Action (индекс 1) с UserAction
+		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
+		actionTable.getColumnModel().getColumn(1).setCellEditor(
+				new DefaultCellEditor(actionComboBox)
+		);
+		actionTable.getColumnModel().getColumn(1).setCellRenderer(
 				new DefaultTableCellRenderer() {
 					@Override
 					public Component getTableCellRendererComponent(JTable table, Object value,
@@ -152,11 +201,72 @@ public class ActionWindow extends JFrame {
 					}
 				}
 		);
+
+		TableModelListener[] holder = new TableModelListener[1];
+
+		TableModelListener indexUpdater = e -> {
+			// временно отключаем себя, чтобы не поймать рекурсию
+			tableModel.removeTableModelListener(holder[0]);
+
+			int rowCount = tableModel.getRowCount();
+			for (int i = 0; i < rowCount; i++) {
+				Object cur = tableModel.getValueAt(i, 0);
+				if (!(cur instanceof Integer) || ((Integer) cur) != i) {
+					tableModel.setValueAt(i, i, 0); // индексы с 0
+				}
+			}
+
+			// возвращаем слушатель
+			tableModel.addTableModelListener(holder[0]);
+		};
+
+		holder[0] = indexUpdater;
+		tableModel.addTableModelListener(indexUpdater);
+
+		InputMap im = actionTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+		ActionMap am = actionTable.getActionMap();
+
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clear-selection");
+		am.put("clear-selection", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				actionTable.clearSelection();
+			}
+		});
+
+		actionTable.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				int row = actionTable.rowAtPoint(e.getPoint());
+				int col = actionTable.columnAtPoint(e.getPoint());
+
+				// клик вне реальных ячеек таблицы
+				if (row == -1 || col == -1) {
+					actionTable.clearSelection();
+				}
+			}
+		});
+
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(5);
+		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
+
 	}
+
 
 	private void initBottomPanel() {
 		themeSelect = new JComboBox<>(new String[]{"Light", "Dark"});
 		themeSelect.setSelectedItem("Light");
+		themeSelect.addActionListener(e -> {
+			Object sel = themeSelect.getSelectedItem();
+			if ("Light".equals(sel)) {
+				FlatLightLaf.setup();
+			} else if ("Dark".equals(sel)) {
+				FlatDarkLaf.setup();
+			}
+
+			// обновить внешний вид всего окна
+			SwingUtilities.updateComponentTreeUI(this);
+		});
 
 		driverPathField = new JTextField(20);
 		driverPathField.setText("/Applications/chrome/chrome/Google Chrome for Testing.app");
@@ -207,55 +317,149 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void addNewAction() {
-		tableModel.addRow(new Object[]{UserAction.CLICK, "", "", "", ""});
+//		int rowIndex = tableModel.getRowCount();
+		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON});
 	}
 
-	private void saveToVariable() {
-		JPanel panel = new JPanel();
-		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+	private void saveTableToFile() {
+		if (tableModel.getRowCount() == 0) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Table is empty, nothing to save.",
+					"Save Table",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+			return;
+		}
 
-		JLabel nameLabel = new JLabel("Variable name:");
-		JTextField nameField = new JTextField(15);
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Save actions");
+		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+				"JSON files", "json"));
 
-		JLabel valueLabel = new JLabel("Variable value:");
-		JTextField valueField = new JTextField(15);
+		int result = chooser.showSaveDialog(this);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
 
-		panel.add(nameLabel);
-		panel.add(nameField);
-		panel.add(Box.createVerticalStrut(10));
-		panel.add(valueLabel);
-		panel.add(valueField);
+		File file = chooser.getSelectedFile();
+		if (!file.getName().toLowerCase().endsWith(".json")) {
+			file = new File(file.getParentFile(), file.getName() + ".json");
+		}
 
-		int result = JOptionPane.showConfirmDialog(
-				this,
-				panel,
-				"Save Variable",
-				JOptionPane.OK_CANCEL_OPTION,
-				JOptionPane.PLAIN_MESSAGE
-		);
+		java.util.List<ActionRecord> rows = new java.util.ArrayList<>();
+		int rowCount = tableModel.getRowCount();
 
-		if (result == JOptionPane.OK_OPTION) {
-			String varName = nameField.getText().trim();
-			String varValue = valueField.getText().trim();
-
-			if (!varName.isEmpty() && !varValue.isEmpty()) {
-				variables.put(varName, varValue);
-				JOptionPane.showMessageDialog(
-						this,
-						"Variable '" + varName + "' saved successfully",
-						"Success",
-						JOptionPane.INFORMATION_MESSAGE
-				);
-			} else {
-				JOptionPane.showMessageDialog(
-						this,
-						"Variable name and value cannot be empty",
-						"Error",
-						JOptionPane.ERROR_MESSAGE
-				);
+		for (int r = 0; r < rowCount; r++) {
+			// 0‑я колонка — индекс, данные начинаются с 1
+			Object actionObj = tableModel.getValueAt(r, 1);
+			String actionCode = null;
+			if (actionObj instanceof UserAction) {
+				actionCode = ((UserAction) actionObj).getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
 			}
+
+			Object elementTypeObj = tableModel.getValueAt(r, 5);
+			String elementType = null;
+			if (elementTypeObj instanceof ElementType) {
+				elementType = ((ElementType) elementTypeObj).getClassName();
+			} else if (elementTypeObj != null) {
+				elementType = elementTypeObj.toString();
+			}
+
+			String selector   = val(r, 2);
+			String value      = val(r, 3);
+			String comment    = val(r, 4);
+
+			rows.add(new ActionRecord(
+					actionCode,
+					selector,
+					value,
+					comment,
+					elementType
+			));
+		}
+
+		try (java.io.Writer writer = new java.io.OutputStreamWriter(
+				new java.io.FileOutputStream(file), java.nio.charset.StandardCharsets.UTF_8)) {
+
+			com.google.gson.Gson gson = new com.google.gson.GsonBuilder()
+					.setPrettyPrinting()
+					.create();
+			gson.toJson(rows, writer);
+			writer.flush();
+
+			JOptionPane.showMessageDialog(
+					this,
+					"Table saved to:\n" + file.getAbsolutePath(),
+					"Save Successful",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			JOptionPane.showMessageDialog(
+					this,
+					"Failed to save table: " + ex.getMessage(),
+					"Error",
+					JOptionPane.ERROR_MESSAGE
+			);
 		}
 	}
+
+	// удобный helper, чтобы не ловить NPE
+	private String val(int row, int col) {
+		Object v = tableModel.getValueAt(row, col);
+		return v == null ? "" : v.toString();
+	}
+
+
+//	private void saveToVariable() {
+//		JPanel panel = new JPanel();
+//		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+//
+//		JLabel nameLabel = new JLabel("Variable name:");
+//		JTextField nameField = new JTextField(15);
+//
+//		JLabel valueLabel = new JLabel("Variable value:");
+//		JTextField valueField = new JTextField(15);
+//
+//		panel.add(nameLabel);
+//		panel.add(nameField);
+//		panel.add(Box.createVerticalStrut(10));
+//		panel.add(valueLabel);
+//		panel.add(valueField);
+//
+//		int result = JOptionPane.showConfirmDialog(
+//				this,
+//				panel,
+//				"Save Variable",
+//				JOptionPane.OK_CANCEL_OPTION,
+//				JOptionPane.PLAIN_MESSAGE
+//		);
+//
+//		if (result == JOptionPane.OK_OPTION) {
+//			String varName = nameField.getText().trim();
+//			String varValue = valueField.getText().trim();
+//
+//			if (!varName.isEmpty() && !varValue.isEmpty()) {
+//				variables.put(varName, varValue);
+//				JOptionPane.showMessageDialog(
+//						this,
+//						"Variable '" + varName + "' saved successfully",
+//						"Success",
+//						JOptionPane.INFORMATION_MESSAGE
+//				);
+//			} else {
+//				JOptionPane.showMessageDialog(
+//						this,
+//						"Variable name and value cannot be empty",
+//						"Error",
+//						JOptionPane.ERROR_MESSAGE
+//				);
+//			}
+//		}
+//	}
 
 	private void selectChromeDriver() {
 		JFileChooser fileChooser = new JFileChooser();

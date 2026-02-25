@@ -9,11 +9,12 @@ import lombok.Getter;
 public enum ElementType {
 
 	BUTTON("Button", "Button"),
+	LINKBUTTON("LinkButton", "Button with link"),
 	FIELD("Field", "Input field"),
-	SELECT("Select", "Dropdown list"),
+	SELECT("Select", "Select list"),
+	DROPDOWN("Dropdown", "Dropdown list"),
 	CHECKBOX("CheckBox", "Checkbox"),
 	RADIO_BUTTON("RadioButton", "Radio button"),
-	LINK("Link", "Link"),
 	TEXT("Text", "Text element"),
 	UNKNOWN("Unknown", "Unknown element");
 

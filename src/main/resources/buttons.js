@@ -23,17 +23,11 @@ function isClickableElement(element) {
             isClickable = true;
 
             if (tagName === 'BUTTON') {
-                javaData = {
-                    init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ")" : ""
-                };
+                javaData = "new Button(\"" + buttonInfo.name + "\")";
             } else if (tagName === 'A') {
-                javaData = {
-                    init_string: buttonInfo === null ? "new LinkButton(" + buttonInfo.name + ")" : ""
-                };
+                javaData = "new LinkButton(\"" + buttonInfo.name + "\")";
             } else {
-                    javaData = {
-                        init_string: buttonInfo === null ? "new Button(" + buttonInfo.name + ", $x(" + buttonInfo.xpath + "))" : ""
-                    };
+                javaData = "new Button(\"" + buttonInfo.name + "\", $x(\"" + buttonInfo.xpath + "\"))";
             }
         }
 
@@ -65,9 +59,7 @@ function isClickableElement(element) {
 
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
-            javaData = {
-                init_string: buttonInfo === null ? "new TabButton(" + buttonInfo.name + ")" : ""
-            };
+            javaData = "new TabButton(\"" + buttonInfo.name + "\")";
         }
     }
 
@@ -78,9 +70,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
-            javaData = {
-                init_string: buttonInfo === null ? "new Select(" + buttonInfo.name + ")" : ""
-            };
+            javaData = "new Select(\"" + buttonInfo.name + "\")";
         }
     }
 
@@ -91,9 +81,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
-            javaData = {
-                init_string: buttonInfo === null ? "new Dropdown(" + buttonInfo.name + ")" : ""
-            };
+            javaData = "new Dropdown(\"" + buttonInfo.name + "\")";
         }
     }
 

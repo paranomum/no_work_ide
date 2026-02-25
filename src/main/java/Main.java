@@ -5,11 +5,11 @@ import javax.swing.*;
 
 public class Main {
 	public static void main(String[] args) {
-		FlatLightLaf.install();
+		FlatLightLaf.setup();
 
 		SwingUtilities.invokeLater(() -> {
 			ActionWindow actionWindow = new ActionWindow();
-			actionWindow.show();
+			actionWindow.setVisible(true);
 		});
 	}
 }

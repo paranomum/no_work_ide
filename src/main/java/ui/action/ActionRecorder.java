@@ -1,6 +1,7 @@
 package ui.action;
 
 import lombok.SneakyThrows;
+import lombok.val;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import javax.swing.table.DefaultTableModel;
@@ -73,10 +74,12 @@ public class ActionRecorder {
 							for (Map<String, ?> input : inputList) {
 								String xpath = (String) input.get("xpath");
 								String value = (String) input.get("value");
+								String javaData = (String) input.get("javaData");
+
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
 
-								record("fill", xpath, value);
+								record("fill", xpath, value, javaData);
 							}
 						}
 					}
@@ -93,11 +96,13 @@ public class ActionRecorder {
 							js.executeScript("window.recordedClicks = [];");
 
 							for (Map<String, ?> click : clickList) {
+								System.out.println(clickList);
 								String xpath = (String) click.get("xpath");
 								String text = (String) click.get("text");
 								String selectXpath = (String) click.get("selectXpath");
 								Object rawEvent = click.get("eventType");
 								String eventType = rawEvent != null ? rawEvent.toString() : "click";
+								String javaData = (String) click.getOrDefault("javaData", null);
 
 								Object newTabRaw = click.get("newTab");
 								boolean newTab = false;
@@ -111,11 +116,12 @@ public class ActionRecorder {
 										+ ", xpath=" + xpath
 										+ ", selectXpath=" + selectXpath
 										+ ", text=" + text
-										+ ", newTab=" + newTab);
+										+ ", newTab=" + newTab
+										+ ", javaData=" + javaData);
 
 								if (newTab) {
 									// клик по ссылке, открывающей новую вкладку
-									record("click", xpath, text);
+									record("click", xpath, text, javaData);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
 									// НЕ делаем continue всего while — только переходим к следующему click
 									continue;
@@ -143,7 +149,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastSelectOpenXpath, text);
+											record("select", lastSelectOpenXpath, text, javaData);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -160,7 +166,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastDropdownOpenXpath, text);
+											record("select", lastDropdownOpenXpath, text, javaData);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -170,7 +176,7 @@ public class ActionRecorder {
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, text);
+										record("click", xpath, text, javaData);
 										lastSelectOpenXpath = null;
 								}
 							}
@@ -188,15 +194,16 @@ public class ActionRecorder {
 	}
 
 
-	private void record(String action, String selector, String value) {
+	private void record(String action, String selector, String value, String type) {
 		if (!isRecording) return;
 		System.out.printf("REC: %s | %s | %s%n", action, selector, value);
 		tableModel.addRow(new Object[]{
+				null,
 				action,
 				selector != null ? selector : "",
 				value != null ? value : "",
 				"",
-				""
+				type != null ? type : ""
 		});
 	}
 
@@ -240,7 +247,7 @@ public class ActionRecorder {
 					") to " + targetHandle + " (" + newUrl + ")");
 
 			// записываем switchTab
-			record("switchTab", null, newUrl);
+			record("switchTab", null, newUrl, "");
 			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
 
 			// закрываем старую вкладку

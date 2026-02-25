@@ -9,9 +9,9 @@ import lombok.Getter;
 public enum UserAction {
 
 	CLICK("click", "Click element"),
-	DOUBLE_CLICK("doubleClick", "Double click element"),
+//	DOUBLE_CLICK("doubleClick", "Double click element"),
 	FILL("fill", "Fill text field"),
-	SELECT("select", "Select dropdown option"),
+	SELECT("select", "Choose select or dropdown option"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
 	OPEN("open", "Open URL");
 
