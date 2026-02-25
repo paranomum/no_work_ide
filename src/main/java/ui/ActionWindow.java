@@ -318,7 +318,7 @@ public class ActionWindow extends JFrame {
 
 	private void addNewAction() {
 //		int rowIndex = tableModel.getRowCount();
-		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON});
+		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ""});
 	}
 
 	private void saveTableToFile() {

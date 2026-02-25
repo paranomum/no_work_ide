@@ -121,7 +121,7 @@ public class ActionRecorder {
 
 								if (newTab) {
 									// клик по ссылке, открывающей новую вкладку
-									record("click", xpath, text, javaData);
+									record("click", xpath, "", javaData);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
 									// НЕ делаем continue всего while — только переходим к следующему click
 									continue;
@@ -176,7 +176,7 @@ public class ActionRecorder {
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, text, javaData);
+										record("click", xpath, "", javaData);
 										lastSelectOpenXpath = null;
 								}
 							}
