@@ -202,9 +202,21 @@ public class ActionWindow extends JFrame {
 				}
 		);
 
-//		actionTable.getColumnModel().getColumn(2).setCellEditor(
-//				new SelectorCellEditor(tableModel, actionRecorder)
-//		);
+		// Selector column (index 2)
+		SelectorCellEditor selectorEditor = new SelectorCellEditor();
+
+		// Реализация LocatorPicker через ActionRecorder
+		selectorEditor.setLocatorPicker(callback -> {
+			if (actionRecorder == null) {
+				return;
+			}
+			actionRecorder.startLocatorPick(callback);
+		});
+
+		actionTable.getColumnModel()
+				.getColumn(2)
+				.setCellEditor(selectorEditor);
+
 
 		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
 		actionTable.getColumnModel().getColumn(5).setCellEditor(

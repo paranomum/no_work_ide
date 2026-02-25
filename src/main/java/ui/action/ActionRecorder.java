@@ -219,7 +219,9 @@ public class ActionRecorder {
 
 		// 1) подгружаем get_locator.js
 		String locatorScript = new String(Files.readAllBytes(Paths.get("src/main/resources/get_locator.js")));
-		js.executeScript(locatorScript);
+		String buttonScript = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
+		String inputScript = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
+		js.executeScript(locatorScript + buttonScript + inputScript);
 
 		// 2) поллим результат
 		new Thread(() -> {
