@@ -8,6 +8,7 @@ function isClickableElement(element) {
     var isClickable = false;
     var role = element.getAttribute('role');
     var eventType = null;
+    var elType = null;
 
     console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
@@ -22,10 +23,12 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] BUTTON/LINK", buttonInfo);
             isClickable = true;
 
+            elType = "button";
             if (tagName === 'BUTTON') {
                 javaData = "new Button(\"" + buttonInfo.name + "\")";
             } else if (tagName === 'A') {
                 javaData = "new LinkButton(\"" + buttonInfo.name + "\")";
+                elType = "link-button";
             } else {
                 javaData = "new Button(\"" + buttonInfo.name + "\", $x(\"" + buttonInfo.xpath + "\"))";
             }
@@ -34,10 +37,13 @@ function isClickableElement(element) {
     // ===== Радио/чекбоксы =====
     } else if (tagName === 'LABEL' || tagName === 'INPUT') {
 
-        buttonInfo = isRadioOrCheckBox(element);
-        if (buttonInfo != null) {
+        var radioOrCheck = isRadioOrCheckBox(element);
+        if (radioOrCheck != null) {
+            buttonInfo = radioOrCheck.buttonInfo;
             console.log("[CLICKABLE] RADIO/CHECKBOX", buttonInfo);
             isClickable = true;
+            elType = radioOrCheck.type;
+            javaData = radioOrCheck.javaData;
         }
 
     // ===== input с aria-haspopup =====
@@ -60,6 +66,7 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
             javaData = "new TabButton(\"" + buttonInfo.name + "\")";
+            elType = "tab-button";
         }
     }
 
@@ -71,6 +78,7 @@ function isClickableElement(element) {
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
             javaData = "new Select(\"" + buttonInfo.name + "\")";
+            elType = "select";
         }
     }
 
@@ -82,6 +90,7 @@ function isClickableElement(element) {
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
             javaData = "new Dropdown(\"" + buttonInfo.name + "\")";
+            elType = "dropdown";
         }
     }
 
@@ -97,6 +106,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectOptionResult.buttonInfo;
             eventType = selectOptionResult.eventType;
+            elType = "select";
         }
     }
 
@@ -107,6 +117,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownOptionResult.buttonInfo;
             eventType = dropdownOptionResult.eventType;
+            elType = "dropdown";
         }
     }
 
@@ -114,7 +125,8 @@ function isClickableElement(element) {
         isClickable: isClickable,
         buttonInfo: buttonInfo,
         javaData: javaData,
-        eventType: eventType
+        eventType: eventType,
+        type: elType
     };
 }
 
@@ -522,13 +534,42 @@ function isRadioOrCheckBox(element) {
 
         if (isAntCheckboxLabel || isMatCheckbox) {
             var checkbox = checkboxConditions(currentElement);
-            if (checkbox != null) return checkbox;
+            if (checkbox !== null) {
+                if (checkbox.type === 'checkbox-group') {
+                    return {
+                        buttonInfo: checkbox,
+                        type: 'checkbox-group',
+                        javaData: "new CheckBoxGroup(" + checkbox.name + ")"
+                    };
+                    }
+                    else {
+                    return {
+                            buttonInfo: checkbox,
+                            type: 'checkbox-button',
+                            javaData: "new CheckBoxButton(" + checkbox.name + ")"
+                        };
+                    }
+                }
             break;
         }
 
         if (isAntRadioLabel || isMatRadio) {
             var radio = radioConditions(currentElement);
-            if (radio != null) return radio;
+            if (radio != null) {
+                    if (radio.type === 'radio-group') {
+                        return {
+                            buttonInfo: radio,
+                            type: 'radio-group',
+                            javaData: "new RadioGroup(" + radio.name + ")"
+                        };
+                    } else {
+                        return {
+                                buttonInfo: radio,
+                                type: 'radio-button',
+                                javaData: "new RadioButton(" + radio.name + ")"
+                            };
+                    }
+                }
             break;
         }
 

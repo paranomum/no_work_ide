@@ -147,6 +147,7 @@ document.addEventListener('click', function(e) {
             tag: tagName,
             text: info.name || '',
             eventType: clickable.eventType || 'click',
+            elementType: clickable.type,
             selectXpath: info.selectXpath || null,
             selectName: info.selectName || null,
             javaData: clickable.javaData || '',

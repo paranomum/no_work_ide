@@ -18,6 +18,6 @@ public class ActionRecord {
 	private String value;
 	private String comment;
 	private String elementType;
-//	private String javaElementAndAction;
+	private String javaElementAndAction;
 }
 

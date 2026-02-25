@@ -136,7 +136,7 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initActionTable() {
-		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type"};
+		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type", "Java Data"};
 		tableModel = new DefaultTableModel(columns, 0) {
 			@Override
 			public boolean isCellEditable(int row, int column) {
@@ -202,6 +202,29 @@ public class ActionWindow extends JFrame {
 				}
 		);
 
+//		actionTable.getColumnModel().getColumn(2).setCellEditor(
+//				new SelectorCellEditor(tableModel, actionRecorder)
+//		);
+
+		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
+		actionTable.getColumnModel().getColumn(5).setCellEditor(
+				new DefaultCellEditor(elementComboBox)
+		);
+		actionTable.getColumnModel().getColumn(5).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof ElementType) {
+							setText(((ElementType) value).getClassName());
+						}
+						return c;
+					}
+				}
+		);
+
 		TableModelListener[] holder = new TableModelListener[1];
 
 		TableModelListener indexUpdater = e -> {
@@ -247,7 +270,7 @@ public class ActionWindow extends JFrame {
 			}
 		});
 
-		hiddenJavaColumn = actionTable.getColumnModel().getColumn(5);
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(6);
 		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
 
 	}
@@ -318,7 +341,7 @@ public class ActionWindow extends JFrame {
 
 	private void addNewAction() {
 //		int rowIndex = tableModel.getRowCount();
-		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ""});
+		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON, ""});
 	}
 
 	private void saveTableToFile() {
@@ -371,13 +394,14 @@ public class ActionWindow extends JFrame {
 			String selector   = val(r, 2);
 			String value      = val(r, 3);
 			String comment    = val(r, 4);
+			String java    = val(r, 6);
 
 			rows.add(new ActionRecord(
 					actionCode,
 					selector,
 					value,
 					comment,
-					elementType
+					elementType, java
 			));
 		}
 

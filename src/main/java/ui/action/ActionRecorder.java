@@ -79,7 +79,7 @@ public class ActionRecorder {
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
 
-								record("fill", xpath, value, javaData);
+								record("fill", xpath, value, "field", javaData);
 							}
 						}
 					}
@@ -98,6 +98,7 @@ public class ActionRecorder {
 							for (Map<String, ?> click : clickList) {
 								System.out.println(clickList);
 								String xpath = (String) click.get("xpath");
+								String еlType = (String) click.get("elementType");
 								String text = (String) click.get("text");
 								String selectXpath = (String) click.get("selectXpath");
 								Object rawEvent = click.get("eventType");
@@ -121,7 +122,7 @@ public class ActionRecorder {
 
 								if (newTab) {
 									// клик по ссылке, открывающей новую вкладку
-									record("click", xpath, "", javaData);
+									record("click", xpath, "", еlType, javaData);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
 									// НЕ делаем continue всего while — только переходим к следующему click
 									continue;
@@ -149,7 +150,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastSelectOpenXpath, text, javaData);
+											record("select", lastSelectOpenXpath, text, "select", javaData);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -166,7 +167,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastDropdownOpenXpath, text, javaData);
+											record("select", lastDropdownOpenXpath, text, "dropdown", javaData);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -176,7 +177,7 @@ public class ActionRecorder {
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, "", javaData);
+										record("click", xpath, "", еlType, javaData);
 										lastSelectOpenXpath = null;
 								}
 							}
@@ -194,7 +195,7 @@ public class ActionRecorder {
 	}
 
 
-	private void record(String action, String selector, String value, String type) {
+	private void record(String action, String selector, String value, String type, String java) {
 		if (!isRecording) return;
 		System.out.printf("REC: %s | %s | %s%n", action, selector, value);
 		tableModel.addRow(new Object[]{
@@ -203,8 +204,45 @@ public class ActionRecorder {
 				selector != null ? selector : "",
 				value != null ? value : "",
 				"",
-				type != null ? type : ""
+				type != null ? type : "",
+				java != null ? java : "",
 		});
+	}
+
+	// ---------- Locator Picker ----------
+
+	@SneakyThrows
+	public void startLocatorPick(java.util.function.Consumer<String> callback) {
+		if (driver == null || !(driver instanceof JavascriptExecutor)) return;
+
+		JavascriptExecutor js = (JavascriptExecutor) driver;
+
+		// 1) подгружаем get_locator.js
+		String locatorScript = new String(Files.readAllBytes(Paths.get("src/main/resources/get_locator.js")));
+		js.executeScript(locatorScript);
+
+		// 2) поллим результат
+		new Thread(() -> {
+			try {
+				while (driver != null) {
+					Object result = ((JavascriptExecutor) driver).executeScript("return window.locatorPickResult");
+					if (result instanceof String) {
+						String xpath = (String) result;
+						System.out.println("LOCATOR_PICK result: " + xpath);
+						callback.accept(xpath);
+
+						// 3) очищаем и возвращаем обычные скрипты
+						injectScriptsIntoCurrentTab();
+						break;
+					}
+					Thread.sleep(150);
+				}
+			} catch (Exception e) {
+				System.err.println("Error in locator pick: " + e.getMessage());
+				callback.accept("");
+				try { injectScriptsIntoCurrentTab(); } catch (Exception ignored) {}
+			}
+		}).start();
 	}
 
 	private void handleTabInactive() {
@@ -247,7 +285,7 @@ public class ActionRecorder {
 					") to " + targetHandle + " (" + newUrl + ")");
 
 			// записываем switchTab
-			record("switchTab", null, newUrl, "");
+			record("switchTab", null, newUrl, "", "");
 			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
 
 			// закрываем старую вкладку
