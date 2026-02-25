@@ -10,9 +10,11 @@ public class TableRowTransferHandler extends TransferHandler {
 			new DataFlavor(Integer.class, "Integer Row Index");
 
 	private final JTable table;
+	private final ActionWindow window;
 
-	public TableRowTransferHandler(JTable table) {
+	public TableRowTransferHandler(JTable table, ActionWindow window) {
 		this.table = table;
+		this.window = window;
 	}
 
 	@Override
@@ -85,7 +87,10 @@ public class TableRowTransferHandler extends TransferHandler {
 			}
 			model.insertRow(index, rowData);
 			table.getSelectionModel().setSelectionInterval(index, index);
-//			table.clearSelection();
+
+			// регистрируем операцию для undo/redo
+			window.pushMoveUndo(from, index, rowData);
+
 			return true;
 		} catch (Exception ex) {
 			ex.printStackTrace();
@@ -93,3 +98,4 @@ public class TableRowTransferHandler extends TransferHandler {
 		return false;
 	}
 }
+

@@ -23,12 +23,12 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] BUTTON/LINK", buttonInfo);
             isClickable = true;
 
-            elType = "button";
+            elType = "Button";
             if (tagName === 'BUTTON') {
                 javaData = "new Button(\"" + buttonInfo.name + "\")";
             } else if (tagName === 'A') {
                 javaData = "new LinkButton(\"" + buttonInfo.name + "\")";
-                elType = "link-button";
+                elType = "LinkButton";
             } else {
                 javaData = "new Button(\"" + buttonInfo.name + "\", $x(\"" + buttonInfo.xpath + "\"))";
             }
@@ -66,7 +66,7 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
             javaData = "new TabButton(\"" + buttonInfo.name + "\")";
-            elType = "tab-button";
+            elType = "TabButton";
         }
     }
 
@@ -78,7 +78,7 @@ function isClickableElement(element) {
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
             javaData = "new Select(\"" + buttonInfo.name + "\")";
-            elType = "select";
+            elType = "Select";
         }
     }
 
@@ -90,7 +90,7 @@ function isClickableElement(element) {
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
             javaData = "new Dropdown(\"" + buttonInfo.name + "\")";
-            elType = "dropdown";
+            elType = "Dropdown";
         }
     }
 
@@ -106,7 +106,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectOptionResult.buttonInfo;
             eventType = selectOptionResult.eventType;
-            elType = "select";
+            elType = "Select";
         }
     }
 
@@ -117,7 +117,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownOptionResult.buttonInfo;
             eventType = dropdownOptionResult.eventType;
-            elType = "dropdown";
+            elType = "Dropdown";
         }
     }
 
@@ -538,14 +538,14 @@ function isRadioOrCheckBox(element) {
                 if (checkbox.type === 'checkbox-group') {
                     return {
                         buttonInfo: checkbox,
-                        type: 'checkbox-group',
+                        type: 'CheckBoxGroup',
                         javaData: "new CheckBoxGroup(" + checkbox.name + ")"
                     };
                     }
                     else {
                     return {
                             buttonInfo: checkbox,
-                            type: 'checkbox-button',
+                            type: 'CheckBoxButton',
                             javaData: "new CheckBoxButton(" + checkbox.name + ")"
                         };
                     }
@@ -559,13 +559,13 @@ function isRadioOrCheckBox(element) {
                     if (radio.type === 'radio-group') {
                         return {
                             buttonInfo: radio,
-                            type: 'radio-group',
+                            type: 'RadioGroup',
                             javaData: "new RadioGroup(" + radio.name + ")"
                         };
                     } else {
                         return {
                                 buttonInfo: radio,
-                                type: 'radio-button',
+                                type: 'RadioButton',
                                 javaData: "new RadioButton(" + radio.name + ")"
                             };
                     }

@@ -8,6 +8,7 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.events.EventFiringDecorator;
+import ui.action.ActionFileService;
 import ui.action.ActionRecorder;
 
 import javax.swing.ActionMap;
@@ -27,6 +28,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.EventObject;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -38,6 +40,11 @@ import javax.swing.UIManager;
 import static com.codeborne.selenide.Selenide.open;
 
 public class ActionWindow extends JFrame {
+
+	private static final int UNDO_LIMIT = 5;
+
+	private final java.util.Deque<Runnable> undoStack = new java.util.ArrayDeque<>();
+	private final java.util.Deque<Runnable> redoStack = new java.util.ArrayDeque<>();
 
 	private JTable actionTable;
 	private DefaultTableModel tableModel;
@@ -52,6 +59,39 @@ public class ActionWindow extends JFrame {
 	private JButton recordingButton;
 	private TableColumn hiddenJavaColumn;
 
+	private ActionFileService fileService;
+
+	private void pushUndo(Runnable undo, Runnable redo) {
+		undoStack.push(undo);
+		// при новом действии история redo сбрасывается
+		redoStack.clear();
+		while (undoStack.size() > UNDO_LIMIT) {
+			undoStack.removeLast();
+		}
+		// чтобы redo работал, кладём противоположное действие
+		redoStack.push(redo);
+	}
+
+	public void pushMoveUndo(int from, int to, Object[] rowData) {
+		pushUndo(
+				// undo: вернуть строку на старое место
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(to);
+					model.insertRow(from, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(from, from);
+				},
+				// redo: снова переместить на новое
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(from);
+					model.insertRow(to, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(to, to);
+				}
+		);
+	}
+
+
 	public ActionWindow() {
 		setTitle("Test Recorder – Action Panel");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -61,9 +101,11 @@ public class ActionWindow extends JFrame {
 		initTopBar();
 		initActionTable();
 		initBottomPanel();
+		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
 		driver = null;
+		fileService = new ActionFileService(this, tableModel);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());
@@ -85,7 +127,13 @@ public class ActionWindow extends JFrame {
 
 		JPopupMenu popup = new JPopupMenu();
 		popup.add(new JMenuItem("New test"));
-		popup.add(new JMenuItem("Open..."));
+		JMenuItem openItem = new JMenuItem("Open..");
+		openItem.addActionListener(e -> {
+			if (fileService != null) {
+				fileService.loadFromJsonFile();
+			}
+		});
+		popup.add(openItem);
 		popup.addSeparator();
 		popup.add(new JMenuItem("Exit"));
 
@@ -145,7 +193,18 @@ public class ActionWindow extends JFrame {
 			}
 		};
 
-		actionTable = new JTable(tableModel);
+		actionTable = new JTable(tableModel) {
+			@Override
+			public boolean editCellAt(int row, int column, EventObject e) {
+				if (e instanceof java.awt.event.MouseEvent) {
+					java.awt.event.MouseEvent me = (java.awt.event.MouseEvent) e;
+					if (me.getClickCount() < 2) {
+						return false;
+					}
+				}
+				return super.editCellAt(row, column, e);
+			}
+		};
 		actionTable.setFillsViewportHeight(true);
 		actionTable.setRowHeight(28);
 		actionTable.setShowGrid(true);
@@ -155,7 +214,7 @@ public class ActionWindow extends JFrame {
 		actionTable.setDragEnabled(true);
 		actionTable.setDropMode(DropMode.INSERT_ROWS);
 		actionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable));
+		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable, this));
 
 		JTableHeader header = actionTable.getTableHeader();
 		header.setBackground(new Color(200, 200, 200));
@@ -204,18 +263,18 @@ public class ActionWindow extends JFrame {
 
 		// Selector column (index 2)
 		SelectorCellEditor selectorEditor = new SelectorCellEditor();
-
-		// Реализация LocatorPicker через ActionRecorder
 		selectorEditor.setLocatorPicker(callback -> {
-			if (actionRecorder == null) {
-				return;
-			}
+			if (actionRecorder == null) return;
 			actionRecorder.startLocatorPick(callback);
 		});
-
+		selectorEditor.setLocatorHighlighter(xpath -> {
+			if (actionRecorder == null) return;
+			actionRecorder.highlightByXpath(xpath);
+		});
 		actionTable.getColumnModel()
 				.getColumn(2)
 				.setCellEditor(selectorEditor);
+
 
 
 		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
@@ -268,6 +327,36 @@ public class ActionWindow extends JFrame {
 				actionTable.clearSelection();
 			}
 		});
+
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "delete-row");
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "delete-row");
+
+		am.put("delete-row", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				int row = actionTable.getSelectedRow();
+				if (row >= 0) {
+					Object[] data = new Object[tableModel.getColumnCount()];
+					for (int c = 0; c < data.length; c++) {
+						data[c] = tableModel.getValueAt(row, c);
+					}
+					int rowIndex = row;
+
+					tableModel.removeRow(rowIndex);
+
+					pushUndo(
+							() -> tableModel.insertRow(rowIndex, data),
+							() -> {
+								if (rowIndex < tableModel.getRowCount()) {
+									tableModel.removeRow(rowIndex);
+								}
+							}
+					);
+				}
+			}
+		});
+
+
 
 		actionTable.addMouseListener(new MouseAdapter() {
 			@Override
@@ -353,103 +442,26 @@ public class ActionWindow extends JFrame {
 
 	private void addNewAction() {
 //		int rowIndex = tableModel.getRowCount();
-		tableModel.addRow(new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON, ""});
+		Object[] row = new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON, ""};
+		int rowIndex = tableModel.getRowCount();
+		tableModel.addRow(row);
+
+		pushUndo(
+				() -> {
+					if (tableModel.getRowCount() > rowIndex) {
+						tableModel.removeRow(rowIndex);
+					}
+				},
+				// redo: снова вставить строку
+				() -> {
+					if (tableModel.getRowCount() >= rowIndex) {
+						tableModel.insertRow(rowIndex, row);
+					} else {
+						tableModel.addRow(row);
+					}
+				}
+		);
 	}
-
-	private void saveTableToFile() {
-		if (tableModel.getRowCount() == 0) {
-			JOptionPane.showMessageDialog(
-					this,
-					"Table is empty, nothing to save.",
-					"Save Table",
-					JOptionPane.INFORMATION_MESSAGE
-			);
-			return;
-		}
-
-		JFileChooser chooser = new JFileChooser();
-		chooser.setDialogTitle("Save actions");
-		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-				"JSON files", "json"));
-
-		int result = chooser.showSaveDialog(this);
-		if (result != JFileChooser.APPROVE_OPTION) {
-			return;
-		}
-
-		File file = chooser.getSelectedFile();
-		if (!file.getName().toLowerCase().endsWith(".json")) {
-			file = new File(file.getParentFile(), file.getName() + ".json");
-		}
-
-		java.util.List<ActionRecord> rows = new java.util.ArrayList<>();
-		int rowCount = tableModel.getRowCount();
-
-		for (int r = 0; r < rowCount; r++) {
-			// 0‑я колонка — индекс, данные начинаются с 1
-			Object actionObj = tableModel.getValueAt(r, 1);
-			String actionCode = null;
-			if (actionObj instanceof UserAction) {
-				actionCode = ((UserAction) actionObj).getCode();
-			} else if (actionObj != null) {
-				actionCode = actionObj.toString();
-			}
-
-			Object elementTypeObj = tableModel.getValueAt(r, 5);
-			String elementType = null;
-			if (elementTypeObj instanceof ElementType) {
-				elementType = ((ElementType) elementTypeObj).getClassName();
-			} else if (elementTypeObj != null) {
-				elementType = elementTypeObj.toString();
-			}
-
-			String selector   = val(r, 2);
-			String value      = val(r, 3);
-			String comment    = val(r, 4);
-			String java    = val(r, 6);
-
-			rows.add(new ActionRecord(
-					actionCode,
-					selector,
-					value,
-					comment,
-					elementType, java
-			));
-		}
-
-		try (java.io.Writer writer = new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream(file), java.nio.charset.StandardCharsets.UTF_8)) {
-
-			com.google.gson.Gson gson = new com.google.gson.GsonBuilder()
-					.setPrettyPrinting()
-					.create();
-			gson.toJson(rows, writer);
-			writer.flush();
-
-			JOptionPane.showMessageDialog(
-					this,
-					"Table saved to:\n" + file.getAbsolutePath(),
-					"Save Successful",
-					JOptionPane.INFORMATION_MESSAGE
-			);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-			JOptionPane.showMessageDialog(
-					this,
-					"Failed to save table: " + ex.getMessage(),
-					"Error",
-					JOptionPane.ERROR_MESSAGE
-			);
-		}
-	}
-
-	// удобный helper, чтобы не ловить NPE
-	private String val(int row, int col) {
-		Object v = tableModel.getValueAt(row, col);
-		return v == null ? "" : v.toString();
-	}
-
-
 //	private void saveToVariable() {
 //		JPanel panel = new JPanel();
 //		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -617,5 +629,43 @@ public class ActionWindow extends JFrame {
 			driver = null;
 		}
 	}
+
+	private void saveTableToFile() {
+		fileService.saveWithModeDialog();
+	}
+
+	private void initKeyBindings() {
+		JRootPane root = getRootPane();
+		InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+		ActionMap am = root.getActionMap();
+
+		// Ctrl+Z -> undo
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.CTRL_DOWN_MASK), "undo");
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.META_DOWN_MASK), "undo");
+		am.put("undo", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				if (!undoStack.isEmpty()) {
+					Runnable undo = undoStack.pop();
+					undo.run();
+					// сюда положишь связанный redo, когда сделаешь нормальную пару
+				}
+			}
+		});
+
+//		// Ctrl+Y -> redo
+//		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, KeyEvent.CTRL_DOWN_MASK), "redo");
+//		am.put("redo", new AbstractAction() {
+//			@Override
+//			public void actionPerformed(ActionEvent e) {
+//				if (!redoStack.isEmpty()) {
+//					Runnable redo = redoStack.pop();
+//					redo.run();
+//					// и обратно в undoStack, если нужно
+//				}
+//			}
+//		});
+	}
+
 }
 

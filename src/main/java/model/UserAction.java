@@ -10,7 +10,7 @@ public enum UserAction {
 
 	CLICK("click", "Click element"),
 	FILL("fill", "Fill text field"),
-	FILL_DATA("fill data", "Filling ll fields of form"),
+	FILL_DATA("fillData", "Filling ll fields of form"),
 	SELECT("select", "Choose select or dropdown option"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
 	OPEN("open", "Open URL");

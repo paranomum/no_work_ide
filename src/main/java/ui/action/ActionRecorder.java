@@ -79,7 +79,7 @@ public class ActionRecorder {
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
 
-								record("fill", xpath, value, "field", javaData);
+								record("fill", xpath, value, "Field", javaData);
 							}
 						}
 					}
@@ -150,7 +150,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastSelectOpenXpath, text, "select", javaData);
+											record("select", lastSelectOpenXpath, text, "Select", javaData);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -167,7 +167,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastDropdownOpenXpath, text, "dropdown", javaData);
+											record("select", lastDropdownOpenXpath, text, "Dropdown", javaData);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -317,5 +317,41 @@ public class ActionRecorder {
 
 		js.executeScript(buttons + fields + script);
 		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
+	}
+
+	public void highlightByXpath(String xpath) {
+		if (driver == null || !(driver instanceof JavascriptExecutor)) {
+			return;
+		}
+		if (xpath == null || xpath.isEmpty()) {
+			return;
+		}
+
+		JavascriptExecutor js = (JavascriptExecutor) driver;
+		String script =
+				"function ensureHighlightStyle() {" +
+						"  if (document.getElementById('__locator-highlight-style')) return;" +
+						"  var style = document.createElement('style');" +
+						"  style.id = '__locator-highlight-style';" +
+						"  style.textContent = '.__locator-highlight { outline: 2px solid yellow !important; " +
+						"     background-color: rgba(255,255,0,0.2) !important; }';" +
+						"  document.head.appendChild(style);" +
+						"}" +
+						"ensureHighlightStyle();" +
+						"function getElementByXPath(path) {" +
+						"  var result = document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);" +
+						"  return result.singleNodeValue;" +
+						"}" +
+						"var el = getElementByXPath(arguments[0]);" +
+						"if (el) {" +
+						"  el.classList.add('__locator-highlight');" +
+						"  setTimeout(function() { el.classList.remove('__locator-highlight'); }, 1000);" +
+						"}";
+
+		try {
+			js.executeScript(script, xpath);
+		} catch (Exception e) {
+			System.err.println("Error highlighting by xpath: " + e.getMessage());
+		}
 	}
 }

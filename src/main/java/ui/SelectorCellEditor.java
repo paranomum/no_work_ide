@@ -1,5 +1,7 @@
 package ui;
 
+import lombok.Setter;
+
 import javax.swing.*;
 import javax.swing.table.TableCellEditor;
 import java.awt.*;
@@ -8,18 +10,24 @@ import java.util.function.Consumer;
 public class SelectorCellEditor extends AbstractCellEditor implements TableCellEditor {
 	private final JPanel panel = new JPanel(new BorderLayout());
 	private final JTextField textField = new JTextField();
-	private final JButton pickButton = new JButton("🔍");
+	private final JButton pickButton = new JButton("\uD83C\uDFAF");
+	private final JButton highlightButton = new JButton("🔍");
 
+	@Setter
 	private LocatorPicker locatorPicker;
+	@Setter
+	private LocatorHighlighter locatorHighlighter;
 
 	public SelectorCellEditor() {
+		JPanel buttons = new JPanel(new GridLayout(1, 2));
+		buttons.add(pickButton);
+		buttons.add(highlightButton);
+
 		panel.add(textField, BorderLayout.CENTER);
-		panel.add(pickButton, BorderLayout.EAST);
+		panel.add(buttons, BorderLayout.EAST);
 
 		pickButton.addActionListener(e -> {
-			if (locatorPicker == null) {
-				return;
-			}
+			if (locatorPicker == null) return;
 			locatorPicker.pick(xpath -> {
 				if (xpath != null) {
 					textField.setText(xpath);
@@ -27,10 +35,12 @@ public class SelectorCellEditor extends AbstractCellEditor implements TableCellE
 				stopCellEditing();
 			});
 		});
-	}
 
-	public void setLocatorPicker(LocatorPicker locatorPicker) {
-		this.locatorPicker = locatorPicker;
+		highlightButton.addActionListener(e -> {
+			if (locatorHighlighter == null) return;
+			String xpath = textField.getText();
+			locatorHighlighter.highlight(xpath);
+		});
 	}
 
 	@Override
