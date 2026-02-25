@@ -334,6 +334,20 @@ public class ActionWindow extends JFrame {
 		am.put("delete-row", new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
+				// 1. если сейчас редактируется ячейка — аккуратно остановить
+				if (actionTable.isEditing()) {
+					int row = actionTable.getEditingRow();
+					int col = actionTable.getEditingColumn();
+					TableCellEditor editor = actionTable.getCellEditor(row, col);
+					if (editor != null) {
+						// если редактор не согласен остановиться — просто не удаляем
+						if (!editor.stopCellEditing()) {
+							return;
+						}
+					}
+				}
+
+				// 2. дальше твоя логика удаления
 				int row = actionTable.getSelectedRow();
 				if (row >= 0) {
 					Object[] data = new Object[tableModel.getColumnCount()];
@@ -345,7 +359,10 @@ public class ActionWindow extends JFrame {
 					tableModel.removeRow(rowIndex);
 
 					pushUndo(
-							() -> tableModel.insertRow(rowIndex, data),
+							() -> {
+								tableModel.insertRow(rowIndex, data);
+								actionTable.getSelectionModel().setSelectionInterval(rowIndex, rowIndex);
+							},
 							() -> {
 								if (rowIndex < tableModel.getRowCount()) {
 									tableModel.removeRow(rowIndex);
@@ -355,7 +372,6 @@ public class ActionWindow extends JFrame {
 				}
 			}
 		});
-
 
 
 		actionTable.addMouseListener(new MouseAdapter() {
