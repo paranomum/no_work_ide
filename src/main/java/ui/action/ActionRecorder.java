@@ -20,10 +20,15 @@ public class ActionRecorder {
 	private WebDriver driver;
 	private volatile String lastFocusedXPath = null;
 	private volatile String lastFocusedValue = "";
+
+
 	private String lastSelectOpenXpath = null;
+	private String selectJava = null;
 	private String lastDropdownOpenXpath = null;
+	private String dropdownJava = null;
 
 	private String lastDatePickerOpenXpath = null;
+	private String datePickerJava = null;
 	private List<String> currentDateRange = new ArrayList<>();
 
 	public ActionRecorder(DefaultTableModel tableModel) {
@@ -149,23 +154,26 @@ public class ActionRecorder {
 										lastSelectOpenXpath = xpath;
 										System.out.println("[CAPTURE] select-open, remember xpath="
 												+ lastSelectOpenXpath);
+										selectJava = javaData;
 										break;
 
 									case "select-option":
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastSelectOpenXpath, text, "Select", javaData);
+											record("select", lastSelectOpenXpath, text, "Select", selectJava);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
 										lastSelectOpenXpath = null;
+										selectJava = null;
 										break;
 
 									case "dropdown-open":
 										lastDropdownOpenXpath = selectXpath;
 										System.out.println("[CAPTURE] dropdown-open, remember xpath="
 												+ lastDropdownOpenXpath);
+										dropdownJava = javaData;
 										break;
 
 									case "dropdown-option":
@@ -177,6 +185,7 @@ public class ActionRecorder {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
 										lastDropdownOpenXpath = null;
+										dropdownJava = null;
 										break;
 
 									case "datepicker-open":
@@ -184,6 +193,7 @@ public class ActionRecorder {
 										lastDatePickerOpenXpath = xpath; // или отдельная переменная lastDatePickerXpath, если хочешь
 										System.out.println("[CAPTURE] datepicker-open, remember xpath=" + lastDatePickerOpenXpath);
 										currentDateRange.clear();
+										datePickerJava = javaData;
 										break;
 
 									case "datepicker-date":
@@ -204,7 +214,7 @@ public class ActionRecorder {
 										if (rangeIndex == null) {
 											// fallback: одиночная дата
 											record("pickDate", lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
-													text, "DatePicker", "");
+													text, "DatePicker", datePickerJava);
 											break;
 										}
 
@@ -228,7 +238,7 @@ public class ActionRecorder {
 												String selector = lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : selectXpath;
 
 												System.out.println("[CAPTURE] datepicker-range -> " + value);
-												record("pickDate", selector, value, "DatePicker", "");
+												record("pickDate", selector, value, "DatePicker", datePickerJava);
 											} else {
 												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
 											}
@@ -236,11 +246,9 @@ public class ActionRecorder {
 											// сброс состояния диапазона
 											currentDateRange.clear();
 											lastDatePickerOpenXpath = null;
-//											lastDatePickerJavaData = null;
+											datePickerJava = null;
 										}
 										break;
-
-
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);

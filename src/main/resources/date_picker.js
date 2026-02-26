@@ -41,7 +41,7 @@ function detectDatePickerOpen(element) {
     if (matField) {
         var inputWithCalendar =
             matField.querySelector("input[data-mat-calendar]") ||
-            matField.querySelector("input[@data-mat-calendar]");
+            matField.querySelector("input[data-mat-calendar='']");
         if (!inputWithCalendar) {
             return null;
         }

@@ -78,3 +78,75 @@ function getFieldInfoFromInput(element) {
         javaData: "new Field(\"" + safeName + "\")"
     };
 }
+
+function getFieldInfoFromDatePicker(element) {
+    if (!element) return null;
+
+    var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    if (tagName !== 'INPUT') return null;
+
+    // ===== React: form-picker =====
+    var reactRoot = element.closest && element.closest("[data-testid='form-picker']");
+    if (reactRoot) {
+        var label =
+            reactRoot.querySelector("label[title]") ||
+            reactRoot.querySelector("label");
+        var name = "";
+        if (label) {
+            var labelText = (label.textContent || "").trim();
+            var titleText = (label.getAttribute("title") || "").trim();
+            name = labelText || titleText || "";
+        }
+        name = sanitizeText(name || "");
+        if (!name) {
+            return null;
+        }
+        var safeName = name.replace(/'/g, "\\'");
+
+        var xpath =
+            "//*[@data-testid='form-picker' " +
+            "and .//label[contains(@title, '" + safeName + "') " +
+            "or contains(., '" + safeName + "')]]";
+
+        return {
+            xpath: xpath,
+            name: name,
+            type: 'DatePicker',
+            javaData: "new DatePicker(\"" + safeName + "\")"
+        };
+    }
+
+    // ===== Angular: mat-form-field с input[data-mat-calendar] =====
+    var matField = element.closest && element.closest("mat-form-field");
+    if (matField) {
+        var inputWithCalendar =
+            matField.querySelector("input[data-mat-calendar]") ||
+            matField.querySelector("input[data-mat-calendar='']");
+        if (!inputWithCalendar || inputWithCalendar !== element) {
+            return null;
+        }
+
+        var placeholder =
+            inputWithCalendar.getAttribute("data-placeholder") ||
+            inputWithCalendar.getAttribute("placeholder") || "";
+        var name = sanitizeText((placeholder || "").trim());
+        if (!name) {
+            return null;
+        }
+        var safeName = name.replace(/'/g, "\\'");
+
+        var xpath =
+            "//mat-form-field[.//input[@data-mat-calendar and " +
+            "(contains(@data-placeholder, '" + safeName + "') " +
+            "or contains(@placeholder, '" + safeName + "'))]]";
+
+        return {
+            xpath: xpath,
+            name: name,
+            type: 'DatePicker',
+            javaData: "new DatePicker(\"" + safeName + "\")"
+        };
+    }
+
+    return null;
+}

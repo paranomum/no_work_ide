@@ -215,6 +215,9 @@ document.addEventListener('blur', function(e) {
 
         // Логируем только изменение значения
         if (window.currentFocusedValue !== currentValue) {
+            var picker = getFieldInfoFromDatePicker(e.target);
+            console.log("DATA - ", picker);
+            if (picker === null) {
             var fieldInfo = getFieldInfoFromInput(e.target);
             window.recordedInputs.push({
                 xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
@@ -225,6 +228,7 @@ document.addEventListener('blur', function(e) {
                 timestamp: Date.now(),
                 javaData: fieldInfo.javaData ? fieldInfo.javaData : ''
             });
+        }
         }
 
         window.currentFocusedXPath = null;
