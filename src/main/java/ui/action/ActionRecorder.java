@@ -161,7 +161,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastSelectOpenXpath, text, "Select", selectJava);
+											record("selectOption", lastSelectOpenXpath, text, "Select", selectJava);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -180,7 +180,7 @@ public class ActionRecorder {
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("select", lastDropdownOpenXpath, text, "Dropdown", javaData);
+											record("selectOption", lastDropdownOpenXpath, text, "Dropdown", javaData);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -213,7 +213,7 @@ public class ActionRecorder {
 
 										if (rangeIndex == null) {
 											// fallback: одиночная дата
-											record("pickDate", lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
+											record("fillDate", lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
 													text, "DatePicker", datePickerJava);
 											break;
 										}
@@ -238,7 +238,7 @@ public class ActionRecorder {
 												String selector = lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : selectXpath;
 
 												System.out.println("[CAPTURE] datepicker-range -> " + value);
-												record("pickDate", selector, value, "DatePicker", datePickerJava);
+												record("fillDate", selector, value, "DatePicker", datePickerJava);
 											} else {
 												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
 											}

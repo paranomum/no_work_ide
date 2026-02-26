@@ -11,9 +11,11 @@ public enum UserAction {
 	CLICK("click", "Click element"),
 	FILL("fill", "Fill text field"),
 	FILL_DATA("fillData", "Filling ll fields of form"),
-	SELECT("select", "Choose select or dropdown option"),
-	PICK_DATE("pickDate", "Fill date picker"),
+	SELECT_OPTION("selectOption", "Choose select or dropdown option"),
+	SELECT_EXACT_OPTION("selectExactOption", "Choose select or dropdown option"),
+	FILL_DATE("fillDate", "Fill date picker"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
+	SPEC_ACTION("specialAction", "Action before test"),
 	OPEN("open", "Open URL");
 
 	private final String code;

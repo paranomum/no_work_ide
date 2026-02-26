@@ -3,6 +3,7 @@ package ui.action;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
+import lombok.val;
 import model.ElementType;
 import model.UserAction;
 
@@ -217,14 +218,15 @@ public class ActionFileService {
 			StringBuilder sb = new StringBuilder();
 
 			// 1) Если есть javaData — используем его как точку входа
+			val passValue = !action.contains("click") && !action.contains("selectOption") && !action.contains("fillDate");
 			if (hasText(javaData)) {
-				appendCall(sb, javaData, action, value, comment, !action.contains("click"));
+				appendCall(sb, javaData, action, value, comment, passValue);
 				lines.add(sb.toString());
 				continue;
 			}
 
 			// 2) Специальные действия (switchTab / fillData)
-			boolean isSpecial = action.contains("switchTab") || action.contains("fillData");
+			boolean isSpecial = action.contains("switchTab") || action.contains("fillData") || action.contains("specialAction");
 			if (isSpecial) {
 				appendSpecialCall(sb, action, value, comment);
 				lines.add(sb.toString());
@@ -242,7 +244,7 @@ public class ActionFileService {
 					.append(javaClassName)
 					.append("($x(\"").append(selector.replace("\"", "\\\"")).append("\"))");
 
-			appendCall(sb, null, action, value, comment, !action.contains("click"));
+			appendCall(sb, null, action, value, comment, passValue);
 
 			lines.add(sb.toString());
 		}
