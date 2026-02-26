@@ -7,7 +7,9 @@ import org.openqa.selenium.WebDriver;
 import javax.swing.table.DefaultTableModel;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class ActionRecorder {
@@ -20,7 +22,9 @@ public class ActionRecorder {
 	private volatile String lastFocusedValue = "";
 	private String lastSelectOpenXpath = null;
 	private String lastDropdownOpenXpath = null;
+
 	private String lastDatePickerOpenXpath = null;
+	private List<String> currentDateRange = new ArrayList<>();
 
 	public ActionRecorder(DefaultTableModel tableModel) {
 		this.tableModel = tableModel;
@@ -179,19 +183,63 @@ public class ActionRecorder {
 										// аналог select-open / dropdown-open
 										lastDatePickerOpenXpath = xpath; // или отдельная переменная lastDatePickerXpath, если хочешь
 										System.out.println("[CAPTURE] datepicker-open, remember xpath=" + lastDatePickerOpenXpath);
+										currentDateRange.clear();
 										break;
 
 									case "datepicker-date":
-										// по аналогии с select-option / dropdown-option
-										if (selectXpath != null && !selectXpath.isEmpty()) {
-											System.out.println("[CAPTURE] datepicker-date with selectXpath=" + selectXpath + ", text=" + text);
-											// action: select, type: DatePicker
-											record("pickDate", lastDatePickerOpenXpath, text, "DatePicker", javaData);
-										} else {
-											System.out.println("[CAPTURE] datepicker-date WITHOUT selectXpath -> IGNORE");
+										// rangeIndex приходит из JS в click
+										Object rangeRaw = click.get("rangeIndex");
+										Integer rangeIndex = null;
+										if (rangeRaw instanceof Number) {
+											rangeIndex = ((Number) rangeRaw).intValue();
+										} else if (rangeRaw != null) {
+											try {
+												rangeIndex = Integer.parseInt(rangeRaw.toString());
+											} catch (NumberFormatException ignore) {}
 										}
-										lastDatePickerOpenXpath = null;
+
+										System.out.println("[CAPTURE] datepicker-date: rangeIndex=" + rangeIndex
+												+ ", text=" + text + ", selectXpath=" + selectXpath);
+
+										if (rangeIndex == null) {
+											// fallback: одиночная дата
+											record("pickDate", lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
+													text, "DatePicker", "");
+											break;
+										}
+
+										// гарантируем размер currentDateRange
+										while (currentDateRange.size() <= rangeIndex) {
+											currentDateRange.add(null);
+										}
+										currentDateRange.set(rangeIndex, text);
+
+										// если это первая дата — просто копим
+										if (rangeIndex == 0) {
+											break;
+										}
+
+										// если это вторая дата диапазона
+										if (rangeIndex == 1) {
+											String start = currentDateRange.get(0);
+											String end = currentDateRange.get(1);
+											if (start != null && end != null) {
+												String value = start + " - " + end;
+												String selector = lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : selectXpath;
+
+												System.out.println("[CAPTURE] datepicker-range -> " + value);
+												record("pickDate", selector, value, "DatePicker", "");
+											} else {
+												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
+											}
+
+											// сброс состояния диапазона
+											currentDateRange.clear();
+											lastDatePickerOpenXpath = null;
+//											lastDatePickerJavaData = null;
+										}
 										break;
+
 
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="

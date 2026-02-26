@@ -180,6 +180,9 @@ document.addEventListener('click', function(e) {
             clickRecord.selectXpath = extra.selectXpath;
         }
 
+        console.log('[ACTIONS] findClickable result:', clickable);
+        console.log(window.recordedClicks)
+
         window.recordedClicks.push(clickRecord);
 
         // Если ссылка открывает новую вкладку, тормозим переход,
