@@ -1,0 +1,687 @@
+package ui;
+
+import com.codeborne.selenide.WebDriverRunner;
+import dto.ActionRecord;
+import model.ElementType;
+import model.UserAction;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.events.EventFiringDecorator;
+import ui.action.ActionFileService;
+import ui.action.ActionRecorder;
+
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
+import javax.swing.KeyStroke;
+import java.awt.event.KeyEvent;
+import java.awt.event.ActionEvent;
+import javax.swing.AbstractAction;
+
+
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.event.TableModelListener;
+import javax.swing.table.*;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.EventObject;
+import java.util.HashMap;
+import java.util.Map;
+
+import com.formdev.flatlaf.FlatLightLaf;
+import com.formdev.flatlaf.FlatDarkLaf;
+import javax.swing.UIManager;
+
+
+import static com.codeborne.selenide.Selenide.open;
+
+public class ActionWindow extends JFrame {
+
+	private static final int UNDO_LIMIT = 5;
+
+	private final java.util.Deque<Runnable> undoStack = new java.util.ArrayDeque<>();
+	private final java.util.Deque<Runnable> redoStack = new java.util.ArrayDeque<>();
+
+	private JTable actionTable;
+	private DefaultTableModel tableModel;
+	private JButton addActionButton;
+	private JButton menuButton;
+	private JButton openBrowserButton;
+	private JComboBox<String> themeSelect;
+	private JTextField driverPathField;
+	private Map<String, String> variables;
+	private ActionRecorder actionRecorder;
+	private WebDriver driver;
+	private JButton recordingButton;
+	private TableColumn hiddenJavaColumn;
+
+	private ActionFileService fileService;
+
+	private void pushUndo(Runnable undo, Runnable redo) {
+		undoStack.push(undo);
+		// при новом действии история redo сбрасывается
+		redoStack.clear();
+		while (undoStack.size() > UNDO_LIMIT) {
+			undoStack.removeLast();
+		}
+		// чтобы redo работал, кладём противоположное действие
+		redoStack.push(redo);
+	}
+
+	public void pushMoveUndo(int from, int to, Object[] rowData) {
+		pushUndo(
+				// undo: вернуть строку на старое место
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(to);
+					model.insertRow(from, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(from, from);
+				},
+				// redo: снова переместить на новое
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(from);
+					model.insertRow(to, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(to, to);
+				}
+		);
+	}
+
+
+	public ActionWindow() {
+		setTitle("Test Recorder – Action Panel");
+		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		setSize(900, 650);
+		setLocationRelativeTo(null);
+
+		initTopBar();
+		initActionTable();
+		initBottomPanel();
+		initKeyBindings();
+
+		actionRecorder = new ActionRecorder(tableModel);
+		driver = null;
+		fileService = new ActionFileService(this, tableModel);
+
+		Container content = getContentPane();
+		content.setLayout(new BorderLayout());
+		content.add(createTopBarPanel(), BorderLayout.NORTH);
+
+		JScrollPane scrollPane = new JScrollPane(actionTable);
+//		RowNumberTable rowHeader = new RowNumberTable(actionTable);
+//		scrollPane.setRowHeaderView(rowHeader);
+		content.add(scrollPane, BorderLayout.CENTER);
+
+		content.add(createBottomPanel(), BorderLayout.SOUTH);
+	}
+
+	private void initTopBar() {
+		menuButton = new JButton("☰");
+		menuButton.setFocusable(false);
+		menuButton.setToolTipText("Menu");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+
+		JPopupMenu popup = new JPopupMenu();
+		popup.add(new JMenuItem("New test"));
+		JMenuItem openItem = new JMenuItem("Open..");
+		openItem.addActionListener(e -> {
+			if (fileService != null) {
+				fileService.loadFromJsonFile();
+			}
+		});
+		popup.add(openItem);
+		popup.addSeparator();
+		popup.add(new JMenuItem("Exit"));
+
+		menuButton.addActionListener(e ->
+				popup.show(menuButton, 0, menuButton.getHeight())
+		);
+
+		addActionButton = new JButton("+");
+		addActionButton.setFont(new Font("Arial", Font.BOLD, 16));
+		addActionButton.setToolTipText("Add action");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		addActionButton.addActionListener(e -> addNewAction());
+
+		openBrowserButton = new JButton("🌐 Open Browser");
+		openBrowserButton.setToolTipText("Open Chrome for Testing browser");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		openBrowserButton.addActionListener(e -> openBrowser());
+
+		recordingButton = new JButton("⏺ Start Recording");
+		recordingButton.setToolTipText("Start/Stop recording");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		recordingButton.addActionListener(e -> toggleRecording());
+	}
+
+	private JPanel createTopBarPanel() {
+		JPanel topBar = new JPanel(new BorderLayout());
+		topBar.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+		JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+		leftButtons.add(menuButton);
+		leftButtons.add(addActionButton);
+
+		JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
+		separator.setPreferredSize(new Dimension(1, 25));
+		leftButtons.add(separator);
+
+		JButton saveVarButton = new JButton("💾");
+		saveVarButton.setToolTipText("Save table to file");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		saveVarButton.addActionListener(e -> saveTableToFile());
+		leftButtons.add(saveVarButton);
+
+		topBar.add(leftButtons, BorderLayout.WEST);
+		topBar.add(openBrowserButton, BorderLayout.CENTER);
+		topBar.add(recordingButton, BorderLayout.EAST);
+
+		return topBar;
+	}
+
+	private void initActionTable() {
+		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type", "Java Data"};
+		tableModel = new DefaultTableModel(columns, 0) {
+			@Override
+			public boolean isCellEditable(int row, int column) {
+				// колонка с индексом не редактируется
+				return column != 0;
+			}
+		};
+
+		actionTable = new JTable(tableModel) {
+			@Override
+			public boolean editCellAt(int row, int column, EventObject e) {
+				if (e instanceof java.awt.event.MouseEvent) {
+					java.awt.event.MouseEvent me = (java.awt.event.MouseEvent) e;
+					if (me.getClickCount() < 2) {
+						return false;
+					}
+				}
+				return super.editCellAt(row, column, e);
+			}
+		};
+		actionTable.setFillsViewportHeight(true);
+		actionTable.setRowHeight(28);
+		actionTable.setShowGrid(true);
+		actionTable.setGridColor(new Color(180, 180, 180));
+		actionTable.setIntercellSpacing(new Dimension(2, 2));
+
+		actionTable.setDragEnabled(true);
+		actionTable.setDropMode(DropMode.INSERT_ROWS);
+		actionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable, this));
+
+		JTableHeader header = actionTable.getTableHeader();
+		header.setBackground(new Color(200, 200, 200));
+		header.setForeground(Color.BLACK);
+		header.setOpaque(true);
+		DefaultTableCellRenderer headerRenderer = new DefaultTableCellRenderer();
+		headerRenderer.setBackground(new Color(200, 200, 200));
+		headerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+		header.setDefaultRenderer(headerRenderer);
+
+		// колонка с индексом (#)
+		actionTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+		actionTable.getColumnModel().getColumn(0).setMaxWidth(50);
+		actionTable.getColumnModel().getColumn(0).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						setHorizontalAlignment(SwingConstants.CENTER);
+						return c;
+					}
+				}
+		);
+
+		// колонка Action (индекс 1) с UserAction
+		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
+		actionTable.getColumnModel().getColumn(1).setCellEditor(
+				new DefaultCellEditor(actionComboBox)
+		);
+		actionTable.getColumnModel().getColumn(1).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof UserAction) {
+							setText(((UserAction) value).getCode());
+						}
+						return c;
+					}
+				}
+		);
+
+		// Selector column (index 2)
+		SelectorCellEditor selectorEditor = new SelectorCellEditor();
+		selectorEditor.setLocatorPicker(callback -> {
+			if (actionRecorder == null) return;
+			actionRecorder.startLocatorPick(callback);
+		});
+		selectorEditor.setLocatorHighlighter(xpath -> {
+			if (actionRecorder == null) return;
+			actionRecorder.highlightByXpath(xpath);
+		});
+		actionTable.getColumnModel()
+				.getColumn(2)
+				.setCellEditor(selectorEditor);
+
+
+
+		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
+		actionTable.getColumnModel().getColumn(5).setCellEditor(
+				new DefaultCellEditor(elementComboBox)
+		);
+		actionTable.getColumnModel().getColumn(5).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof ElementType) {
+							setText(((ElementType) value).getClassName());
+						}
+						return c;
+					}
+				}
+		);
+
+		TableModelListener[] holder = new TableModelListener[1];
+
+		TableModelListener indexUpdater = e -> {
+			// временно отключаем себя, чтобы не поймать рекурсию
+			tableModel.removeTableModelListener(holder[0]);
+
+			int rowCount = tableModel.getRowCount();
+			for (int i = 0; i < rowCount; i++) {
+				Object cur = tableModel.getValueAt(i, 0);
+				if (!(cur instanceof Integer) || ((Integer) cur) != i) {
+					tableModel.setValueAt(i, i, 0); // индексы с 0
+				}
+			}
+
+			// возвращаем слушатель
+			tableModel.addTableModelListener(holder[0]);
+		};
+
+		holder[0] = indexUpdater;
+		tableModel.addTableModelListener(indexUpdater);
+
+		InputMap im = actionTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+		ActionMap am = actionTable.getActionMap();
+
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "clear-selection");
+		am.put("clear-selection", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				actionTable.clearSelection();
+			}
+		});
+
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "delete-row");
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SPACE, 0), "delete-row");
+
+		am.put("delete-row", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				// 1. если сейчас редактируется ячейка — аккуратно остановить
+				if (actionTable.isEditing()) {
+					int row = actionTable.getEditingRow();
+					int col = actionTable.getEditingColumn();
+					TableCellEditor editor = actionTable.getCellEditor(row, col);
+					if (editor != null) {
+						// если редактор не согласен остановиться — просто не удаляем
+						if (!editor.stopCellEditing()) {
+							return;
+						}
+					}
+				}
+
+				// 2. дальше твоя логика удаления
+				int row = actionTable.getSelectedRow();
+				if (row >= 0) {
+					Object[] data = new Object[tableModel.getColumnCount()];
+					for (int c = 0; c < data.length; c++) {
+						data[c] = tableModel.getValueAt(row, c);
+					}
+					int rowIndex = row;
+
+					tableModel.removeRow(rowIndex);
+
+					pushUndo(
+							() -> {
+								tableModel.insertRow(rowIndex, data);
+								actionTable.getSelectionModel().setSelectionInterval(rowIndex, rowIndex);
+							},
+							() -> {
+								if (rowIndex < tableModel.getRowCount()) {
+									tableModel.removeRow(rowIndex);
+								}
+							}
+					);
+				}
+			}
+		});
+
+
+		actionTable.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				int row = actionTable.rowAtPoint(e.getPoint());
+				int col = actionTable.columnAtPoint(e.getPoint());
+
+				// клик вне реальных ячеек таблицы
+				if (row == -1 || col == -1) {
+					actionTable.clearSelection();
+				}
+			}
+		});
+
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(6);
+		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
+
+	}
+
+
+	private void initBottomPanel() {
+		themeSelect = new JComboBox<>(new String[]{"Light", "Dark"});
+		themeSelect.setSelectedItem("Light");
+		themeSelect.addActionListener(e -> {
+			Object sel = themeSelect.getSelectedItem();
+			if ("Light".equals(sel)) {
+				FlatLightLaf.setup();
+			} else if ("Dark".equals(sel)) {
+				FlatDarkLaf.setup();
+			}
+
+			// обновить внешний вид всего окна
+			SwingUtilities.updateComponentTreeUI(this);
+		});
+
+		driverPathField = new JTextField(20);
+		driverPathField.setText("/Applications/chrome/chrome/Google Chrome for Testing.app");
+	}
+
+	private void toggleRecording() {
+		if (driver == null) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Browser is not open. Please open browser first.",
+					"Browser Required",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return;
+		}
+
+		actionRecorder.toggleRecording();
+
+		if (actionRecorder.isRecording()) {
+			recordingButton.setText("⏹ Stop Recording");
+			System.out.println("Recording started");
+		} else {
+			recordingButton.setText("⏺ Start Recording");
+			System.out.println("Recording stopped");
+		}
+	}
+
+
+	private JPanel createBottomPanel() {
+		JPanel bottomPanel = new JPanel(new BorderLayout());
+
+		JPanel settingsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		settingsPanel.setBorder(BorderFactory.createTitledBorder("Settings"));
+		settingsPanel.add(new JLabel("Theme:"));
+		settingsPanel.add(themeSelect);
+		settingsPanel.add(Box.createHorizontalStrut(20));
+		settingsPanel.add(new JLabel("ChromeDriver Path:"));
+		settingsPanel.add(driverPathField);
+
+		JButton browseButton = new JButton("Browse...");
+		browseButton.setToolTipText("Select ChromeDriver executable");
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		browseButton.addActionListener(e -> selectChromeDriver());
+		settingsPanel.add(browseButton);
+
+		bottomPanel.add(settingsPanel, BorderLayout.SOUTH);
+		return bottomPanel;
+	}
+
+	private void addNewAction() {
+//		int rowIndex = tableModel.getRowCount();
+		Object[] row = new Object[]{null, UserAction.CLICK, "", "", "", ElementType.BUTTON, ""};
+		int rowIndex = tableModel.getRowCount();
+		tableModel.addRow(row);
+
+		pushUndo(
+				() -> {
+					if (tableModel.getRowCount() > rowIndex) {
+						tableModel.removeRow(rowIndex);
+					}
+				},
+				// redo: снова вставить строку
+				() -> {
+					if (tableModel.getRowCount() >= rowIndex) {
+						tableModel.insertRow(rowIndex, row);
+					} else {
+						tableModel.addRow(row);
+					}
+				}
+		);
+	}
+//	private void saveToVariable() {
+//		JPanel panel = new JPanel();
+//		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+//
+//		JLabel nameLabel = new JLabel("Variable name:");
+//		JTextField nameField = new JTextField(15);
+//
+//		JLabel valueLabel = new JLabel("Variable value:");
+//		JTextField valueField = new JTextField(15);
+//
+//		panel.add(nameLabel);
+//		panel.add(nameField);
+//		panel.add(Box.createVerticalStrut(10));
+//		panel.add(valueLabel);
+//		panel.add(valueField);
+//
+//		int result = JOptionPane.showConfirmDialog(
+//				this,
+//				panel,
+//				"Save Variable",
+//				JOptionPane.OK_CANCEL_OPTION,
+//				JOptionPane.PLAIN_MESSAGE
+//		);
+//
+//		if (result == JOptionPane.OK_OPTION) {
+//			String varName = nameField.getText().trim();
+//			String varValue = valueField.getText().trim();
+//
+//			if (!varName.isEmpty() && !varValue.isEmpty()) {
+//				variables.put(varName, varValue);
+//				JOptionPane.showMessageDialog(
+//						this,
+//						"Variable '" + varName + "' saved successfully",
+//						"Success",
+//						JOptionPane.INFORMATION_MESSAGE
+//				);
+//			} else {
+//				JOptionPane.showMessageDialog(
+//						this,
+//						"Variable name and value cannot be empty",
+//						"Error",
+//						JOptionPane.ERROR_MESSAGE
+//				);
+//			}
+//		}
+//	}
+
+	private void selectChromeDriver() {
+		JFileChooser fileChooser = new JFileChooser();
+		fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+		fileChooser.setDialogTitle("Select ChromeDriver");
+
+		fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+			@Override
+			public boolean accept(File file) {
+				return file.isDirectory() ||
+						file.getName().contains("chromedriver");
+			}
+
+			@Override
+			public String getDescription() {
+				return "ChromeDriver executable (chromedriver, chromedriver.exe)";
+			}
+		});
+
+		int result = fileChooser.showOpenDialog(this);
+
+		if (result == JFileChooser.APPROVE_OPTION) {
+			File selectedFile = fileChooser.getSelectedFile();
+			driverPathField.setText(selectedFile.getAbsolutePath());
+			System.out.println("Selected ChromeDriver: " + selectedFile.getAbsolutePath());
+		}
+	}
+
+	private void openBrowser() {
+		String driverPath = driverPathField.getText().trim();
+
+		if (driverPath.isEmpty()) {
+			JOptionPane.showMessageDialog(
+					this,
+					"ChromeDriver path is not set. Please select it first.",
+					"ChromeDriver Path Required",
+					JOptionPane.WARNING_MESSAGE
+			);
+			selectChromeDriver();
+			return;
+		}
+
+		if (driver != null) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Browser is already open",
+					"Browser Running",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+			return;
+		}
+
+		try {
+			ArrayList<String> browserArgs = new ArrayList<>();
+			browserArgs.add("no-sandbox");
+			browserArgs.add("allow-running-insecure-content");
+
+			Map<String, Object> prefs = new HashMap<>();
+			prefs.put("intl.accept_languages", "ru");
+			prefs.put("intl.selected_languages", "ru");
+
+			ChromeOptions chromeOptions = new ChromeOptions();
+			chromeOptions.setExperimentalOption("prefs", prefs);
+			chromeOptions.addArguments(browserArgs);
+			chromeOptions.addArguments("--unsafely-treat-insecure-origin-as-secure=test-iqhr.rt.ru");
+			chromeOptions.addArguments("--block-insecure-private-network-requests=Disabled");
+			chromeOptions.addArguments("--ignore-certificate-errors");
+			chromeOptions.addArguments("--ignore-urlfetcher-cert-requests");
+			chromeOptions.setAcceptInsecureCerts(true);
+
+			String osName = System.getProperty("os.name");
+			if (osName.startsWith("Windows")) {
+				System.setProperty("webdriver.chrome.driver", driverPath);
+				chromeOptions.addArguments("--incognito");
+			} else {
+				chromeOptions.setBinary(driverPath);
+			}
+
+			ChromeDriver rawDriver = new ChromeDriver(chromeOptions);
+			driver = rawDriver;
+			actionRecorder.setDriver(driver);
+
+			driver.navigate().to("about:blank");
+
+//			JOptionPane.showMessageDialog(
+//					this,
+//					"Browser opened successfully",
+//					"Success",
+//					JOptionPane.INFORMATION_MESSAGE
+//			);
+
+			System.out.println("ChromeDriver initialized successfully with: " + driverPath);
+			driver.navigate().to("https://test-iqhr.rt.ru/");
+		} catch (Exception e) {
+			String errorMessage = e.getMessage();
+
+			if (errorMessage != null && (errorMessage.contains("DevToolsActivePort") ||
+					errorMessage.contains("Chrome failed to start") ||
+					errorMessage.contains("exited normally"))) {
+				JOptionPane.showMessageDialog(
+						this,
+						"Wrong Chrome version selected!\n\n" +
+								"You selected a ChromeDriver executable, but need to select 'Google Chrome for Testing' application.\n\n" +
+								"Please select the correct Chrome for Testing application.",
+						"Wrong Chrome Version",
+						JOptionPane.ERROR_MESSAGE
+				);
+			} else {
+				JOptionPane.showMessageDialog(
+						this,
+						"Failed to open browser: " + errorMessage,
+						"Error",
+						JOptionPane.ERROR_MESSAGE
+				);
+			}
+
+			System.err.println("Error initializing ChromeDriver: " + errorMessage);
+			e.printStackTrace();
+			driver = null;
+		}
+	}
+
+	private void saveTableToFile() {
+		fileService.saveWithModeDialog();
+	}
+
+	private void initKeyBindings() {
+		JRootPane root = getRootPane();
+		InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+		ActionMap am = root.getActionMap();
+
+		// Ctrl+Z -> undo
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.CTRL_DOWN_MASK), "undo");
+		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, KeyEvent.META_DOWN_MASK), "undo");
+		am.put("undo", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				if (!undoStack.isEmpty()) {
+					Runnable undo = undoStack.pop();
+					undo.run();
+					// сюда положишь связанный redo, когда сделаешь нормальную пару
+				}
+			}
+		});
+
+//		// Ctrl+Y -> redo
+//		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, KeyEvent.CTRL_DOWN_MASK), "redo");
+//		am.put("redo", new AbstractAction() {
+//			@Override
+//			public void actionPerformed(ActionEvent e) {
+//				if (!redoStack.isEmpty()) {
+//					Runnable redo = redoStack.pop();
+//					redo.run();
+//					// и обратно в undoStack, если нужно
+//				}
+//			}
+//		});
+	}
+
+}
+
