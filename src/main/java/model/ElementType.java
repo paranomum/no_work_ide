@@ -18,6 +18,7 @@ public enum ElementType {
 	RADIO_BUTTON("RadioButton","Radio button"),
 	CHECKBOX_GROUP("CheckBoxGroup","Checkbox Group"),
 	RADIO_GROUP("RadioGroup","Radio Group"),
+	DATE_PICKER("DatePicker","DatePicker"),
 	UNKNOWN("UNKNOWN","Unknown element");
 
 	private final String className;

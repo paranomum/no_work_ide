@@ -20,6 +20,7 @@ public class ActionRecorder {
 	private volatile String lastFocusedValue = "";
 	private String lastSelectOpenXpath = null;
 	private String lastDropdownOpenXpath = null;
+	private String lastDatePickerOpenXpath = null;
 
 	public ActionRecorder(DefaultTableModel tableModel) {
 		this.tableModel = tableModel;
@@ -174,6 +175,24 @@ public class ActionRecorder {
 										lastDropdownOpenXpath = null;
 										break;
 
+									case "datepicker-open":
+										// аналог select-open / dropdown-open
+										lastDatePickerOpenXpath = xpath; // или отдельная переменная lastDatePickerXpath, если хочешь
+										System.out.println("[CAPTURE] datepicker-open, remember xpath=" + lastDatePickerOpenXpath);
+										break;
+
+									case "datepicker-date":
+										// по аналогии с select-option / dropdown-option
+										if (selectXpath != null && !selectXpath.isEmpty()) {
+											System.out.println("[CAPTURE] datepicker-date with selectXpath=" + selectXpath + ", text=" + text);
+											// action: select, type: DatePicker
+											record("pickDate", lastDatePickerOpenXpath, text, "DatePicker", javaData);
+										} else {
+											System.out.println("[CAPTURE] datepicker-date WITHOUT selectXpath -> IGNORE");
+										}
+										lastDatePickerOpenXpath = null;
+										break;
+
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
@@ -221,7 +240,9 @@ public class ActionRecorder {
 		String locatorScript = new String(Files.readAllBytes(Paths.get("src/main/resources/get_locator.js")));
 		String buttonScript = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
 		String inputScript = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
-		js.executeScript(locatorScript + buttonScript + inputScript);
+		String picker  = new String(Files.readAllBytes(Paths.get("src/main/resources/date_picker.js")));
+		String select  = new String(Files.readAllBytes(Paths.get("src/main/resources/select.js")));
+		js.executeScript(locatorScript + buttonScript + inputScript + picker + select);
 
 		// 2) поллим результат
 		new Thread(() -> {
@@ -314,8 +335,10 @@ public class ActionRecorder {
 		String buttons = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
 		String fields  = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
 		String script  = new String(Files.readAllBytes(Paths.get("src/main/resources/actions.js")));
+		String picker  = new String(Files.readAllBytes(Paths.get("src/main/resources/date_picker.js")));
+		String select  = new String(Files.readAllBytes(Paths.get("src/main/resources/select.js")));
 
-		js.executeScript(buttons + fields + script);
+		js.executeScript(buttons + fields + script + picker + select);
 		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
 	}
 

@@ -12,6 +12,7 @@ public enum UserAction {
 	FILL("fill", "Fill text field"),
 	FILL_DATA("fillData", "Filling ll fields of form"),
 	SELECT("select", "Choose select or dropdown option"),
+	PICK_DATE("pickDate", "Fill date picker"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
 	OPEN("open", "Open URL");
 

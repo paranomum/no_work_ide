@@ -4,6 +4,10 @@ window.currentFocusedElement = window.currentFocusedElement || null;
 window.currentFocusedXPath = window.currentFocusedXPath || null;
 window.currentFocusedValue = window.currentFocusedValue || '';
 window.currentTabState = document.visibilityState === 'visible' ? 'active' : 'inactive';
+window.datepickerState = window.datepickerState || {
+    lastOpenXPath: null,
+    clickIndex: 0
+};
 
 function sanitizeText(text) {
     if (!text) return '';
@@ -141,7 +145,22 @@ document.addEventListener('click', function(e) {
             isNewTab: isNewTab
         });
 
-        window.recordedClicks.push({
+        if (clickable.eventType === 'datepicker-open') {
+                    window.datepickerState.lastOpenXPath = info.xpath || getXPath(element);
+                    window.datepickerState.clickIndex = 0;
+        }
+
+        var extra = {};
+
+        if (clickable.eventType === 'datepicker-date') {
+            extra.rangeIndex = window.datepickerState.clickIndex;
+            window.datepickerState.clickIndex += 1;
+
+            // при желании — использовать xpath открытого datepicker
+            extra.selectXpath = window.datepickerState.lastOpenXPath || info.selectXpath || null;
+        }
+
+        var clickRecord = {
             xpath: info.xpath || getXPath(element),
             id: element.id || '',
             tag: tagName,
@@ -152,7 +171,16 @@ document.addEventListener('click', function(e) {
             selectName: info.selectName || null,
             javaData: clickable.javaData || '',
             newTab: isNewTab
-        });
+        };
+
+        if (extra.rangeIndex !== undefined) {
+            clickRecord.rangeIndex = extra.rangeIndex;
+        }
+        if (extra.selectXpath) {
+            clickRecord.selectXpath = extra.selectXpath;
+        }
+
+        window.recordedClicks.push(clickRecord);
 
         // Если ссылка открывает новую вкладку, тормозим переход,
         // чтобы Java успела забрать записанный клик
