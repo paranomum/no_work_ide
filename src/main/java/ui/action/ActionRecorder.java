@@ -5,6 +5,9 @@ import lombok.val;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import javax.swing.table.DefaultTableModel;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -293,11 +296,11 @@ public class ActionRecorder {
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
 		// 1) подгружаем get_locator.js
-		String locatorScript = new String(Files.readAllBytes(Paths.get("src/main/resources/get_locator.js")));
-		String buttonScript = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
-		String inputScript = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
-		String picker  = new String(Files.readAllBytes(Paths.get("src/main/resources/date_picker.js")));
-		String select  = new String(Files.readAllBytes(Paths.get("src/main/resources/select.js")));
+		String locatorScript = loadResource("get_locator.js");
+		String buttonScript = loadResource("buttons.js");
+		String inputScript = loadResource("input.js");
+		String picker  = loadResource("date_picker.js");
+		String select  = loadResource("select.js");
 		js.executeScript(locatorScript + buttonScript + inputScript + picker + select);
 
 		// 2) поллим результат
@@ -388,11 +391,11 @@ public class ActionRecorder {
 		if (!(driver instanceof JavascriptExecutor)) return;
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
-		String buttons = new String(Files.readAllBytes(Paths.get("src/main/resources/buttons.js")));
-		String fields  = new String(Files.readAllBytes(Paths.get("src/main/resources/input.js")));
-		String script  = new String(Files.readAllBytes(Paths.get("src/main/resources/actions.js")));
-		String picker  = new String(Files.readAllBytes(Paths.get("src/main/resources/date_picker.js")));
-		String select  = new String(Files.readAllBytes(Paths.get("src/main/resources/select.js")));
+		String buttons = loadResource("buttons.js");
+		String fields  = loadResource("input.js");
+		String script  = loadResource("actions.js");
+		String picker  = loadResource("date_picker.js");
+		String select  = loadResource("select.js");
 
 		js.executeScript(buttons + fields + script + picker + select);
 		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
@@ -431,6 +434,15 @@ public class ActionRecorder {
 			js.executeScript(script, xpath);
 		} catch (Exception e) {
 			System.err.println("Error highlighting by xpath: " + e.getMessage());
+		}
+	}
+
+	private String loadResource(String resourcePath) throws IOException {
+		try (InputStream in = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
+			if (in == null) {
+				throw new IOException("Resource not found: " + resourcePath);
+			}
+			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
 		}
 	}
 }
