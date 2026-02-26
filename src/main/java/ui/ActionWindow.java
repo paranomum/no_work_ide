@@ -2,6 +2,7 @@ package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
 import dto.ActionRecord;
+import dto.AppConfig;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
@@ -27,6 +28,9 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.HashMap;
@@ -34,6 +38,8 @@ import java.util.Map;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatDarkLaf;
+import ui.action.ConfigService;
+
 import javax.swing.UIManager;
 
 
@@ -60,6 +66,8 @@ public class ActionWindow extends JFrame {
 	private TableColumn hiddenJavaColumn;
 
 	private ActionFileService fileService;
+	private final ConfigService configService = new ConfigService();
+	private AppConfig config;
 
 	private void pushUndo(Runnable undo, Runnable redo) {
 		undoStack.push(undo);
@@ -93,6 +101,14 @@ public class ActionWindow extends JFrame {
 
 
 	public ActionWindow() {
+		config = configService.load(); // уже точно не null
+
+		if ("Dark".equalsIgnoreCase(config.theme)) {
+			FlatDarkLaf.setup();
+		} else {
+			FlatLightLaf.setup();
+		}
+
 		setTitle("Test Recorder – Action Panel");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		setSize(900, 650);
@@ -117,6 +133,7 @@ public class ActionWindow extends JFrame {
 		content.add(scrollPane, BorderLayout.CENTER);
 
 		content.add(createBottomPanel(), BorderLayout.SOUTH);
+		config = configService.load();
 	}
 
 	private void initTopBar() {
@@ -395,21 +412,32 @@ public class ActionWindow extends JFrame {
 
 	private void initBottomPanel() {
 		themeSelect = new JComboBox<>(new String[]{"Light", "Dark"});
-		themeSelect.setSelectedItem("Light");
+		String theme = "Dark".equalsIgnoreCase(config.theme) ? "Dark" : "Light";
+		themeSelect.setSelectedItem(theme);
+
 		themeSelect.addActionListener(e -> {
 			Object sel = themeSelect.getSelectedItem();
 			if ("Light".equals(sel)) {
 				FlatLightLaf.setup();
+				config.theme = "Light";
 			} else if ("Dark".equals(sel)) {
 				FlatDarkLaf.setup();
+				config.theme = "Dark";
 			}
-
-			// обновить внешний вид всего окна
 			SwingUtilities.updateComponentTreeUI(this);
+			try {
+				configService.save(config);
+			} catch (IOException ex) {
+				ex.printStackTrace();
+			}
 		});
 
 		driverPathField = new JTextField(20);
-		driverPathField.setText("/Applications/chrome/chrome/Google Chrome for Testing.app");
+		driverPathField.setText(
+				(config.chromeDriverPath != null && !config.chromeDriverPath.isEmpty())
+						? config.chromeDriverPath
+						: ""
+		);
 	}
 
 	private void toggleRecording() {
@@ -528,18 +556,26 @@ public class ActionWindow extends JFrame {
 	private void selectChromeDriver() {
 		JFileChooser fileChooser = new JFileChooser();
 		fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+		if(System.getProperty("os.name").toLowerCase().contains("mac"))
+			fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
 		fileChooser.setDialogTitle("Select ChromeDriver");
 
 		fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
 			@Override
 			public boolean accept(File file) {
-				return file.isDirectory() ||
-						file.getName().contains("chromedriver");
+				if (file.isDirectory()) return true;
+				String name = file.getName().toLowerCase();
+				// Windows / Linux: chromedriver
+				if (name.contains("chromedriver")) return true;
+				// macOS: .app бандл
+				if (name.endsWith(".app")) return true;
+				// На всякий случай позволим выбрать любой бинарь
+				return file.canExecute();
 			}
 
 			@Override
 			public String getDescription() {
-				return "ChromeDriver executable (chromedriver, chromedriver.exe)";
+				return "Chrome/ChromeDriver executable (chromedriver, chromedriver.exe, *.app)";
 			}
 		});
 
@@ -547,8 +583,16 @@ public class ActionWindow extends JFrame {
 
 		if (result == JFileChooser.APPROVE_OPTION) {
 			File selectedFile = fileChooser.getSelectedFile();
-			driverPathField.setText(selectedFile.getAbsolutePath());
-			System.out.println("Selected ChromeDriver: " + selectedFile.getAbsolutePath());
+			String path = selectedFile.getAbsolutePath();
+			driverPathField.setText(path);
+			System.out.println("Selected ChromeDriver: " + path);
+
+			config.chromeDriverPath = path;
+			try {
+				configService.save(config);
+			} catch (IOException ex) {
+				ex.printStackTrace();
+			}
 		}
 	}
 
@@ -682,6 +726,5 @@ public class ActionWindow extends JFrame {
 //			}
 //		});
 	}
-
 }
 
