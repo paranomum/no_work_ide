@@ -6,7 +6,6 @@ import model.UserAction;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
-import ru.rt.iqhr.framework.pageobject.react.web_elements.buttons.*;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
@@ -33,6 +32,7 @@ public class PlayActionService {
 
 	public PlayActionService(DefaultTableModel tableModel) {
 		this.tableModel = tableModel;
+		formFiller.setRecorder(true);
 	}
 
 	public void playActionsFromTable(ActionWindow actionWindow) {
@@ -62,6 +62,7 @@ public class PlayActionService {
 			WebDriverRunner.setWebDriver(driver);
 			runScenario(actionWindow, steps);
 		}).start();
+//		runScenario(actionWindow, steps);
 	}
 
 	private List<PlayStep> buildStepsFromTable() {
@@ -76,16 +77,14 @@ public class PlayActionService {
 
 			String selector = val(r, 2);
 			String value    = val(r, 3);
-			String comment  = val(r, 4);
-			String javaData = val(r, 6);
+			String javaClassName = val(r, 5);
 
 			PlayStep step = new PlayStep();
 			step.rowIndex   = r;
 			step.actionCode = actionCode;
 			step.selector   = selector;
 			step.value      = value;
-			step.comment    = comment;
-			step.javaData   = javaData;
+			step.javaClassName = javaClassName;
 
 			steps.add(step);
 		}
@@ -94,144 +93,102 @@ public class PlayActionService {
 	}
 
 	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps) {
-		for (PlayStep step : steps) {
-			try {
-				playOneStep(step);
-			} catch (Exception ex) {
-				ex.printStackTrace();
-				String msg = "Error on step " + (step.rowIndex + 1) + " (" +
-						step.actionCode + "): " + ex.getMessage();
-				showErrorOnUi(actionWindow, msg);
-				return;
-			}
+		long prevStepEnd = System.currentTimeMillis();
 
-			try {
-				Thread.sleep(200);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				showErrorOnUi(actionWindow,
-						"Playback was interrupted on step " + (step.rowIndex + 1));
-				return;
-			}
+		for (PlayStep step : steps) {
+			long now = System.currentTimeMillis();
+			long gap = now - prevStepEnd;
+			System.out.println("GAP BEFORE STEP " + (step.rowIndex + 1) + " = " + gap + " ms");
+
+			long start = System.currentTimeMillis();
+			System.out.println("STEP START " + (step.rowIndex + 1));
+
+			playOneStep(step);
+
+			long took = System.currentTimeMillis() - start;
+			System.out.println("STEP END   " + (step.rowIndex + 1) + " took " + took + " ms");
+
+			prevStepEnd = System.currentTimeMillis();
+
+			// на время эксперимента sleep лучше убрать
+			// Thread.sleep(200);
 		}
 
 		showInfoOnUi(actionWindow, "Scenario finished successfully.");
 	}
 
-	private void playOneStep(PlayStep step) {
-		String action      = step.actionCode;
-		String selector    = step.selector;
-		String value       = step.value;
-		String javaClassName = val(step.rowIndex, 5); // колонка Element Type / Java class name
 
+	private void playOneStep(PlayStep step) {
+		String action        = step.actionCode;
+		String selector      = step.selector;
+		String value         = step.value;
+		String javaClassName = step.javaClassName; // уже прочитано из таблицы
 		boolean passValue = !action.contains("click")
 				&& !action.contains("selectOption")
 				&& !action.contains("fillDate");
 
-		// 2) Специальные действия (switchTab / fillData / specialAction)
+		// спец‑действия
 		boolean isSpecial = action.contains("switchTab")
 				|| action.contains("fillData")
-				|| action.contains("specialAction") || action.contains("open");
-
+				|| action.contains("specialAction")
+				|| action.contains("open");
 		if (isSpecial) {
 			playSpecialAction(action, value);
 			return;
 		}
 
-		// 3) Обычные действия по селектору и типу элемента
 		if (!hasText(selector)) {
-			// как и в buildJavaLinesFromTable: если нет селектора — шаг пропускаем
+			return;
+		}
+		if (!hasText(javaClassName)) {
+			System.out.println("Skip row " + (step.rowIndex + 1) + " – empty javaClassName");
 			return;
 		}
 
-		if (javaClassName != null && javaClassName.contains("Button")) {
-			 Button button = new Button("", $x(selector));
-			 if (action.contains("click")) {
-			     button.click();
-			 }
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("TabButton")) {
-			TabButton button = new TabButton("", $x(selector));
-			if (action.contains("click")) {
-				button.click();
-			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("LinkButton")) {
-			LinkButton button = new LinkButton("", $x(selector));
-			if (action.contains("click")) {
-				button.click();
-			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("Field")) {
-			 Field field = new Field("", $x(selector));
-			 if (passValue && hasText(value)) {
-			     field.fill(value);
-			 }
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("Select")) {
-			Select field = new Select("", $x(selector));
-			String valueToSelect = passValue && hasText(value) ? value : "";
-			if (!valueToSelect.isEmpty()) {
-				if (action.contains("selectOption")) {
-					field.selectOption(valueToSelect);
-				} else if (action.contains("selectExactOption")) {
-					field.selectExactOption(valueToSelect);
+		switch (javaClassName) {
+			case "Button", "TabButton", "LinkButton",
+				 "CheckBoxButton", "RadioButton" -> {
+				if (action.contains("click")) {
+					$x(selector).click();
 				}
-			} else if (action.contains("selectOption")) {
-				field.selectOption();
 			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("Dropdown")) {
-			Dropdown field = new Dropdown("", $x(selector));
-			String valueToSelect = passValue && hasText(value) ? value : "";
-			if (!valueToSelect.isEmpty()) {
+			case "Field" -> {
+				Field field = new Field("", $x(selector));
+				field.setRecorder(true);
+				if (passValue && hasText(value)) {
+					field.fill(value);
+				}
+			}
+			case "Select" -> {
+				Select field = new Select("", $x(selector));
+				field.setRecorder(true);
+				String valueToSelect = passValue && hasText(value) ? value : "";
 				field.selectOption(valueToSelect);
 			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("CheckBoxButton")) {
-			CheckBoxButton button = new CheckBoxButton("", $x(selector));
-			if (action.contains("click")) {
-				button.click();
+			case "Dropdown" -> {
+				Dropdown field = new Dropdown("", $x(selector));
+				field.setRecorder(true);
+				String valueToSelect = passValue && hasText(value) ? value : "";
+				if (!valueToSelect.isEmpty()) {
+					field.selectOption(valueToSelect);
+				}
 			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("RadioButton")) {
-			RadioButton button = new RadioButton("", $x(selector));
-			if (action.contains("click")) {
-				button.click();
+			case "DatePicker" -> {
+				DatePicker field = new DatePicker("", $x(selector));
+				field.setRecorder(true);
+				if (action.contains("fillDate")) {
+					field.fillDate();
+				}
 			}
-			return;
-		}
-
-		if (javaClassName != null && javaClassName.contains("DatePicker")) {
-			DatePicker field = new DatePicker("", $x(selector));
-			if (action.contains("fillDate")) {
-				field.fillDate();
+			default -> {
+				System.out.println(
+						"Unknown javaClassName='" + javaClassName +
+								"' at row " + (step.rowIndex + 1) +
+								", selector=" + selector
+				);
 			}
-			return;
 		}
-
-		WebElement element = findByXpath(selector);
-
-		if (action.contains("click")) {
-			element.click();
-		} else if (passValue && hasText(value)) {
-			element.clear();
-			element.sendKeys(value);
-		}
+		System.out.println("TYPE - " + javaClassName);
 	}
 
 	// ---- спец‑действия ----
@@ -309,7 +266,6 @@ public class PlayActionService {
 		String actionCode;
 		String selector;
 		String value;
-		String comment;
-		String javaData;
+		String javaClassName;
 	}
 }
