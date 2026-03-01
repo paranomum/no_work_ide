@@ -14,9 +14,16 @@
         <selenide.version>7.0.2</selenide.version>
         <selenium.version>4.14.1</selenium.version>
         <junit.jupiter.version>5.10.0</junit.jupiter.version>
+        <junit-jupiter.version>5.10.0</junit-jupiter.version>
         <allure.version>2.22.1</allure.version>
     </properties>
     <dependencies>
+        <dependency>
+            <groupId>iqhr.auto-test.ui</groupId>
+            <artifactId>framework_core</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
         <!--  Selenium & Selenide  -->
         <dependency>
             <groupId>com.formdev</groupId>
@@ -103,6 +110,12 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.30</version>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

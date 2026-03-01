@@ -37,6 +37,8 @@ import java.util.Map;
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatDarkLaf;
 
+import static com.codeborne.selenide.Selenide.open;
+
 public class ActionWindow extends JFrame {
 
 	private static final int UNDO_LIMIT = 5;
@@ -87,6 +89,7 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
+		playActionService =  new PlayActionService(tableModel);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel);
 
@@ -145,10 +148,9 @@ public class ActionWindow extends JFrame {
 
 		// НОВАЯ КНОПКА ПРОГОНА
 		playButton = new JButton("▶");
-		playButton.setToolTipText("Run actions from table");
-		playButton.setFocusable(false);
+		playButton.setToolTipText("Run actions from table in browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		playButton.addActionListener(e -> playActionService.playActionsFromTable());
+		playButton.addActionListener(e -> playActionService.playActionsFromTable(this));
 
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
@@ -174,9 +176,13 @@ public class ActionWindow extends JFrame {
 		saveVarButton.addActionListener(e -> saveTableToFile());
 		leftButtons.add(saveVarButton);
 
+		JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+		rightButtons.add(playButton);
+		rightButtons.add(recordingButton);
+
 		topBar.add(leftButtons, BorderLayout.WEST);
 		topBar.add(openBrowserButton, BorderLayout.CENTER);
-		topBar.add(recordingButton, BorderLayout.EAST);
+		topBar.add(rightButtons, BorderLayout.EAST);
 
 		return topBar;
 	}
@@ -629,9 +635,10 @@ public class ActionWindow extends JFrame {
 
 			ChromeDriver rawDriver = new ChromeDriver(chromeOptions);
 			driver = rawDriver;
+			WebDriverRunner.setWebDriver(driver);
+			open("https://test-iqhr.rt.ru/");
 			actionRecorder.setDriver(driver);
-
-			driver.navigate().to("about:blank");
+			playActionService.setDriver(driver);
 
 //			JOptionPane.showMessageDialog(
 //					this,
@@ -641,7 +648,6 @@ public class ActionWindow extends JFrame {
 //			);
 
 			System.out.println("ChromeDriver initialized successfully with: " + driverPath);
-			driver.navigate().to("https://test-iqhr.rt.ru/");
 		} catch (Exception e) {
 			String errorMessage = e.getMessage();
 
