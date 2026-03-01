@@ -13,6 +13,7 @@ import java.nio.file.Paths;
 
 public class ConfigService {
 	private static final String CONFIG_FILE_NAME = "settings.json";
+	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
 	private Path getConfigDir() throws IOException {
@@ -58,6 +59,8 @@ public class ConfigService {
 				// на всякий случай подстрахуем поля
 				if (cfg.theme == null) cfg.theme = "Light";
 				if (cfg.chromeDriverPath == null) cfg.chromeDriverPath = "";
+				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
+
 				return cfg;
 			}
 		} catch (Exception e) {
@@ -76,6 +79,35 @@ public class ConfigService {
 		try (Writer w = Files.newBufferedWriter(file)) {
 			gson.toJson(config, w);
 		}
+	}
+
+	// путь к openApiSpec.json
+	public Path getOpenApiSpecsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.openApiSpecsPath != null && !cfg.openApiSpecsPath.isBlank()) {
+			file = Paths.get(cfg.openApiSpecsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.openApiSpecsPath);
+			}
+		} else {
+			file = dir.resolve(OPENAPI_SPECS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			// создаём пустой json массив по дефолту
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	public Path loadConfigDir() throws IOException {
+		return getConfigDir();
 	}
 }
 

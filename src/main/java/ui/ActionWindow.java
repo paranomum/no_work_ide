@@ -1,6 +1,8 @@
 package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
 import model.ElementType;
@@ -9,8 +11,7 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.events.EventFiringDecorator;
-import ui.action.ActionFileService;
-import ui.action.ActionRecorder;
+import ui.action.*;
 
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
@@ -27,10 +28,7 @@ import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.HashMap;
@@ -38,12 +36,6 @@ import java.util.Map;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatDarkLaf;
-import ui.action.ConfigService;
-
-import javax.swing.UIManager;
-
-
-import static com.codeborne.selenide.Selenide.open;
 
 public class ActionWindow extends JFrame {
 
@@ -57,6 +49,7 @@ public class ActionWindow extends JFrame {
 	private JButton addActionButton;
 	private JButton menuButton;
 	private JButton openBrowserButton;
+	private JButton playButton;
 	private JComboBox<String> themeSelect;
 	private JTextField driverPathField;
 	private Map<String, String> variables;
@@ -64,44 +57,18 @@ public class ActionWindow extends JFrame {
 	private WebDriver driver;
 	private JButton recordingButton;
 	private TableColumn hiddenJavaColumn;
+//	private JMenuItem generateApiClientItem;
 
 	private ActionFileService fileService;
 	private final ConfigService configService = new ConfigService();
 	private AppConfig config;
 
-	private void pushUndo(Runnable undo, Runnable redo) {
-		undoStack.push(undo);
-		// при новом действии история redo сбрасывается
-		redoStack.clear();
-		while (undoStack.size() > UNDO_LIMIT) {
-			undoStack.removeLast();
-		}
-		// чтобы redo работал, кладём противоположное действие
-		redoStack.push(redo);
-	}
-
-	public void pushMoveUndo(int from, int to, Object[] rowData) {
-		pushUndo(
-				// undo: вернуть строку на старое место
-				() -> {
-					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
-					model.removeRow(to);
-					model.insertRow(from, rowData);
-					actionTable.getSelectionModel().setSelectionInterval(from, from);
-				},
-				// redo: снова переместить на новое
-				() -> {
-					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
-					model.removeRow(from);
-					model.insertRow(to, rowData);
-					actionTable.getSelectionModel().setSelectionInterval(to, to);
-				}
-		);
-	}
-
+	private OpenApiService openApiService;
+	private PlayActionService playActionService;
 
 	public ActionWindow() {
-		config = configService.load(); // уже точно не null
+		config = configService.load();
+		openApiService = new OpenApiService(configService, config);
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
 			FlatDarkLaf.setup();
@@ -128,12 +95,8 @@ public class ActionWindow extends JFrame {
 		content.add(createTopBarPanel(), BorderLayout.NORTH);
 
 		JScrollPane scrollPane = new JScrollPane(actionTable);
-//		RowNumberTable rowHeader = new RowNumberTable(actionTable);
-//		scrollPane.setRowHeaderView(rowHeader);
 		content.add(scrollPane, BorderLayout.CENTER);
-
 		content.add(createBottomPanel(), BorderLayout.SOUTH);
-		config = configService.load();
 	}
 
 	private void initTopBar() {
@@ -143,7 +106,7 @@ public class ActionWindow extends JFrame {
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 
 		JPopupMenu popup = new JPopupMenu();
-		popup.add(new JMenuItem("New test"));
+
 		JMenuItem openItem = new JMenuItem("Open..");
 		openItem.addActionListener(e -> {
 			if (fileService != null) {
@@ -151,8 +114,19 @@ public class ActionWindow extends JFrame {
 			}
 		});
 		popup.add(openItem);
-		popup.addSeparator();
-		popup.add(new JMenuItem("Exit"));
+
+		JMenuItem generateApiClientItem = new JMenuItem("Generate ApiClient");
+		generateApiClientItem.addActionListener(e -> openApiService.openGenerateApiClientDialog(this));
+		popup.add(generateApiClientItem);
+
+		JMenuItem settingsItem = new JMenuItem("Settings");
+		settingsItem.addActionListener(e -> openSettingsDialog());
+
+		popup.add(settingsItem);
+
+		JMenuItem exitItem = new JMenuItem("Exit");
+		exitItem.addActionListener(e -> dispose());
+		popup.add(exitItem);
 
 		menuButton.addActionListener(e ->
 				popup.show(menuButton, 0, menuButton.getHeight())
@@ -168,6 +142,13 @@ public class ActionWindow extends JFrame {
 		openBrowserButton.setToolTipText("Open Chrome for Testing browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		openBrowserButton.addActionListener(e -> openBrowser());
+
+		// НОВАЯ КНОПКА ПРОГОНА
+		playButton = new JButton("▶");
+		playButton.setToolTipText("Run actions from table");
+		playButton.setFocusable(false);
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+		playButton.addActionListener(e -> playActionService.playActionsFromTable());
 
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
@@ -725,6 +706,60 @@ public class ActionWindow extends JFrame {
 //				}
 //			}
 //		});
+	}
+
+	private void openSettingsDialog() {
+		JDialog dialog = new JDialog(this, "Settings", true);
+		dialog.setSize(600, 400);
+		dialog.setLocationRelativeTo(this);
+		dialog.setLayout(new BorderLayout());
+
+		JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+
+		JPanel mainPanel = new JPanel();
+		mainPanel.add(new JLabel("Main settings (TODO move theme/chromeDriver here)"));
+		tabs.addTab("Main", mainPanel);
+
+		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
+		tabs.addTab("OpenApi", openApiPanel);
+
+		dialog.add(tabs, BorderLayout.CENTER);
+
+		JButton closeBtn = new JButton("Close");
+		closeBtn.addActionListener(e -> dialog.dispose());
+		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		bottom.add(closeBtn);
+		dialog.add(bottom, BorderLayout.SOUTH);
+
+		dialog.setVisible(true);
+	}
+
+	private void pushUndo(Runnable undo, Runnable redo) {
+		undoStack.push(undo);
+		// при новом действии история redo сбрасывается
+		redoStack.clear();
+		while (undoStack.size() > UNDO_LIMIT) {
+			undoStack.removeLast();
+		}
+		// чтобы redo работал, кладём противоположное действие
+		redoStack.push(redo);
+	}
+
+	public void pushMoveUndo(int from, int to, Object[] rowData) {
+		pushUndo(
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(to);
+					model.insertRow(from, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(from, from);
+				},
+				() -> {
+					DefaultTableModel model = (DefaultTableModel) actionTable.getModel();
+					model.removeRow(from);
+					model.insertRow(to, rowData);
+					actionTable.getSelectionModel().setSelectionInterval(to, to);
+				}
+		);
 	}
 }
 
