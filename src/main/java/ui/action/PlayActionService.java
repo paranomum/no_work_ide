@@ -20,6 +20,8 @@ import java.util.List;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
 import static com.codeborne.selenide.Selenide.$x;
+import static com.codeborne.selenide.Selenide.open;
+import static ru.rt.iqhr.framework.util.WebElementUtil.waitLoadingPage;
 
 
 public class PlayActionService {
@@ -169,6 +171,7 @@ public class PlayActionService {
 		boolean isSpecial = action.contains("switchTab")
 				|| action.contains("fillData")
 				|| action.contains("specialAction")
+				|| action.contains("waitLoadingPage")
 				|| action.contains("open");
 		if (isSpecial) {
 			playSpecialAction(action, value);
@@ -231,7 +234,7 @@ public class PlayActionService {
 		if (action.contains("switchTab")) {
 			tabManager.switchToNewTab();
 		} else if (action.contains("open")) {
-			driver.get(value);
+			open(value);
 		} else if (action.contains("fillData")) {
 			//get xpath by url
 			String url = driver.getCurrentUrl();
@@ -242,8 +245,13 @@ public class PlayActionService {
 				toGet = formFiller.getXpathLk();
 			else if (url.contains("/cabinet/offers/"))
 				toGet = formFiller.getXpathOffer();
-			formFiller.fillRequiredEmpty(toGet);
+			formFiller.fillRequiredEmptyByLabel(toGet);
 			formFiller.fillRequiredConfirmationSteps(toGet, "superuser_1@autotest.rt", "superuser_1@autotest.rt");
+		} else if (action.contains("waitLoadingPage")) {
+			if (value != null && !value.isEmpty() && !value.isBlank())
+				waitLoadingPage(Integer.parseInt(value.replaceAll("[\\D]", "")));
+			else
+				waitLoadingPage();
 		} else if (action.contains("specialAction")) {
 			// Заглушка под твои кастомные «особые» шаги.
 		}

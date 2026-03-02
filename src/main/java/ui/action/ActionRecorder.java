@@ -321,11 +321,12 @@ public class ActionRecorder {
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
 		String locatorScript = loadResource("get_locator.js");
+		String base = loadResource("base.js");
 		String buttonScript  = loadResource("buttons.js");
 		String inputScript   = loadResource("input.js");
 		String picker        = loadResource("date_picker.js");
 		String select        = loadResource("select.js");
-		js.executeScript(locatorScript + buttonScript + inputScript + picker + select);
+		js.executeScript(base+ locatorScript + buttonScript + inputScript + picker + select);
 
 		new Thread(() -> {
 			try {
@@ -410,12 +411,13 @@ public class ActionRecorder {
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
 		String buttons = loadResource("buttons.js");
+		String base = loadResource("base.js");
 		String fields  = loadResource("input.js");
 		String script  = loadResource("actions.js");
 		String picker  = loadResource("date_picker.js");
 		String select  = loadResource("select.js");
 
-		js.executeScript(buttons + fields + script + picker + select);
+		js.executeScript(base + buttons + fields + script + picker + select);
 		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
 	}
 

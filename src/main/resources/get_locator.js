@@ -3,70 +3,6 @@ window.locatorPickResult = null;
 // Глобальный подсвеченный элемент
 let lastHighlighted = null;
 
-function getXPath(element) {
-	if (!element || element.nodeType !== 1) return '';
-		if (element.id && document.getElementById(element.id) === element) {
-			return "//*[@id='" + element.id + "']";
-	}
-	var paths = [];
-	for (; element && element.nodeType === 1; element = element.parentNode) {
-		var index = 0;
-		var hasFollowingSiblings = false;
-		if (element.id && document.getElementById(element.id) === element) {
-			paths.splice(0, 0, "/*[@id='" + element.id + "']");
-			break;
-		}
-		for (var sibling = element.previousSibling; sibling; sibling = sibling.previousSibling) {
-			if (sibling.nodeType === 1 && sibling.nodeName === element.nodeName) {
-				index++;
-			}
-		}
-		for (var sibling = element.nextSibling; sibling && !hasFollowingSiblings; sibling = sibling.nextSibling) {
-			if (sibling.nodeType === 1 && sibling.nodeName === element.nodeName) {
-				hasFollowingSiblings = true;
-			}
-		}
-		var tagName = element.nodeName.toLowerCase();
-		var pathIndex = (index || hasFollowingSiblings) ? '[' + (index + 1) + ']' : '';
-		paths.splice(0, 0, tagName + pathIndex);
-		if (element.nodeName.toLowerCase() === 'html') break;
-	}
-	return paths.length ? '/' + paths.join('/') : '';
-}
-
-/**
- * Нормализованный XPath: поднимаемся до ближайшего кликабельного контейнера
- * (button / input / textarea / select / div[@role='button'|'tab']),
- * но сам путь строим старым getXPath.
- */
-function getClickableXPath(element) {
-    if (!element || element.nodeType !== 1) return '';
-
-    var root = element;
-    var depth = 0;
-    while (root && depth < 10) {
-        var tag = root.tagName ? root.tagName.toUpperCase() : '';
-        var role = root.getAttribute && root.getAttribute('role');
-
-        if (
-            tag === 'BUTTON' ||
-            tag === 'INPUT' ||
-            tag === 'TEXTAREA' ||
-            tag === 'SELECT' ||
-            (tag === 'DIV' && (role === 'button' || role === 'tab'))
-        ) {
-            break;
-        }
-
-        root = root.parentElement;
-        depth++;
-    }
-
-    // если нашли подходящий контейнер — строим XPath от него,
-    // иначе fallback к исходному элементу
-    return getXPath(root || element);
-}
-
 function highlightElement(el) {
     if (!el) return;
 
@@ -135,7 +71,8 @@ function locatorClickHandler(e) {
     e.stopPropagation();
     e.stopImmediatePropagation();
 
-    const el = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+    const el = e.target;
+    console.log('target:', el, 'tag:', el.tagName, 'classes:', el.className);
 
     var xpath = findLocatorXpath(el);
     if (!xpath) {

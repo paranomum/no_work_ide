@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
+import lombok.val;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
@@ -616,7 +617,9 @@ public class ActionWindow extends JFrame {
 			return;
 		}
 
-		if (driver != null) {
+		val nowDriver = isBrowserClosed(driver);
+
+		if (!nowDriver) {
 			JOptionPane.showMessageDialog(
 					this,
 					"Browser is already open",
@@ -654,6 +657,7 @@ public class ActionWindow extends JFrame {
 
 			ChromeDriver rawDriver = new ChromeDriver(chromeOptions);
 			driver = rawDriver;
+			driver.manage().window().maximize();
 			WebDriverRunner.setWebDriver(driver);
 			open("https://test-iqhr.rt.ru/");
 			actionRecorder.setDriver(driver);
@@ -806,5 +810,18 @@ public class ActionWindow extends JFrame {
 			ex.printStackTrace();
 		}
 	}
+
+	public static boolean isBrowserClosed(WebDriver driver) {
+		if (driver == null) return true;
+		try {
+			driver.getTitle();
+			driver.getTitle();
+			driver.getTitle();
+			return false;                   // сессия жива
+		} catch (Exception e) {
+			return true;                    // окно/сессия уже мертвы
+		}
+	}
+
 }
 
