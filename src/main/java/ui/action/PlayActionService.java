@@ -1,12 +1,15 @@
 package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
+import dto.UsersServiceSpec;
 import lombok.Setter;
 import model.UserAction;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import org.openqa.selenium.interactions.Actions;
 import ru.rt.iqhr.framework.config.FrameworkConfig;
+import ru.rt.iqhr.framework.pageobject.react.web_elements.buttons.Button;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
@@ -16,11 +19,13 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
 import static com.codeborne.selenide.Selenide.$x;
 import static com.codeborne.selenide.Selenide.open;
+import static ru.rt.iqhr.framework.util.StringUtils.isEmail;
 import static ru.rt.iqhr.framework.util.WebElementUtil.waitLoadingPage;
 
 
@@ -32,15 +37,17 @@ public class PlayActionService {
 	private final DefaultTableModel tableModel;
 	private final TabManager tabManager = new TabManager();
 	private final FormFiller formFiller;
+	private final UsersService usersService;
 
 	private Thread playThread;
 	private volatile boolean stopped = false;
 
 
-	public PlayActionService(DefaultTableModel tableModel) {
+	public PlayActionService(DefaultTableModel tableModel, UsersService usersService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
+		this.usersService = usersService;
 	}
 
 	public void playActionsFromTable(ActionWindow actionWindow) {
@@ -139,7 +146,7 @@ public class PlayActionService {
 				playOneStep(step);
 			} catch (RuntimeException e) {
 				e.printStackTrace();
-				showErrorOnUi(actionWindow, "Error at step " + (step.rowIndex + 1) + ": " + e.getMessage());
+				showErrorOnUi(actionWindow, "Error at step " + (step.rowIndex) + ": " + e.getMessage());
 				break;
 			}
 
@@ -172,6 +179,8 @@ public class PlayActionService {
 				|| action.contains("fillData")
 				|| action.contains("specialAction")
 				|| action.contains("waitLoadingPage")
+				|| action.contains("pause")
+				|| action.contains("auth")
 				|| action.contains("open");
 		if (isSpecial) {
 			playSpecialAction(action, value);
@@ -230,7 +239,8 @@ public class PlayActionService {
 
 	// ---- спец‑действия ----
 
-	private void playSpecialAction(String action, String value) {
+	private void playSpecialAction(String action, String value){
+		boolean hasValue = value != null && !value.isEmpty() && !value.isBlank();
 		if (action.contains("switchTab")) {
 			tabManager.switchToNewTab();
 		} else if (action.contains("open")) {
@@ -248,10 +258,27 @@ public class PlayActionService {
 			formFiller.fillRequiredEmptyByLabel(toGet);
 			formFiller.fillRequiredConfirmationSteps(toGet, "superuser_1@autotest.rt", "superuser_1@autotest.rt");
 		} else if (action.contains("waitLoadingPage")) {
-			if (value != null && !value.isEmpty() && !value.isBlank())
+			if (hasValue)
 				waitLoadingPage(Integer.parseInt(value.replaceAll("[\\D]", "")));
 			else
 				waitLoadingPage();
+		} else if (action.equals("auth")) {
+			if (hasValue) {
+				UsersServiceSpec user = usersService.getUser(value);
+				new Auth().logIN(user.username, user.password);
+			}
+			else
+				throw new IllegalArgumentException("value for action 'auth' must not be null");
+		} else if (action.contains("pause")) {
+			try {
+				if (hasValue)
+					TimeUnit.MILLISECONDS.sleep(Integer.parseInt(value.replaceAll("[\\D]", "")) * 1000);
+				else {
+					TimeUnit.MILLISECONDS.sleep(300);
+				}
+			} catch (InterruptedException e) {
+				throw new RuntimeException(e);
+			}
 		} else if (action.contains("specialAction")) {
 			// Заглушка под твои кастомные «особые» шаги.
 		}
@@ -309,5 +336,17 @@ public class PlayActionService {
 		String selector;
 		String value;
 		String javaClassName;
+	}
+
+	private class Auth {
+		private final Field emailField = new Field("E-mail");
+		private final Field passwordField = new Field("Пароль");
+		private final Button authButton = new Button("Далее");
+
+		public void logIN(String username, String password) {
+			emailField.fill(username);
+			passwordField.fill(password);
+			authButton.click();
+		}
 	}
 }

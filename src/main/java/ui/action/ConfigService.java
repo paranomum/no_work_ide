@@ -15,6 +15,7 @@ import java.util.HashMap;
 public class ConfigService {
 	private static final String CONFIG_FILE_NAME = "settings.json";
 	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
+	private static final String USERS_FILE_NAME = "users.json";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
 	private Path getConfigDir() throws IOException {
@@ -65,6 +66,7 @@ public class ConfigService {
 				if (cfg.theme == null) cfg.theme = "Light";
 				if (cfg.chromeDriverPath == null) cfg.chromeDriverPath = "";
 				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
+				if (cfg.usersSpecsPath == null) cfg.usersSpecsPath = "";
 				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
 
 				return cfg;
@@ -101,6 +103,31 @@ public class ConfigService {
 			}
 		} else {
 			file = dir.resolve(OPENAPI_SPECS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			// создаём пустой json массив по дефолту
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	// путь к openApiSpec.json
+	public Path getUsersFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.usersSpecsPath != null && !cfg.usersSpecsPath.isBlank()) {
+			file = Paths.get(cfg.usersSpecsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.usersSpecsPath);
+			}
+		} else {
+			file = dir.resolve(USERS_FILE_NAME);
 		}
 
 		if (!Files.exists(file)) {

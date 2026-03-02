@@ -1,9 +1,6 @@
 package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import dto.ActionRecord;
 import dto.AppConfig;
 import lombok.val;
 import model.ElementType;
@@ -11,7 +8,6 @@ import model.UserAction;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.support.events.EventFiringDecorator;
 import ui.action.*;
 
 import javax.swing.ActionMap;
@@ -65,11 +61,13 @@ public class ActionWindow extends JFrame {
 	private AppConfig config;
 
 	private OpenApiService openApiService;
+	private UsersService usersService;
 	private PlayActionService playActionService;
 
 	public ActionWindow() {
 		config = configService.load();
 		openApiService = new OpenApiService(configService, config);
+		usersService = new UsersService(configService, config);
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
 			FlatDarkLaf.setup();
@@ -88,7 +86,7 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
-		playActionService =  new PlayActionService(tableModel);
+		playActionService =  new PlayActionService(tableModel, usersService);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel);
 
@@ -750,6 +748,9 @@ public class ActionWindow extends JFrame {
 
 		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
 		tabs.addTab("OpenApi", openApiPanel);
+
+		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
+		tabs.addTab("Users", usersPanel);
 
 		dialog.add(tabs, BorderLayout.CENTER);
 

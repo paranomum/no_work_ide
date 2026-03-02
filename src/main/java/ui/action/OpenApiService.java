@@ -77,7 +77,12 @@ public class OpenApiService {
 
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		JButton saveBtn = new JButton("Save");
-		saveBtn.addActionListener(e -> saveOpenApiSpecs(parentDialog));
+		saveBtn.addActionListener(e -> {
+			if (openApiTable.isEditing()) {
+				openApiTable.getCellEditor().stopCellEditing();
+			}
+			saveOpenApiSpecs(parentDialog);
+		});
 		bottom.add(saveBtn);
 		panel.add(bottom, BorderLayout.SOUTH);
 
@@ -454,8 +459,4 @@ public class OpenApiService {
 
 		dialog.setVisible(true);
 	}
-
-	// ===== тут остаются loadOpenApiSpecsMap, extractOpenApiGeneratorJar,
-	// runOpenApiGeneratorWithEmbeddedJar и openGenerateApiClientDialog(owner),
-	// как они у тебя уже сделаны, но без extends JFrame и с использованием owner
 }
