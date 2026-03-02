@@ -23,16 +23,14 @@ import javax.swing.AbstractAction;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.event.TableModelListener;
+import javax.swing.event.*;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.*;
-import java.util.ArrayList;
-import java.util.EventObject;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.List;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatDarkLaf;
@@ -97,6 +95,17 @@ public class ActionWindow extends JFrame {
 		content.setLayout(new BorderLayout());
 		content.add(createTopBarPanel(), BorderLayout.NORTH);
 
+		actionTable.getColumnModel().addColumnModelListener(new TableColumnModelListener() {
+			@Override
+			public void columnMarginChanged(ChangeEvent e) {
+				saveColumnWidthsToConfig();
+			}
+
+			@Override public void columnAdded(TableColumnModelEvent e) {}
+			@Override public void columnRemoved(TableColumnModelEvent e) {}
+			@Override public void columnMoved(TableColumnModelEvent e) {}
+			@Override public void columnSelectionChanged(ListSelectionEvent e) {}
+		});
 		JScrollPane scrollPane = new JScrollPane(actionTable);
 		content.add(scrollPane, BorderLayout.CENTER);
 		content.add(createBottomPanel(), BorderLayout.SOUTH);
@@ -229,9 +238,19 @@ public class ActionWindow extends JFrame {
 		headerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
 		header.setDefaultRenderer(headerRenderer);
 
-		// колонка с индексом (#)
-		actionTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-		actionTable.getColumnModel().getColumn(0).setMaxWidth(50);
+		if (config.actionTableColumnWidths.isEmpty()) {
+			actionTable.getColumnModel().getColumn(0).setPreferredWidth(50);
+		} else {
+			List<String> columnList = Arrays.stream(columns).toList();
+			for (String column : columnList) {
+				if (config.actionTableColumnWidths.containsKey(column)) {
+					int index = columnList.indexOf(column);
+					int width = config.actionTableColumnWidths.get(column);
+					actionTable.getColumnModel().getColumn(index).setPreferredWidth(width);
+					actionTable.getColumnModel().getColumn(index).setWidth(width);
+				}
+			}
+		}
 		actionTable.getColumnModel().getColumn(0).setCellRenderer(
 				new DefaultTableCellRenderer() {
 					@Override
@@ -393,7 +412,7 @@ public class ActionWindow extends JFrame {
 
 		hiddenJavaColumn = actionTable.getColumnModel().getColumn(6);
 		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
-
+//		restoreColumnWidthsFromConfig();
 	}
 
 
@@ -671,7 +690,6 @@ public class ActionWindow extends JFrame {
 				);
 			}
 
-			System.err.println("Error initializing ChromeDriver: " + errorMessage);
 			e.printStackTrace();
 			driver = null;
 		}
@@ -766,6 +784,27 @@ public class ActionWindow extends JFrame {
 					actionTable.getSelectionModel().setSelectionInterval(to, to);
 				}
 		);
+	}
+
+	private void saveColumnWidthsToConfig() {
+		if (config == null) return;
+
+		Map<String, Integer> map = new LinkedHashMap<>();
+		int columnCount = actionTable.getColumnModel().getColumnCount();
+
+		for (int i = 0; i < columnCount; i++) {
+			String name = actionTable.getColumnModel().getColumn(i).getHeaderValue().toString();
+			int width = actionTable.getColumnModel().getColumn(i).getWidth();
+			map.put(name, width);
+		}
+
+		config.actionTableColumnWidths = map;
+
+		try {
+			configService.save(config);
+		} catch (IOException ex) {
+			ex.printStackTrace();
+		}
 	}
 }
 

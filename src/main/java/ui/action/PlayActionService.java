@@ -6,6 +6,7 @@ import model.UserAction;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import ru.rt.iqhr.framework.config.FrameworkConfig;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
@@ -28,11 +29,16 @@ public class PlayActionService {
 
 	private final DefaultTableModel tableModel;
 	private final TabManager tabManager = new TabManager();
-	private final FormFiller formFiller = new FormFiller();
+	private final FormFiller formFiller;
+
+	private Thread playThread;
+	private volatile boolean stopped = false;
+
 
 	public PlayActionService(DefaultTableModel tableModel) {
+		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
-		formFiller.setRecorder(true);
+		formFiller = new FormFiller();
 	}
 
 	public void playActionsFromTable(ActionWindow actionWindow) {
@@ -42,6 +48,16 @@ public class PlayActionService {
 					"Browser is not open. Please open browser first.",
 					"Browser Required",
 					JOptionPane.WARNING_MESSAGE
+			);
+			return;
+		}
+
+		if (playThread != null && playThread.isAlive()) {
+			JOptionPane.showMessageDialog(
+					actionWindow,
+					"Scenario is already running.",
+					"Already running",
+					JOptionPane.INFORMATION_MESSAGE
 			);
 			return;
 		}
@@ -57,12 +73,21 @@ public class PlayActionService {
 			return;
 		}
 
-		new Thread(() ->
-		{
+		stopped = false;
+
+		playThread = new Thread(() -> {
 			WebDriverRunner.setWebDriver(driver);
 			runScenario(actionWindow, steps);
-		}).start();
-//		runScenario(actionWindow, steps);
+		}, "PlayScenarioThread");
+
+		playThread.start();
+	}
+
+	public synchronized void stopPlayback() {
+		stopped = true;
+		if (playThread != null && playThread.isAlive()) {
+			playThread.interrupt();
+		}
 	}
 
 	private List<PlayStep> buildStepsFromTable() {
@@ -96,6 +121,11 @@ public class PlayActionService {
 		long prevStepEnd = System.currentTimeMillis();
 
 		for (PlayStep step : steps) {
+			if (stopped) { // мягкая остановка
+				System.out.println("Playback stopped before step " + (step.rowIndex + 1));
+				break;
+			}
+
 			long now = System.currentTimeMillis();
 			long gap = now - prevStepEnd;
 			System.out.println("GAP BEFORE STEP " + (step.rowIndex + 1) + " = " + gap + " ms");
@@ -103,18 +133,26 @@ public class PlayActionService {
 			long start = System.currentTimeMillis();
 			System.out.println("STEP START " + (step.rowIndex + 1));
 
-			playOneStep(step);
+			try {
+				playOneStep(step);
+			} catch (RuntimeException e) {
+				e.printStackTrace();
+				showErrorOnUi(actionWindow, "Error at step " + (step.rowIndex + 1) + ": " + e.getMessage());
+				break;
+			}
 
 			long took = System.currentTimeMillis() - start;
 			System.out.println("STEP END   " + (step.rowIndex + 1) + " took " + took + " ms");
 
 			prevStepEnd = System.currentTimeMillis();
-
-			// на время эксперимента sleep лучше убрать
-			// Thread.sleep(200);
 		}
 
-		showInfoOnUi(actionWindow, "Scenario finished successfully.");
+		if (!stopped) {
+			showInfoOnUi(actionWindow, "Scenario finished successfully.");
+		} else {
+			showInfoOnUi(actionWindow, "Scenario was stopped by user.");
+		}
+		stopPlayback();
 	}
 
 
@@ -154,20 +192,17 @@ public class PlayActionService {
 			}
 			case "Field" -> {
 				Field field = new Field("", $x(selector));
-				field.setRecorder(true);
 				if (passValue && hasText(value)) {
 					field.fill(value);
 				}
 			}
 			case "Select" -> {
 				Select field = new Select("", $x(selector));
-				field.setRecorder(true);
 				String valueToSelect = passValue && hasText(value) ? value : "";
 				field.selectOption(valueToSelect);
 			}
 			case "Dropdown" -> {
 				Dropdown field = new Dropdown("", $x(selector));
-				field.setRecorder(true);
 				String valueToSelect = passValue && hasText(value) ? value : "";
 				if (!valueToSelect.isEmpty()) {
 					field.selectOption(valueToSelect);
@@ -175,7 +210,6 @@ public class PlayActionService {
 			}
 			case "DatePicker" -> {
 				DatePicker field = new DatePicker("", $x(selector));
-				field.setRecorder(true);
 				if (action.contains("fillDate")) {
 					field.fillDate();
 				}

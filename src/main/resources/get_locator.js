@@ -34,6 +34,39 @@ function getXPath(element) {
 	return paths.length ? '/' + paths.join('/') : '';
 }
 
+/**
+ * Нормализованный XPath: поднимаемся до ближайшего кликабельного контейнера
+ * (button / input / textarea / select / div[@role='button'|'tab']),
+ * но сам путь строим старым getXPath.
+ */
+function getClickableXPath(element) {
+    if (!element || element.nodeType !== 1) return '';
+
+    var root = element;
+    var depth = 0;
+    while (root && depth < 10) {
+        var tag = root.tagName ? root.tagName.toUpperCase() : '';
+        var role = root.getAttribute && root.getAttribute('role');
+
+        if (
+            tag === 'BUTTON' ||
+            tag === 'INPUT' ||
+            tag === 'TEXTAREA' ||
+            tag === 'SELECT' ||
+            (tag === 'DIV' && (role === 'button' || role === 'tab'))
+        ) {
+            break;
+        }
+
+        root = root.parentElement;
+        depth++;
+    }
+
+    // если нашли подходящий контейнер — строим XPath от него,
+    // иначе fallback к исходному элементу
+    return getXPath(root || element);
+}
+
 function highlightElement(el) {
     if (!el) return;
 
@@ -106,7 +139,7 @@ function locatorClickHandler(e) {
 
     var xpath = findLocatorXpath(el);
     if (!xpath) {
-        xpath = getXPath(el); // Fallback для любых элементов
+        xpath = getClickableXPath(el); // Fallback для любых элементов
     }
 
     console.log('LOCATOR_PICK xpath:', xpath);

@@ -4,16 +4,12 @@ import lombok.SneakyThrows;
 import lombok.val;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
+
 import javax.swing.table.DefaultTableModel;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class ActionRecorder {
 
@@ -21,9 +17,9 @@ public class ActionRecorder {
 	private final Map<String, String> variables = new HashMap<>();
 	private boolean isRecording = false;
 	private WebDriver driver;
+
 	private volatile String lastFocusedXPath = null;
 	private volatile String lastFocusedValue = "";
-
 
 	private String lastSelectOpenXpath = null;
 	private String selectJava = null;
@@ -33,6 +29,8 @@ public class ActionRecorder {
 	private String lastDatePickerOpenXpath = null;
 	private String datePickerJava = null;
 	private List<String> currentDateRange = new ArrayList<>();
+
+	private Thread recorderThread;
 
 	public ActionRecorder(DefaultTableModel tableModel) {
 		this.tableModel = tableModel;
@@ -45,10 +43,18 @@ public class ActionRecorder {
 		}
 	}
 
-	public void toggleRecording() {
-		isRecording = !isRecording;
-		if (isRecording && driver != null) {
-			injectListeners();
+	/**
+	 * Вкл/выкл записи. При выключении аккуратно гасим поток.
+	 */
+	public synchronized void toggleRecording() {
+		if (isRecording) {
+			isRecording = false;
+			stopRecorderThread();
+		} else {
+			if (driver != null) {
+				isRecording = true;
+				injectListeners();
+			}
 		}
 	}
 
@@ -68,30 +74,39 @@ public class ActionRecorder {
 		startCapture();
 	}
 
-	private void startCapture() {
-		new Thread(() -> {
+	/**
+	 * Запуск одного потока‑рекордера. Если уже запущен — не создаём новый.
+	 */
+	private synchronized void startCapture() {
+		if (recorderThread != null && recorderThread.isAlive()) {
+			System.out.println("[RECORDER] capture thread already running: " + recorderThread.getId());
+			return;
+		}
+
+		recorderThread = new Thread(() -> {
+			System.out.println("[RECORDER] capture thread started: " + Thread.currentThread().getId());
 			while (isRecording && driver != null) {
 				try {
+					if (!(driver instanceof JavascriptExecutor)) {
+						break;
+					}
 					JavascriptExecutor js = (JavascriptExecutor) driver;
 
 					// ===== ВВОД ТЕКСТА =====
 					Object inputs = js.executeScript("return window.recordedInputs;");
-					if (inputs instanceof java.util.List) {
+					if (inputs instanceof List) {
 						@SuppressWarnings("unchecked")
-						java.util.List<Map<String, ?>> inputList = (java.util.List<Map<String, ?>>) inputs;
+						List<Map<String, ?>> inputList = (List<Map<String, ?>>) inputs;
 
 						if (!inputList.isEmpty()) {
-							// Очищаем очередь в браузере перед обработкой пачки
 							js.executeScript("window.recordedInputs = [];");
 
 							for (Map<String, ?> input : inputList) {
-								String xpath = (String) input.get("xpath");
-								String value = (String) input.get("value");
+								String xpath   = (String) input.get("xpath");
+								String value   = (String) input.get("value");
 								String javaData = (String) input.get("javaData");
 
-
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
-
 								record("fill", xpath, value, "Field", javaData);
 							}
 						}
@@ -99,24 +114,22 @@ public class ActionRecorder {
 
 					// ===== КЛИКИ =====
 					Object clicks = js.executeScript("return window.recordedClicks;");
-					if (clicks instanceof java.util.List) {
+					if (clicks instanceof List) {
 						@SuppressWarnings("unchecked")
-						java.util.List<Map<String, ?>> clickList = (java.util.List<Map<String, ?>>) clicks;
+						List<Map<String, ?>> clickList = (List<Map<String, ?>>) clicks;
 
 						if (!clickList.isEmpty()) {
-							// Сначала очищаем очередь в браузере,
-							// чтобы новые события не смешивались с текущими
 							js.executeScript("window.recordedClicks = [];");
 
 							for (Map<String, ?> click : clickList) {
 								System.out.println(clickList);
-								String xpath = (String) click.get("xpath");
-								String еlType = (String) click.get("elementType");
-								String text = (String) click.get("text");
+								String xpath   = (String) click.get("xpath");
+								String elType  = (String) click.get("elementType");
+								String text    = (String) click.get("text");
 								String selectXpath = (String) click.get("selectXpath");
-								Object rawEvent = click.get("eventType");
-								String eventType = rawEvent != null ? rawEvent.toString() : "click";
-								String javaData = (String) click.getOrDefault("javaData", null);
+								Object rawEvent    = click.get("eventType");
+								String eventType   = rawEvent != null ? rawEvent.toString() : "click";
+								String javaData    = (String) click.getOrDefault("javaData", null);
 
 								Object newTabRaw = click.get("newTab");
 								boolean newTab = false;
@@ -134,10 +147,8 @@ public class ActionRecorder {
 										+ ", javaData=" + javaData);
 
 								if (newTab) {
-									// клик по ссылке, открывающей новую вкладку
-									record("click", xpath, "", еlType, javaData);
+									record("click", xpath, "", elType, javaData);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
-									// НЕ делаем continue всего while — только переходим к следующему click
 									continue;
 								}
 
@@ -192,15 +203,13 @@ public class ActionRecorder {
 										break;
 
 									case "datepicker-open":
-										// аналог select-open / dropdown-open
-										lastDatePickerOpenXpath = xpath; // или отдельная переменная lastDatePickerXpath, если хочешь
+										lastDatePickerOpenXpath = xpath;
 										System.out.println("[CAPTURE] datepicker-open, remember xpath=" + lastDatePickerOpenXpath);
 										currentDateRange.clear();
 										datePickerJava = javaData;
 										break;
 
 									case "datepicker-date":
-										// rangeIndex приходит из JS в click
 										Object rangeRaw = click.get("rangeIndex");
 										Integer rangeIndex = null;
 										if (rangeRaw instanceof Number) {
@@ -215,30 +224,29 @@ public class ActionRecorder {
 												+ ", text=" + text + ", selectXpath=" + selectXpath);
 
 										if (rangeIndex == null) {
-											// fallback: одиночная дата
-											record("fillDate", lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
+											record("fillDate",
+													lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
 													text, "DatePicker", datePickerJava);
 											break;
 										}
 
-										// гарантируем размер currentDateRange
 										while (currentDateRange.size() <= rangeIndex) {
 											currentDateRange.add(null);
 										}
 										currentDateRange.set(rangeIndex, text);
 
-										// если это первая дата — просто копим
 										if (rangeIndex == 0) {
 											break;
 										}
 
-										// если это вторая дата диапазона
 										if (rangeIndex == 1) {
 											String start = currentDateRange.get(0);
-											String end = currentDateRange.get(1);
+											String end   = currentDateRange.get(1);
 											if (start != null && end != null) {
 												String value = start + " - " + end;
-												String selector = lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : selectXpath;
+												String selector = lastDatePickerOpenXpath != null
+														? lastDatePickerOpenXpath
+														: selectXpath;
 
 												System.out.println("[CAPTURE] datepicker-range -> " + value);
 												record("fillDate", selector, value, "DatePicker", datePickerJava);
@@ -246,32 +254,49 @@ public class ActionRecorder {
 												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
 											}
 
-											// сброс состояния диапазона
 											currentDateRange.clear();
 											lastDatePickerOpenXpath = null;
 											datePickerJava = null;
 										}
 										break;
+
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, "", еlType, javaData);
+										record("click", xpath, "", elType, javaData);
 										lastSelectOpenXpath = null;
 								}
 							}
 						}
 					}
 
-					// Слип между циклами
 					Thread.sleep(200);
+				} catch (InterruptedException e) {
+					// прервали поток — выходим из цикла
+					Thread.currentThread().interrupt();
+					break;
 				} catch (Exception e) {
 					System.err.println("Error in capture loop: " + e.getMessage());
 					e.printStackTrace();
 				}
 			}
-		}).start();
+
+			System.out.println("[RECORDER] capture thread finished: " + Thread.currentThread().getId());
+		}, "RecorderThread");
+
+		recorderThread.setDaemon(true);
+		recorderThread.start();
 	}
 
+	/**
+	 * Остановка потока‑рекордера.
+	 */
+	private synchronized void stopRecorderThread() {
+		if (recorderThread != null && recorderThread.isAlive()) {
+			recorderThread.interrupt();
+		}
+		recorderThread = null;
+	}
 
 	private void record(String action, String selector, String value, String type, String java) {
 		if (!isRecording) return;
@@ -295,15 +320,13 @@ public class ActionRecorder {
 
 		JavascriptExecutor js = (JavascriptExecutor) driver;
 
-		// 1) подгружаем get_locator.js
 		String locatorScript = loadResource("get_locator.js");
-		String buttonScript = loadResource("buttons.js");
-		String inputScript = loadResource("input.js");
-		String picker  = loadResource("date_picker.js");
-		String select  = loadResource("select.js");
+		String buttonScript  = loadResource("buttons.js");
+		String inputScript   = loadResource("input.js");
+		String picker        = loadResource("date_picker.js");
+		String select        = loadResource("select.js");
 		js.executeScript(locatorScript + buttonScript + inputScript + picker + select);
 
-		// 2) поллим результат
 		new Thread(() -> {
 			try {
 				while (driver != null) {
@@ -313,7 +336,6 @@ public class ActionRecorder {
 						System.out.println("LOCATOR_PICK result: " + xpath);
 						callback.accept(xpath);
 
-						// 3) очищаем и возвращаем обычные скрипты
 						injectScriptsIntoCurrentTab();
 						break;
 					}
@@ -324,7 +346,7 @@ public class ActionRecorder {
 				callback.accept("");
 				try { injectScriptsIntoCurrentTab(); } catch (Exception ignored) {}
 			}
-		}).start();
+		}, "LocatorPickThread").start();
 	}
 
 	private void handleTabInactive() {
@@ -359,24 +381,20 @@ public class ActionRecorder {
 				return;
 			}
 
-			// переключаемся на новую вкладку
 			driver.switchTo().window(targetHandle);
 			String newUrl = driver.getCurrentUrl();
 
 			System.out.println("[TAB] SWITCH TAB from " + currentHandle + " (" + currentUrl +
 					") to " + targetHandle + " (" + newUrl + ")");
 
-			// записываем switchTab
 			record("switchTab", null, newUrl, "", "");
 			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
 
-			// закрываем старую вкладку
 			driver.switchTo().window(currentHandle);
 			driver.close();
 			System.out.println("[TAB] closed previous tab handle=" + currentHandle +
 					", url=" + currentUrl);
 
-			// остаёмся на новой вкладке и реинжектим скрипты
 			driver.switchTo().window(targetHandle);
 			injectScriptsIntoCurrentTab();
 
