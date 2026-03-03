@@ -20,7 +20,7 @@ function getFieldInfoFromInput(element) {
     var safeName;
     var angularXpath;
     var reactXpath;
-    var xpath;
+    var xpath = "";
 
     if (formInput) {
         // ===== React-ветка =====
@@ -72,15 +72,16 @@ function getFieldInfoFromInput(element) {
         xpath = angularXpath;
     }
 
-    if (xpath !== null)
-        index = getIndexByXPathAndElement(xpath, current);
+    if (xpath !== "") {
+        index = getIndexByXPathAndElement(xpath, element);
+    }
 
     return {
         xpath: xpath,
         name: safeName,
         type: 'Field',
         javaData: "",
-        index : (index + 1),
+        indexIndex: (index + 1),
         init_by_xpath: init_by_xpath
     };
 }

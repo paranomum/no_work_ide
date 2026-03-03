@@ -157,20 +157,21 @@ if (!window.__iqhrActionsInitialized) {
 
       if (window.currentFocusedValue !== currentValue) {
         var picker = getFieldInfoFromDatePicker(e.target); // из date_picker-2.js
-        console.log("DATA - ", picker);
         if (picker === null) {
           var fieldInfo = getFieldInfoFromInput(e.target);
-          window.recordedInputs.push({
-            xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
-            value: currentValue,
-            id: e.target.id || '',
-            type: fieldInfo ? fieldInfo.type : 'Field',
-            name: fieldInfo ? fieldInfo.name : '',
-            timestamp: Date.now(),
-            javaData: '',
-            index : fieldInfo ? fieldInfo.index : 0,
-            initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
-          });
+          var clickRecord = {
+                xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
+                value: currentValue,
+                id: e.target.id || '',
+                type: fieldInfo ? fieldInfo.type : 'Field',
+                name: fieldInfo ? fieldInfo.name : '',
+                timestamp: Date.now(),
+                javaData: '',
+                index : fieldInfo ? fieldInfo.indexIndex : 0,
+                initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
+              };
+          console.log(clickRecord);
+          window.recordedInputs.push(clickRecord);
         }
         window.currentFocusedXPath = null;
         window.currentFocusedElement = null;
