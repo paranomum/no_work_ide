@@ -212,45 +212,99 @@ public class ActionFileService {
 		int rowCount = tableModel.getRowCount();
 
 		for (int r = 0; r < rowCount; r++) {
-			String action = extractAction(r);
-			if (action == null || action.isBlank()) {
+			// --- исходные значения из таблицы ---
+			String actionCode = val(r, 1);           // UserAction / строка
+			String selector   = val(r, 2);
+			String value      = val(r, 3);           // Value
+			String comment    = val(r, 4);           // Comment
+			String javaClass  = val(r, 5);           // ElementType.className
+			String xpath      = val(r, 6);           // Xpath
+			String name       = val(r, 7);           // Name
+			String indexStr   = val(r, 8);           // Index
+			String byXpathStr = val(r, 9);           // "true"/"false" или null
+
+			if (actionCode == null || actionCode.isBlank()) {
 				continue;
 			}
 
-			String javaData = val(r, 6);
-			String value    = val(r, 3);
-			String comment  = val(r, 4);
+			String actionLower = actionCode.toLowerCase();
+			boolean isValueAction = !actionLower.contains("click")
+					&& !actionLower.contains("filldate");
 
+			boolean specialAction = actionLower.contains("pause")
+					|| actionLower.contains("waitloadingpage")
+					|| actionLower.contains("filldata")
+					|| actionLower.contains("auth")
+					|| actionLower.contains("specialaction")
+					|| actionLower.contains("switchtab")
+					|| actionLower.contains("open");
+
+			if (specialAction) {
+				lines.add(appendSpecialAction(actionCode, value, comment));
+				continue;
+			}
+
+			// --- javaWebElement ---
+
+			String javaWebElement = "new " + javaClass + "(\"";
+
+			boolean hasName = name != null && !name.isBlank();
+			boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
+
+			if (hasName) {
+				// есть name
+				if (!byXpath) {
+					// byXpath == false
+					Integer index = null;
+					if (indexStr != null && !indexStr.isBlank()) {
+						try {
+							index = Integer.parseInt(indexStr.trim());
+						} catch (NumberFormatException ignore) {}
+					}
+
+					if (index != null && index > 1) {
+						// index > 1
+						javaWebElement = javaWebElement + name + "\", " + index + ")";
+					} else {
+						// index <= 1
+						javaWebElement = javaWebElement + name + "\")";
+					}
+				} else {
+					// byXpath == true
+					String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
+					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
+				}
+			} else {
+				// нет name
+				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
+				String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
+
+				String locator = !safeXpath.isEmpty()
+						? safeXpath
+						: (!safeSelector.isEmpty() ? safeSelector : "");
+
+				javaWebElement = javaWebElement + javaClass + "\", $x(\"" + locator + "\"))";
+			}
+
+			// --- action ---
 			StringBuilder sb = new StringBuilder();
 
-			// 1) Если есть javaData — используем его как точку входа
-			val passValue = !action.contains("click") && !action.contains("selectOption") && !action.contains("fillDate");
-			if (hasText(javaData)) {
-				appendCall(sb, javaData, action, value, comment, passValue);
-				lines.add(sb.toString());
-				continue;
+			sb.append(javaWebElement);
+			sb.append(".");
+			sb.append(actionCode);
+			sb.append("(");
+
+			if (value != null && !value.isBlank() && isValueAction) {
+				String safeValue = value.replace("\"", "\\\"");
+				sb.append("\"").append(safeValue).append("\"");
 			}
 
-			// 2) Специальные действия (switchTab / fillData)
-			boolean isSpecial = action.contains("switchTab") || action.contains("fillData") || action.contains("specialAction");
-			if (isSpecial) {
-				appendSpecialCall(sb, action, value, comment);
-				lines.add(sb.toString());
-				continue;
+			sb.append(");");
+
+			// --- comment ---
+			if (comment != null && !comment.isBlank()) {
+				sb.append(" // ").append(comment);
 			}
-
-			// 3) Обычные действия по селектору и типу элемента
-			String javaClassName = val(r, 5);
-			String selector      = val(r, 2);
-			if (!hasText(javaClassName) || !hasText(selector)) {
-				continue;
-			}
-
-			sb.append("new ")
-					.append(javaClassName)
-					.append("($x(\"").append(selector.replace("\"", "\\\"")).append("\"))");
-
-			appendCall(sb, null, action, value, comment, passValue);
 
 			lines.add(sb.toString());
 		}
@@ -259,6 +313,63 @@ public class ActionFileService {
 	}
 
 	// --------- helper ---------
+
+	private String appendSpecialAction(String actionCode, String value, String comment) {
+		String actionLower = actionCode == null ? "" : actionCode.toLowerCase();
+
+		boolean isParamAction =
+				"open".equals(actionLower)
+						|| "auth".equals(actionLower)
+						|| "waitloadingpage".equals(actionLower)
+						|| "pause".equals(actionLower);
+
+		StringBuilder sb = new StringBuilder();
+
+		// --- action ---
+		sb.append(actionCode);
+		sb.append("(");
+
+		if (isParamAction && value != null && !value.isBlank()) {
+			if ("waitloadingpage".equals(actionLower) || "pause".equals(actionLower)) {
+				// value.replaceAll("[\\D]", "");
+				sb.append("\"")
+						.append(value.replaceAll("[\\D]", ""))
+						.append("\"");
+			} else {
+				// open/auth: просто "value"
+				sb.append("\"")
+						.append(value.replace("\"", "\\\""))
+						.append("\"");
+			}
+		}
+
+		sb.append(");");
+
+		// --- comment ---
+		if (comment != null && !comment.isBlank() || (value != null && !value.isBlank() && !isParamAction)) {
+			sb.append(" // ");
+			if (isParamAction) {
+				// open, auth, waitloadingpage, pause -> только comment
+				if (comment != null && !comment.isBlank()) {
+					sb.append(comment);
+				}
+			} else {
+				// всё остальное -> "comment, value"
+				boolean hasComment = comment != null && !comment.isBlank();
+				if (hasComment) {
+					sb.append(comment);
+				}
+				if (value != null && !value.isBlank()) {
+					if (hasComment) {
+						sb.append(", ");
+					}
+					sb.append(value);
+				}
+			}
+		}
+
+		return sb.toString();
+	}
 
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
@@ -275,57 +386,6 @@ public class ActionFileService {
 
 	private boolean hasText(String s) {
 		return s != null && !s.isBlank();
-	}
-
-	/**
-	 * Строит вызов вида:
-	 *   prefix.action("value") // comment
-	 * если prefix == null:
-	 *   .action("value") // comment
-	 */
-	private void appendCall(StringBuilder sb,
-							String prefix,
-							String action,
-							String value,
-							String comment,
-							boolean passValue) {
-		if (hasText(prefix)) {
-			sb.append(prefix);
-			sb.append(".");
-		}
-		sb.append(action);
-		sb.append("(");
-
-		if (passValue && hasText(value)) {
-			sb.append("\"").append(value.replace("\"", "\\\"")).append("\"");
-		}
-
-		sb.append(");");
-
-		if (hasText(comment)) {
-			sb.append(" // ").append(comment);
-		}
-	}
-
-	/**
-	 * Спец‑ кейсы типа switchTab / fillData
-	 */
-	private void appendSpecialCall(StringBuilder sb,
-								   String action,
-								   String value,
-								   String comment) {
-		sb.append(action).append("();");
-		if (hasText(comment)) {
-			sb.append(" // ").append(comment);
-		}
-		if (hasText(value)) {
-			if (!hasText(comment)) {
-				sb.append(" // ");
-			} else {
-				sb.append(", ");
-			}
-			sb.append(value);
-		}
 	}
 
 	// --------- JSON load ---------
