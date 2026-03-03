@@ -29,11 +29,6 @@ function getXPath(element) {
 	return paths.length ? '/' + paths.join('/') : '';
 }
 
-/**
- * Нормализованный XPath: поднимаемся до ближайшего кликабельного контейнера
- * (button / input / textarea / select / div[@role='button'|'tab']),
- * но сам путь строим старым getXPath.
- */
 function getClickableXPath(element) {
     if (!element || element.nodeType !== 1) return '';
 
@@ -78,9 +73,24 @@ function generateRootXPath(buttonElement) {
   return "/html/body/" + parts.join('/');
 }
 
-function getElementIndex(element) {
-  var siblings = Array.from(element.parentElement.children);
-  return siblings.indexOf(element) + 1;
+function getElementsByXPath(xpath) {
+  var results = [];
+  var query = document.evaluate(
+    xpath,
+    document, // ← только document, без root
+    null,
+    XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+    null
+  );
+  for (var i = 0; i < query.snapshotLength; i++) {
+    results.push(query.snapshotItem(i));
+  }
+  return results;
+}
+
+function getIndexByXPathAndElement(xpath, element) {
+  var list = getElementsByXPath(xpath);
+  return list.indexOf(element); // 0,1,2...
 }
 
 function getButtonIndex(buttonElement) {
@@ -99,7 +109,7 @@ function findClickable(element) {
   var depth = 0;
 
   while (current && depth < 20) {
-    var cur = isClickableElement(current); // из buttons-4.js
+    var cur = isClickableElement(current);
     if (cur && cur.isClickable) {
       return cur;
     }

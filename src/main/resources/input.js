@@ -3,7 +3,7 @@ function getFieldInfoFromInput(element) {
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     if (tagName !== 'INPUT' && tagName !== 'TEXTAREA') return null;
-
+    var index = 0;
     // 1. Пытаемся найти React form-input
     var current = element;
     var formInput = null;
@@ -71,11 +71,15 @@ function getFieldInfoFromInput(element) {
         xpath = angularXpath;
     }
 
+    if (xpath !== null)
+        index = getIndexByXPathAndElement(xpath, current);
+
     return {
         xpath: xpath,
         name: safeName,
         type: 'Field',
-        javaData: "new Field(\"" + safeName + "\")"
+        javaData: index >= 1 ? "new Field(\"" + safeName + "\", " + (index + 1) + ")" : "new Field(\"" + safeName + "\")",
+        index : (index + 1)
     };
 }
 
@@ -84,6 +88,7 @@ function getFieldInfoFromDatePicker(element) {
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     if (tagName !== 'INPUT') return null;
+    var index = 0;
 
     // ===== React: form-picker =====
     var reactRoot = element.closest && element.closest("[data-testid='form-picker']");
@@ -112,7 +117,8 @@ function getFieldInfoFromDatePicker(element) {
             xpath: xpath,
             name: name,
             type: 'DatePicker',
-            javaData: "new DatePicker(\"" + safeName + "\")"
+            javaData: "new DatePicker(\"" + safeName + "\")",
+            index: index
         };
     }
 
@@ -144,7 +150,8 @@ function getFieldInfoFromDatePicker(element) {
             xpath: xpath,
             name: name,
             type: 'DatePicker',
-            javaData: "new DatePicker(\"" + safeName + "\")"
+            javaData: "new DatePicker(\"" + safeName + "\")",
+            index: index
         };
     }
 

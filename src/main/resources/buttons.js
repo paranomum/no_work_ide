@@ -4,11 +4,12 @@ function isClickableElement(element) {
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     var buttonInfo = null;
-    var javaData = null;
+    var init_by_xpath = false;
     var isClickable = false;
     var role = element.getAttribute('role');
     var eventType = null;
     var elType = null;
+    var index = 0;
 
     console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
@@ -23,15 +24,8 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] BUTTON/LINK", buttonInfo);
             isClickable = true;
 
-            elType = "Button";
-            if (tagName === 'BUTTON') {
-                javaData = "new Button(\"" + buttonInfo.name + "\")";
-            } else if (tagName === 'A') {
-                javaData = "new LinkButton(\"" + buttonInfo.name + "\")";
-                elType = "LinkButton";
-            } else {
-                javaData = "new Button(\"" + buttonInfo.name + "\", $x(\"" + buttonInfo.xpath + "\"))";
-            }
+            elType = tagName === 'A' ? "LinkButton" : "Button";
+            init_by_xpath = tagName !== 'BUTTON' && tagName !== 'A';
         }
 
     // ===== Радио/чекбоксы =====
@@ -65,7 +59,7 @@ function isClickableElement(element) {
 
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
-            javaData = "new TabButton(\"" + buttonInfo.name + "\")";
+            javaData = "new TabButton(\"" + buttonInfo.name;
             elType = "TabButton";
         }
     }
@@ -77,7 +71,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
-            javaData = "new Select(\"" + buttonInfo.name + "\")";
+            javaData = "new Select(\"" + buttonInfo.name;
             elType = "Select";
         }
     }
@@ -89,7 +83,7 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
-            javaData = "new Dropdown(\"" + buttonInfo.name + "\")";
+            javaData = "new Dropdown(\"" + buttonInfo.name;
             elType = "Dropdown";
         }
     }
@@ -144,13 +138,18 @@ function isClickableElement(element) {
         }
     }
 
+    if (isClickable && !(javaData || "").includes("$x")){
+        index = getIndexByXPathAndElement(buttonInfo.xpath, buttonInfo.domElement);
+    }
 
     return {
         isClickable: isClickable,
         buttonInfo: buttonInfo,
-        javaData: javaData,
+        init_by_xpath: init_by_xpath,
         eventType: eventType,
-        type: elType
+        type: elType,
+        index: (index + 1),
+        javaData: ""
     };
 }
 
@@ -216,7 +215,7 @@ function getTabConditions(tabBtn) {
         xpath: xpath,
         name: safeText,
         type: 'tab',
-        domElement: tabBtn   // ← вот так, не element
+        domElement: tabBtn
     };
 }
 
@@ -242,8 +241,11 @@ function getElementConditions(element, tagName) {
 			!(tagName === 'BUTTON' && element.className.includes('-trigger'))) {
 			    elText = sanitizeText(elText);
 			return {
-				xpath: "//*[@data-testid='" + dataTestId + "' and contains(., '" + elText + "')]" +
-						(tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : ""),
+				xpath:
+                  "//*[@data-testid='" + dataTestId + "'" +
+                  " and contains(., '" + elText + "')" +
+                  (tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : "") +
+                  "]",
 				name: elText,
 				domElement: element
 			};
@@ -361,14 +363,14 @@ function isRadioOrCheckBox(element) {
                     return {
                         buttonInfo: checkbox,
                         type: 'CheckBoxGroup',
-                        javaData: "new CheckBoxGroup(" + checkbox.name + ")"
+                        javaData: "new CheckBoxGroup(\"" + checkbox.name + "\")"
                     };
                     }
                     else {
                     return {
                             buttonInfo: checkbox,
                             type: 'CheckBoxButton',
-                            javaData: "new CheckBoxButton(" + checkbox.name + ")"
+                            javaData: "new CheckBoxButton(\"" + checkbox.name + "\")"
                         };
                     }
                 }
@@ -382,13 +384,13 @@ function isRadioOrCheckBox(element) {
                         return {
                             buttonInfo: radio,
                             type: 'RadioGroup',
-                            javaData: "new RadioGroup(" + radio.name + ")"
+                            javaData: "new RadioGroup(\"" + radio.name + "\")"
                         };
                     } else {
                         return {
                                 buttonInfo: radio,
                                 type: 'RadioButton',
-                                javaData: "new RadioButton(" + radio.name + ")"
+                                javaData: "new RadioButton(\"" + radio.name + "\")"
                             };
                     }
                 }
