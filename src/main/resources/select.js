@@ -24,7 +24,7 @@ function detectDropdown(element) {
     isClickable: true,
     buttonInfo: {
       selectXpath: xpath,
-      name: text || 'dropdown',
+      name: safeText || text,
       type: 'dropdown',
       domElement: root
     },
@@ -45,7 +45,7 @@ function detectFormSelect(element) {
         isClickable: true,
         buttonInfo: {
             xpath: selectInfo.xpath,
-            name: selectInfo.name,
+            name: selectInfo.safeName,
             type: "select",
             domElement: selectRoot
         },
@@ -64,7 +64,7 @@ function detectSelectOption(element) {
     var title = element.getAttribute('title') || (element.textContent || '').trim();
     if (!title) return null;
 
-    title = sanitizeText(title);
+    title = sanitizeText(title) || '';
 
     var dropdown = element.closest("div.ant-select-dropdown");
     if (!dropdown) return null;
@@ -95,10 +95,10 @@ function detectSelectOption(element) {
     return {
         buttonInfo: {
             xpath: xpath,
-            name: title,
+            name: safeTitle || title,
             type: "select-option",
             selectXpath: selectInfo.xpath,
-            selectName: selectInfo.name,
+            selectName: selectInfo.safeName,
             domElement: element
         },
         eventType: "select-option"
@@ -123,7 +123,7 @@ function detectDropdownOption(element) {
 
     var text = span ? (span.textContent || "").trim() : (element.textContent || "").trim();
     if (!text) return null;
-    text = sanitizeText(text);
+    text = sanitizeText(text || '');
 
     var safeText = text.replace(/'/g, "\\'");
 
@@ -146,7 +146,7 @@ function detectDropdownOption(element) {
     return {
         buttonInfo: {
             selectXpath: xpath,
-            name: text,
+            name: safeText || text,
             type: "dropdown-option",
             domElement: element
         },

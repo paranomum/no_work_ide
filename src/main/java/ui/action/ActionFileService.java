@@ -134,7 +134,7 @@ public class ActionFileService {
 			String xpath = val(r, 6);
 			String name = val(r, 7);
 			String index = val(r, 8);
-			String isXpath = val(r, 9);
+			String byXpath = val(r, 9);
 
 			rows.add(new ActionRecord(
 					actionCode,
@@ -145,7 +145,7 @@ public class ActionFileService {
 					xpath,
 					name,
 					index,
-					isXpath
+					byXpath
 			));
 		}
 
@@ -367,7 +367,7 @@ public class ActionFileService {
 				String xpath = rec.getXpath(); // если поле так называется
 				String name = rec.getName();
 				String index = rec.getIndex();
-				String isXpath = rec.getByXpath();
+				String byXpath = rec.getByXpath();
 
 				tableModel.addRow(new Object[] {
 						null,               // индекс проставится листенером
@@ -379,7 +379,7 @@ public class ActionFileService {
 						xpath,
 						name,
 						index,
-						isXpath
+						byXpath
 				});
 			}
 

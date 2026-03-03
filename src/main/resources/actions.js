@@ -97,7 +97,7 @@ if (!window.__iqhrActionsInitialized) {
         text: info.name || '',
         eventType: clickable.eventType || 'click',
         elementType: clickable.type,
-        index: (clickable.index + 1),
+        index: clickable.index || 0,
         initByXpath: clickable.init_by_xpath,
         selectXpath: info.selectXpath || null,
         selectName: info.selectName || null,
@@ -164,10 +164,12 @@ if (!window.__iqhrActionsInitialized) {
             xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
             value: currentValue,
             id: e.target.id || '',
-            type: fieldInfo ? fieldInfo.type : 'field',
+            type: fieldInfo ? fieldInfo.type : 'Field',
             name: fieldInfo ? fieldInfo.name : '',
             timestamp: Date.now(),
-            javaData: fieldInfo.javaData ? fieldInfo.javaData : ''
+            javaData: '',
+            index : fieldInfo ? fieldInfo.index : 0,
+            initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
           });
         }
         window.currentFocusedXPath = null;

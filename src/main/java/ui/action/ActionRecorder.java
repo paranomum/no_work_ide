@@ -1,7 +1,6 @@
 package ui.action;
 
 import lombok.SneakyThrows;
-import lombok.val;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 
@@ -22,12 +21,19 @@ public class ActionRecorder {
 	private volatile String lastFocusedValue = "";
 
 	private String lastSelectOpenXpath = null;
-	private String selectJava = null;
+	private String selectName = null;
+	private String selectIndex = null;
+	private String selectByXpath = null;
+
 	private String lastDropdownOpenXpath = null;
-	private String dropdownJava = null;
+	private String dropdownName = null;
+	private String dropdownIndex = null;
+	private String dropdownByXpath = null;
 
 	private String lastDatePickerOpenXpath = null;
-	private String datePickerJava = null;
+	private String datePickerName = null;
+	private String datePickerIndex = null;
+	private String datePickerByXpath = null;
 	private List<String> currentDateRange = new ArrayList<>();
 
 	private Thread recorderThread;
@@ -104,10 +110,12 @@ public class ActionRecorder {
 							for (Map<String, ?> input : inputList) {
 								String xpath   = (String) input.get("xpath");
 								String value   = (String) input.get("value");
-								String javaData = (String) input.get("javaData");
+								String name = (String) input.get("name");
+								String index = ((Long) input.get("index")).toString();
+								String initByXpath = ((Boolean) input.get("initByXpath")).toString();
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
-								record("fill", xpath, value, "Field", javaData);
+								record("fill", xpath, value, "Field", xpath, name, index, initByXpath);
 							}
 						}
 					}
@@ -129,7 +137,8 @@ public class ActionRecorder {
 								String selectXpath = (String) click.get("selectXpath");
 								Object rawEvent    = click.get("eventType");
 								String eventType   = rawEvent != null ? rawEvent.toString() : "click";
-								String javaData    = (String) click.getOrDefault("javaData", null);
+								String index    = ((Long) click.getOrDefault("index", null)).toString();
+								String byXpath    = ((Boolean) click.getOrDefault("initByXpath", null)).toString();
 
 								Object newTabRaw = click.get("newTab");
 								boolean newTab = false;
@@ -143,11 +152,10 @@ public class ActionRecorder {
 										+ ", xpath=" + xpath
 										+ ", selectXpath=" + selectXpath
 										+ ", text=" + text
-										+ ", newTab=" + newTab
-										+ ", javaData=" + javaData);
+										+ ", newTab=" + newTab);
 
 								if (newTab) {
-									record("click", xpath, "", elType, javaData);
+									record("click", xpath, "", elType, xpath, text, index, byXpath);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
 									continue;
 								}
@@ -168,45 +176,57 @@ public class ActionRecorder {
 										lastSelectOpenXpath = xpath;
 										System.out.println("[CAPTURE] select-open, remember xpath="
 												+ lastSelectOpenXpath);
-										selectJava = javaData;
+										selectName = text;
+										selectIndex = index;
+										selectByXpath = byXpath;
 										break;
 
 									case "select-option":
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("selectOption", lastSelectOpenXpath, text, "Select", selectJava);
+											record("selectOption", lastSelectOpenXpath, text, "Select",
+													lastSelectOpenXpath, selectName, selectIndex, selectByXpath);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
 										lastSelectOpenXpath = null;
-										selectJava = null;
+										selectName = null;
+										selectIndex = null;
+										selectByXpath = null;
 										break;
 
 									case "dropdown-open":
 										lastDropdownOpenXpath = selectXpath;
 										System.out.println("[CAPTURE] dropdown-open, remember xpath="
 												+ lastDropdownOpenXpath);
-										dropdownJava = javaData;
+										dropdownName = text;
+										dropdownIndex = index;
+										dropdownByXpath = byXpath;
 										break;
 
 									case "dropdown-option":
 										if (selectXpath != null && !selectXpath.isEmpty()) {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
-											record("selectOption", lastDropdownOpenXpath, text, "Dropdown", javaData);
+											record("selectOption", lastDropdownOpenXpath, text, "Dropdown",
+													lastDropdownOpenXpath, dropdownName, dropdownIndex, dropdownByXpath);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
 										lastDropdownOpenXpath = null;
-										dropdownJava = null;
+										dropdownName = null;
+										dropdownIndex = null;
+										dropdownByXpath = null;
 										break;
 
 									case "datepicker-open":
 										lastDatePickerOpenXpath = xpath;
 										System.out.println("[CAPTURE] datepicker-open, remember xpath=" + lastDatePickerOpenXpath);
 										currentDateRange.clear();
-										datePickerJava = javaData;
+										datePickerName = text;
+										datePickerIndex = index;
+										datePickerByXpath = byXpath;
 										break;
 
 									case "datepicker-date":
@@ -226,7 +246,8 @@ public class ActionRecorder {
 										if (rangeIndex == null) {
 											record("fillDate",
 													lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
-													text, "DatePicker", datePickerJava);
+													text, "DatePicker",
+													lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath);
 											break;
 										}
 
@@ -249,21 +270,24 @@ public class ActionRecorder {
 														: selectXpath;
 
 												System.out.println("[CAPTURE] datepicker-range -> " + value);
-												record("fillDate", selector, value, "DatePicker", datePickerJava);
+												record("fillDate", selector, value, "DatePicker",
+														lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath);
 											} else {
 												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
 											}
 
 											currentDateRange.clear();
 											lastDatePickerOpenXpath = null;
-											datePickerJava = null;
+											datePickerName = null;
+											datePickerIndex = null;
+											datePickerByXpath = null;
 										}
 										break;
 
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, "", elType, javaData);
+										record("click", xpath, "", elType, xpath, text, index, byXpath);
 										lastSelectOpenXpath = null;
 								}
 							}
@@ -298,7 +322,7 @@ public class ActionRecorder {
 		recorderThread = null;
 	}
 
-	private void record(String action, String selector, String value, String type, String java) {
+	private void record(String action, String selector, String value, String type, String xpath, String name, String index, String byXpath) {
 		if (!isRecording) return;
 		System.out.printf("REC: %s | %s | %s%n", action, selector, value);
 		tableModel.addRow(new Object[]{
@@ -308,7 +332,10 @@ public class ActionRecorder {
 				value != null ? value : "",
 				"",
 				type != null ? type : "",
-				java != null ? java : "",
+				xpath != null ? xpath : "",
+				name != null ? name : "",
+				index != null ? index.toString() : "",
+				byXpath != null ? byXpath : "",
 		});
 	}
 
@@ -388,7 +415,7 @@ public class ActionRecorder {
 			System.out.println("[TAB] SWITCH TAB from " + currentHandle + " (" + currentUrl +
 					") to " + targetHandle + " (" + newUrl + ")");
 
-			record("switchTab", null, newUrl, "", "");
+			record("switchTab", null, newUrl, "", "", "", null, "");
 			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
 
 			driver.switchTo().window(currentHandle);

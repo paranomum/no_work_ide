@@ -50,19 +50,17 @@ public class ActionWindow extends JFrame {
 	private JComboBox<String> themeSelect;
 	private JTextField driverPathField;
 	private Map<String, String> variables;
-	private ActionRecorder actionRecorder;
+	private final ActionRecorder actionRecorder;
 	private WebDriver driver;
 	private JButton recordingButton;
-	private TableColumn hiddenJavaColumn;
-//	private JMenuItem generateApiClientItem;
 
-	private ActionFileService fileService;
+	private final ActionFileService fileService;
 	private final ConfigService configService = new ConfigService();
-	private AppConfig config;
+	private final AppConfig config;
 
-	private OpenApiService openApiService;
-	private UsersService usersService;
-	private PlayActionService playActionService;
+	private final OpenApiService openApiService;
+	private final UsersService usersService;
+	private final PlayActionService playActionService;
 
 	public ActionWindow() {
 		config = configService.load();
@@ -409,15 +407,10 @@ public class ActionWindow extends JFrame {
 			}
 		});
 
-		hiddenJavaColumn = actionTable.getColumnModel().getColumn(6);
-		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
-		hiddenJavaColumn = actionTable.getColumnModel().getColumn(7);
-		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
-		hiddenJavaColumn = actionTable.getColumnModel().getColumn(8);
-		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
-		hiddenJavaColumn = actionTable.getColumnModel().getColumn(9);
-		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
-//		restoreColumnWidthsFromConfig();
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(6));
 	}
 
 
