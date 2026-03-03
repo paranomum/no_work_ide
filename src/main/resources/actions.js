@@ -97,9 +97,10 @@ if (!window.__iqhrActionsInitialized) {
         text: info.name || '',
         eventType: clickable.eventType || 'click',
         elementType: clickable.type,
+        index: (clickable.index + 1),
+        initByXpath: clickable.init_by_xpath,
         selectXpath: info.selectXpath || null,
         selectName: info.selectName || null,
-        javaData: clickable.javaData || '',
         newTab: isNewTab
       };
 

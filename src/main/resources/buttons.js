@@ -37,7 +37,6 @@ function isClickableElement(element) {
             console.log("[CLICKABLE] RADIO/CHECKBOX", buttonInfo);
             isClickable = true;
             elType = radioOrCheck.type;
-            javaData = radioOrCheck.javaData;
         }
 
     // ===== input с aria-haspopup =====
@@ -59,7 +58,6 @@ function isClickableElement(element) {
 
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
-            javaData = "new TabButton(\"" + buttonInfo.name;
             elType = "TabButton";
         }
     }
@@ -71,7 +69,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
-            javaData = "new Select(\"" + buttonInfo.name;
             elType = "Select";
         }
     }
@@ -83,7 +80,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
-            javaData = "new Dropdown(\"" + buttonInfo.name;
             elType = "Dropdown";
         }
     }
@@ -95,7 +91,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dateResult.buttonInfo;
             eventType = dateResult.eventType;
-            javaData = dateResult.javaData;
             elType = dateResult.uiType || "DatePicker";
         }
     }
@@ -138,7 +133,7 @@ function isClickableElement(element) {
         }
     }
 
-    if (isClickable && !(javaData || "").includes("$x")){
+    if (isClickable && !init_by_xpath){
         index = getIndexByXPathAndElement(buttonInfo.xpath, buttonInfo.domElement);
     }
 

@@ -196,7 +196,7 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initActionTable() {
-		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type", "Java Data"};
+		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type", "Xpath", "Name", "Index", "By xpath"};
 		tableModel = new DefaultTableModel(columns, 0) {
 			@Override
 			public boolean isCellEditable(int row, int column) {
@@ -410,6 +410,12 @@ public class ActionWindow extends JFrame {
 		});
 
 		hiddenJavaColumn = actionTable.getColumnModel().getColumn(6);
+		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(7);
+		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(8);
+		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
+		hiddenJavaColumn = actionTable.getColumnModel().getColumn(9);
 		actionTable.getColumnModel().removeColumn(hiddenJavaColumn);
 //		restoreColumnWidthsFromConfig();
 	}

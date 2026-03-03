@@ -2,6 +2,7 @@ function getFieldInfoFromInput(element) {
     if (!element) return null;
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
+    var init_by_xpath = false;
     if (tagName !== 'INPUT' && tagName !== 'TEXTAREA') return null;
     var index = 0;
     // 1. Пытаемся найти React form-input
@@ -78,8 +79,9 @@ function getFieldInfoFromInput(element) {
         xpath: xpath,
         name: safeName,
         type: 'Field',
-        javaData: index >= 1 ? "new Field(\"" + safeName + "\", " + (index + 1) + ")" : "new Field(\"" + safeName + "\")",
-        index : (index + 1)
+        javaData: "",
+        index : (index + 1),
+        init_by_xpath: init_by_xpath
     };
 }
 

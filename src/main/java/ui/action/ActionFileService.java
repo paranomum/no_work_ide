@@ -131,7 +131,10 @@ public class ActionFileService {
 			String selector = val(r, 2);
 			String value = val(r, 3);
 			String comment = val(r, 4);
-			String java = val(r, 6);
+			String xpath = val(r, 6);
+			String name = val(r, 7);
+			String index = val(r, 8);
+			String isXpath = val(r, 9);
 
 			rows.add(new ActionRecord(
 					actionCode,
@@ -139,7 +142,10 @@ public class ActionFileService {
 					value,
 					comment,
 					elementType,
-					java
+					xpath,
+					name,
+					index,
+					isXpath
 			));
 		}
 
@@ -358,7 +364,10 @@ public class ActionFileService {
 				String selector = rec.getSelector();
 				String value = rec.getValue();
 				String comment = rec.getComment();
-				String javaData = rec.getJavaElementAndAction(); // если поле так называется
+				String xpath = rec.getXpath(); // если поле так называется
+				String name = rec.getName();
+				String index = rec.getIndex();
+				String isXpath = rec.getByXpath();
 
 				tableModel.addRow(new Object[] {
 						null,               // индекс проставится листенером
@@ -367,7 +376,10 @@ public class ActionFileService {
 						value,              // 3 Value
 						comment,            // 4 Comment
 						elementTypeValue,   // 5 Element Type (строка)
-						javaData            // 6 Java
+						xpath,
+						name,
+						index,
+						isXpath
 				});
 			}
 
