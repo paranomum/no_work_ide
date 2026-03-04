@@ -40,6 +40,8 @@ public class ActionWindow extends JFrame {
 
 	private final java.util.Deque<Runnable> undoStack = new java.util.ArrayDeque<>();
 	private final java.util.Deque<Runnable> redoStack = new java.util.ArrayDeque<>();
+	private final Map<Integer, Color> rowMarks = new HashMap<>();
+
 
 	private JTable actionTable;
 	private DefaultTableModel tableModel;
@@ -289,20 +291,7 @@ public class ActionWindow extends JFrame {
 				}
 			}
 		}
-		actionTable.getColumnModel().getColumn(0).setCellRenderer(
-				new DefaultTableCellRenderer() {
-					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
-						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-						setHorizontalAlignment(SwingConstants.CENTER);
-						return c;
-					}
-				}
-		);
 
-		// колонка Action (индекс 1) с UserAction
 		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
 		actionTable.getColumnModel().getColumn(1).setCellEditor(
 				new DefaultCellEditor(actionComboBox)
@@ -395,42 +384,7 @@ public class ActionWindow extends JFrame {
 		am.put("delete-row", new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				// 1. если сейчас редактируется ячейка — аккуратно остановить
-				if (actionTable.isEditing()) {
-					int row = actionTable.getEditingRow();
-					int col = actionTable.getEditingColumn();
-					TableCellEditor editor = actionTable.getCellEditor(row, col);
-					if (editor != null) {
-						// если редактор не согласен остановиться — просто не удаляем
-						if (!editor.stopCellEditing()) {
-							return;
-						}
-					}
-				}
-
-				// 2. дальше твоя логика удаления
-				int row = actionTable.getSelectedRow();
-				if (row >= 0) {
-					Object[] data = new Object[tableModel.getColumnCount()];
-					for (int c = 0; c < data.length; c++) {
-						data[c] = tableModel.getValueAt(row, c);
-					}
-					int rowIndex = row;
-
-					tableModel.removeRow(rowIndex);
-
-					pushUndo(
-							() -> {
-								tableModel.insertRow(rowIndex, data);
-								actionTable.getSelectionModel().setSelectionInterval(rowIndex, rowIndex);
-							},
-							() -> {
-								if (rowIndex < tableModel.getRowCount()) {
-									tableModel.removeRow(rowIndex);
-								}
-							}
-					);
-				}
+				deleteRow();
 			}
 		});
 
@@ -482,12 +436,37 @@ public class ActionWindow extends JFrame {
 		actionTable.getColumnModel().getColumn(0).setCellRenderer(
 				new DefaultTableCellRenderer() {
 					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
+					public Component getTableCellRendererComponent(
+							JTable table, Object value,
+							boolean isSelected, boolean hasFocus,
+							int row, int column) {
+
 						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 						setHorizontalAlignment(SwingConstants.CENTER);
-						applyCurrentRowHighlight(c, table, isSelected, row);
+
+						int modelRow = table.convertRowIndexToModel(row);
+						int current  = playActionService.getCurrentRow();
+						Color mark   = rowMarks.get(modelRow);
+
+						if (modelRow == current) {
+							// текущий шаг — всегда жёлтый, метку игнорируем
+							c.setBackground(new Color(255, 250, 180));
+							c.setForeground(Color.BLACK);
+						} else if (mark != null) {
+							// не текущий шаг, но есть метка
+							c.setBackground(mark);
+							c.setForeground(Color.BLACK);
+						} else {
+							// ни шаг, ни метка — стандарт
+							if (isSelected) {
+								c.setBackground(table.getSelectionBackground());
+								c.setForeground(table.getSelectionForeground());
+							} else {
+								c.setBackground(table.getBackground());
+								c.setForeground(table.getForeground());
+							}
+						}
+
 						return c;
 					}
 				}
@@ -530,6 +509,36 @@ public class ActionWindow extends JFrame {
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(6));
+		createActionMenu();
+	}
+
+	private void createActionMenu() {
+		new ActionTableContextMenu(actionTable, new ActionTableContextMenu.Callback() {
+			@Override
+			public void deleteSelectedRow() {
+				deleteRow();
+			}
+
+			@Override
+			public void toggleMarkSelectedRow() {
+				int row = actionTable.getSelectedRow();
+				if (row >= 0) {
+					int modelRow = actionTable.convertRowIndexToModel(row);
+					showMarkColorChooser(modelRow);
+				}
+			}
+
+			@Override
+			public void startScenarioFromSelectedRow() {
+				int row = actionTable.getSelectedRow();
+				if (row >= 0) {
+//					int modelRow = actionTable.convertRowIndexToModel(row);
+//					// сюда потом подцепишь PlayActionService, чтобы запускать с modelRow
+//					startScenarioFromRow(modelRow);
+				}
+			}
+		});
+
 	}
 
 
@@ -813,6 +822,72 @@ public class ActionWindow extends JFrame {
 		}
 	}
 
+	private void deleteRow() {
+		// 1. если сейчас редактируется ячейка — аккуратно остановить
+		if (actionTable.isEditing()) {
+			int row = actionTable.getEditingRow();
+			int col = actionTable.getEditingColumn();
+			TableCellEditor editor = actionTable.getCellEditor(row, col);
+			if (editor != null) {
+				// если редактор не согласен остановиться — просто не удаляем
+				if (!editor.stopCellEditing()) {
+					return;
+				}
+			}
+		}
+
+		// 2. дальше твоя логика удаления
+		int row = actionTable.getSelectedRow();
+		if (row >= 0) {
+			Object[] data = new Object[tableModel.getColumnCount()];
+			for (int c = 0; c < data.length; c++) {
+				data[c] = tableModel.getValueAt(row, c);
+			}
+			int rowIndex = row;
+
+			tableModel.removeRow(rowIndex);
+
+			pushUndo(
+					() -> {
+						tableModel.insertRow(rowIndex, data);
+						actionTable.getSelectionModel().setSelectionInterval(rowIndex, rowIndex);
+					},
+					() -> {
+						if (rowIndex < tableModel.getRowCount()) {
+							tableModel.removeRow(rowIndex);
+						}
+					}
+			);
+		}
+	}
+
+	private void showMarkColorChooser(int modelRow) {
+		Object[] options = {"Красный", "Зелёный", "Синий", "Жёлтый", "Снять метку"};
+		int choice = JOptionPane.showOptionDialog(
+				this,
+				"Выбери цвет метки для строки " + modelRow,
+				"Mark row",
+				JOptionPane.DEFAULT_OPTION,
+				JOptionPane.PLAIN_MESSAGE,
+				null,
+				options,
+				options[0]
+		);
+
+		if (choice == -1) {
+			return; // отмена
+		}
+
+		switch (choice) {
+			case 0 -> rowMarks.put(modelRow, new Color(255, 150, 150)); // мягкий красный
+			case 1 -> rowMarks.put(modelRow, new Color(180, 240, 180)); // мягкий зелёный
+			case 2 -> rowMarks.put(modelRow, new Color(150, 180, 255)); // мягкий синий
+			case 3 -> rowMarks.put(modelRow, new Color(255, 250, 180)); // мягкий жёлтый
+			case 4 -> rowMarks.remove(modelRow);                        // снять метку
+		}
+
+		actionTable.repaint();
+	}
 
 
 }
