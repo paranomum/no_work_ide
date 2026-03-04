@@ -111,11 +111,21 @@ public class ActionRecorder {
 								String xpath   = (String) input.get("xpath");
 								String value   = (String) input.get("value");
 								String name = (String) input.get("name");
-								String index = ((Long) input.get("index")).toString();
-								String initByXpath = ((Boolean) input.get("initByXpath")).toString();
+
+								Object indexObj = input.get("index");
+								String index = null;
+								if (indexObj instanceof Number) {
+									index = String.valueOf(((Number) indexObj).longValue());
+								}
+
+								Object byXpathObj = input.get("initByXpath");
+								String byXpath = null;
+								if (byXpathObj instanceof Boolean) {
+									byXpath = byXpathObj.toString();
+								};
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
-								record("fill", xpath, value, "Field", xpath, name, index, initByXpath);
+								record("fill", xpath, value, "Field", xpath, name, index, byXpath);
 							}
 						}
 					}
@@ -137,8 +147,18 @@ public class ActionRecorder {
 								String selectXpath = (String) click.get("selectXpath");
 								Object rawEvent    = click.get("eventType");
 								String eventType   = rawEvent != null ? rawEvent.toString() : "click";
-								String index    = ((Long) click.getOrDefault("index", null)).toString();
-								String byXpath    = ((Boolean) click.getOrDefault("initByXpath", null)).toString();
+
+								Object indexObj = click.get("index");
+								String index = null;
+								if (indexObj instanceof Number) {
+									index = String.valueOf(((Number) indexObj).longValue());
+								}
+
+								Object byXpathObj = click.get("initByXpath");
+								String byXpath = null;
+								if (byXpathObj instanceof Boolean) {
+									byXpath = byXpathObj.toString();
+								};
 
 								Object newTabRaw = click.get("newTab");
 								boolean newTab = false;

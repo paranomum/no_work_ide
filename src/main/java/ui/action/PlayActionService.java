@@ -100,12 +100,18 @@ public class PlayActionService {
 				WebDriverRunner.setWebDriver(driver);
 				log.info("PlayScenarioThread started with {} steps", steps.size());
 				runScenario(actionWindow, steps);
+				currentRow = -1;
+				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
+				stopPlayback();
+				log.info("=== runScenario finished, stopped={} ===", stopped);
+				showInfoOnUi(actionWindow, "Scenario finished successfully");
 			} catch (Throwable e) {
 				int rowToShow = currentRow;
 				currentRow = -1;
 				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
 				log.error("Unexpected error in PlayScenarioThread", e);
 				showErrorOnUi(actionWindow, "Stopped on step " + rowToShow + ".\n" + e.getMessage());
+				stopPlayback();
 			}
 		}, "PlayScenarioThread");
 
@@ -114,7 +120,6 @@ public class PlayActionService {
 
 	public synchronized void stopPlayback() {
 		stopped = true;
-		currentRow = -1;
 		if (playThread != null && playThread.isAlive()) {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
@@ -172,8 +177,6 @@ public class PlayActionService {
 			playOneStep(step);
 			log.info(">>> after playOneStep, step={}", step.rowIndex + 1);
 		}
-
-		log.info("=== runScenario finished, stopped={} ===", stopped);
 	}
 
 

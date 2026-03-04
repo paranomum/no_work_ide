@@ -61,11 +61,14 @@ public class ActionWindow extends JFrame {
 	private final OpenApiService openApiService;
 	private final UsersService usersService;
 	private final PlayActionService playActionService;
+	private final BrowserService browserService;
 
 	public ActionWindow() {
 		config = configService.load();
 		openApiService = new OpenApiService(configService, config);
 		usersService = new UsersService(configService, config);
+		browserService = new BrowserService(configService, config);
+		driver = null;
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
 			FlatDarkLaf.setup();
@@ -150,7 +153,45 @@ public class ActionWindow extends JFrame {
 		openBrowserButton = new JButton("🌐 Open Browser");
 		openBrowserButton.setToolTipText("Open Chrome for Testing browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		openBrowserButton.addActionListener(e -> openBrowser());
+		openBrowserButton.addActionListener(e -> {
+			try {
+				driver = browserService.openBrowser(this, driverPathField, this.driver);
+				if (driver != null) {
+					driver.manage().window().maximize();
+					WebDriverRunner.setWebDriver(driver);
+					open("https://test-iqhr.rt.ru/");
+					actionRecorder.setDriver(driver);
+					playActionService.setDriver(driver);
+					System.out.println("ChromeDriver initialized successfully with: " + driverPathField.getText().trim());
+				} else {
+					throw new RuntimeException("WebDriver is null!\nTry again");
+				}
+			} catch (Throwable ex) {
+				String errorMessage = ex.getMessage();
+
+				if (errorMessage != null && (errorMessage.contains("DevToolsActivePort") ||
+						errorMessage.contains("Chrome failed to start") ||
+						errorMessage.contains("exited normally"))) {
+					JOptionPane.showMessageDialog(
+							this,
+							"Wrong Chrome version selected!\n\n" +
+									"You selected a ChromeDriver executable, but need to select 'Google Chrome for Testing' application.\n\n" +
+									"Please select the correct Chrome for Testing application.",
+							"Wrong Chrome Version",
+							JOptionPane.ERROR_MESSAGE
+					);
+				} else {
+					JOptionPane.showMessageDialog(
+							this,
+							"Failed to open browser: " + errorMessage,
+							"Error",
+							JOptionPane.ERROR_MESSAGE
+					);
+				}
+
+				ex.printStackTrace();
+			}
+		});
 
 		// НОВАЯ КНОПКА ПРОГОНА
 		playButton = new JButton("▶");
@@ -559,7 +600,7 @@ public class ActionWindow extends JFrame {
 		JButton browseButton = new JButton("Browse...");
 		browseButton.setToolTipText("Select ChromeDriver executable");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		browseButton.addActionListener(e -> selectChromeDriver());
+		browseButton.addActionListener(e -> browserService.selectChromeDriver(this, driverPathField));
 		settingsPanel.add(browseButton);
 
 		bottomPanel.add(settingsPanel, BorderLayout.SOUTH);
@@ -634,145 +675,6 @@ public class ActionWindow extends JFrame {
 //			}
 //		}
 //	}
-
-	private void selectChromeDriver() {
-		JFileChooser fileChooser = new JFileChooser();
-		fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-		if(System.getProperty("os.name").toLowerCase().contains("mac"))
-			fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
-		fileChooser.setDialogTitle("Select ChromeDriver");
-
-		fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
-			@Override
-			public boolean accept(File file) {
-				if (file.isDirectory()) return true;
-				String name = file.getName().toLowerCase();
-				// Windows / Linux: chromedriver
-				if (name.contains("chromedriver")) return true;
-				// macOS: .app бандл
-				if (name.endsWith(".app")) return true;
-				// На всякий случай позволим выбрать любой бинарь
-				return file.canExecute();
-			}
-
-			@Override
-			public String getDescription() {
-				return "Chrome/ChromeDriver executable (chromedriver, chromedriver.exe, *.app)";
-			}
-		});
-
-		int result = fileChooser.showOpenDialog(this);
-
-		if (result == JFileChooser.APPROVE_OPTION) {
-			File selectedFile = fileChooser.getSelectedFile();
-			String path = selectedFile.getAbsolutePath();
-			driverPathField.setText(path);
-			System.out.println("Selected ChromeDriver: " + path);
-
-			config.chromeDriverPath = path;
-			try {
-				configService.save(config);
-			} catch (IOException ex) {
-				ex.printStackTrace();
-			}
-		}
-	}
-
-	private void openBrowser() {
-		String driverPath = driverPathField.getText().trim();
-
-		if (driverPath.isEmpty()) {
-			JOptionPane.showMessageDialog(
-					this,
-					"ChromeDriver path is not set. Please select it first.",
-					"ChromeDriver Path Required",
-					JOptionPane.WARNING_MESSAGE
-			);
-			selectChromeDriver();
-			return;
-		}
-
-		val nowDriver = isBrowserClosed(driver);
-
-		if (!nowDriver) {
-			JOptionPane.showMessageDialog(
-					this,
-					"Browser is already open",
-					"Browser Running",
-					JOptionPane.INFORMATION_MESSAGE
-			);
-			return;
-		}
-
-		try {
-			ArrayList<String> browserArgs = new ArrayList<>();
-			browserArgs.add("no-sandbox");
-			browserArgs.add("allow-running-insecure-content");
-
-			Map<String, Object> prefs = new HashMap<>();
-			prefs.put("intl.accept_languages", "ru");
-			prefs.put("intl.selected_languages", "ru");
-
-			ChromeOptions chromeOptions = new ChromeOptions();
-			chromeOptions.setExperimentalOption("prefs", prefs);
-			chromeOptions.addArguments(browserArgs);
-			chromeOptions.addArguments("--unsafely-treat-insecure-origin-as-secure=test-iqhr.rt.ru");
-			chromeOptions.addArguments("--block-insecure-private-network-requests=Disabled");
-			chromeOptions.addArguments("--ignore-certificate-errors");
-			chromeOptions.addArguments("--ignore-urlfetcher-cert-requests");
-			chromeOptions.setAcceptInsecureCerts(true);
-
-			String osName = System.getProperty("os.name");
-			if (osName.startsWith("Windows")) {
-				System.setProperty("webdriver.chrome.driver", driverPath);
-				chromeOptions.addArguments("--incognito");
-			} else {
-				chromeOptions.setBinary(driverPath);
-			}
-
-			ChromeDriver rawDriver = new ChromeDriver(chromeOptions);
-			driver = rawDriver;
-			driver.manage().window().maximize();
-			WebDriverRunner.setWebDriver(driver);
-			open("https://test-iqhr.rt.ru/");
-			actionRecorder.setDriver(driver);
-			playActionService.setDriver(driver);
-
-//			JOptionPane.showMessageDialog(
-//					this,
-//					"Browser opened successfully",
-//					"Success",
-//					JOptionPane.INFORMATION_MESSAGE
-//			);
-
-			System.out.println("ChromeDriver initialized successfully with: " + driverPath);
-		} catch (Exception e) {
-			String errorMessage = e.getMessage();
-
-			if (errorMessage != null && (errorMessage.contains("DevToolsActivePort") ||
-					errorMessage.contains("Chrome failed to start") ||
-					errorMessage.contains("exited normally"))) {
-				JOptionPane.showMessageDialog(
-						this,
-						"Wrong Chrome version selected!\n\n" +
-								"You selected a ChromeDriver executable, but need to select 'Google Chrome for Testing' application.\n\n" +
-								"Please select the correct Chrome for Testing application.",
-						"Wrong Chrome Version",
-						JOptionPane.ERROR_MESSAGE
-				);
-			} else {
-				JOptionPane.showMessageDialog(
-						this,
-						"Failed to open browser: " + errorMessage,
-						"Error",
-						JOptionPane.ERROR_MESSAGE
-				);
-			}
-
-			e.printStackTrace();
-			driver = null;
-		}
-	}
 
 	private void saveTableToFile() {
 		fileService.saveWithModeDialog();
@@ -886,18 +788,6 @@ public class ActionWindow extends JFrame {
 			configService.save(config);
 		} catch (IOException ex) {
 			ex.printStackTrace();
-		}
-	}
-
-	public static boolean isBrowserClosed(WebDriver driver) {
-		if (driver == null) return true;
-		try {
-			driver.getTitle();
-			driver.getTitle();
-			driver.getTitle();
-			return false;                   // сессия жива
-		} catch (Exception e) {
-			return true;                    // окно/сессия уже мертвы
 		}
 	}
 
