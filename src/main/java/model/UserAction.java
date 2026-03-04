@@ -19,7 +19,8 @@ public enum UserAction {
 	AUTH("auth", "Auth on platform with configured user"),
 	SPEC_ACTION("specialAction", "Action before test"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
-	OPEN("open", "Open URL");
+	OPEN("open", "Open URL"),
+	CUSTOM_METHOD("customMethod", "Use ur custom method");
 
 	private final String code;
 	private final String description;

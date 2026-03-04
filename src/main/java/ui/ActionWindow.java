@@ -13,8 +13,7 @@ import ui.action.*;
 import javax.swing.ActionMap;
 import javax.swing.InputMap;
 import javax.swing.KeyStroke;
-import java.awt.event.KeyEvent;
-import java.awt.event.ActionEvent;
+import java.awt.event.*;
 import javax.swing.AbstractAction;
 
 
@@ -23,8 +22,6 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.*;
 import javax.swing.table.*;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.*;
 import java.util.*;
 import java.util.List;
@@ -64,12 +61,14 @@ public class ActionWindow extends JFrame {
 	private final UsersService usersService;
 	private final PlayActionService playActionService;
 	private final BrowserService browserService;
+	private final CustomMethodsService customMethodsService;
 
 	public ActionWindow() {
 		config = configService.load();
 		openApiService = new OpenApiService(configService, config);
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
+		customMethodsService = new CustomMethodsService(configService, config);
 		driver = null;
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
@@ -685,52 +684,6 @@ public class ActionWindow extends JFrame {
 				}
 		);
 	}
-//	private void saveToVariable() {
-//		JPanel panel = new JPanel();
-//		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-//
-//		JLabel nameLabel = new JLabel("Variable name:");
-//		JTextField nameField = new JTextField(15);
-//
-//		JLabel valueLabel = new JLabel("Variable value:");
-//		JTextField valueField = new JTextField(15);
-//
-//		panel.add(nameLabel);
-//		panel.add(nameField);
-//		panel.add(Box.createVerticalStrut(10));
-//		panel.add(valueLabel);
-//		panel.add(valueField);
-//
-//		int result = JOptionPane.showConfirmDialog(
-//				this,
-//				panel,
-//				"Save Variable",
-//				JOptionPane.OK_CANCEL_OPTION,
-//				JOptionPane.PLAIN_MESSAGE
-//		);
-//
-//		if (result == JOptionPane.OK_OPTION) {
-//			String varName = nameField.getText().trim();
-//			String varValue = valueField.getText().trim();
-//
-//			if (!varName.isEmpty() && !varValue.isEmpty()) {
-//				variables.put(varName, varValue);
-//				JOptionPane.showMessageDialog(
-//						this,
-//						"Variable '" + varName + "' saved successfully",
-//						"Success",
-//						JOptionPane.INFORMATION_MESSAGE
-//				);
-//			} else {
-//				JOptionPane.showMessageDialog(
-//						this,
-//						"Variable name and value cannot be empty",
-//						"Error",
-//						JOptionPane.ERROR_MESSAGE
-//				);
-//			}
-//		}
-//	}
 
 	private void saveTableToFile() {
 		fileService.saveWithModeDialog();
@@ -781,11 +734,14 @@ public class ActionWindow extends JFrame {
 		mainPanel.add(new JLabel("Main settings (TODO move theme/chromeDriver here)"));
 		tabs.addTab("Main", mainPanel);
 
-		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
-		tabs.addTab("OpenApi", openApiPanel);
-
 		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
 		tabs.addTab("Users", usersPanel);
+
+		JPanel customMethods = customMethodsService.createCustomMethodsSettingsPanel(dialog);
+		tabs.addTab("CustomMethods", customMethods);
+
+		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
+		tabs.addTab("OpenApi", openApiPanel);
 
 		dialog.add(tabs, BorderLayout.CENTER);
 
