@@ -45,7 +45,7 @@ function findLocatorXpath(element) {
         var clickable = isClickableElement(current);
         if (clickable && clickable.isClickable && clickable.buttonInfo && clickable.buttonInfo.xpath) {
             if (clickable.index >= 1) {
-                return "(" + clickable.buttonInfo.xpath + ")[" + (index + 1) + "]";
+                return "(" + clickable.buttonInfo.xpath + ")[" + (clickable.index + 1) + "]";
             }
             return clickable.buttonInfo.xpath;
         }
@@ -54,7 +54,7 @@ function findLocatorXpath(element) {
         var field = getFieldInfoFromInput(current);
         if (field && field.xpath) {
             if (field.index >= 1) {
-                        return "(" + field.xpath + ")[" + (index + 1) + "]";
+                        return "(" + field.xpath + ")[" + (clickable.index + 1) + "]";
                     }
             return field.xpath;
         }

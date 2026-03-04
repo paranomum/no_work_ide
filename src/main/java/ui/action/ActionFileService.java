@@ -14,6 +14,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
+
+import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 
 public class ActionFileService {
 
@@ -275,15 +278,18 @@ public class ActionFileService {
 					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
 				}
 			} else {
-				// нет name
 				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
-				String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
-
-				String locator = !safeXpath.isEmpty()
-						? safeXpath
-						: (!safeSelector.isEmpty() ? safeSelector : "");
-
-				javaWebElement = javaWebElement + javaClass + "\", $x(\"" + locator + "\"))";
+				if (isProbablyXPath(selector))
+					javaWebElement = javaWebElement + javaClass + "\", $x(\"" + safeSelector + "\"))";
+				else {
+					if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
+						String[] selectors = selector.trim().split(",");
+						javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
+					}
+					else {
+						javaWebElement = javaWebElement + selector + "\")";
+					}
+				}
 			}
 
 			// --- action ---
@@ -470,6 +476,14 @@ public class ActionFileService {
 			}
 		}
 		return actionCode; // если не нашли — положим строкой
+	}
+
+	private static final Pattern COMMA_SPACE_DIGIT_NON_LETTERS =
+			Pattern.compile(",\\s*\\d[^A-Za-z]*");
+
+	public static boolean hasCommaSpacesDigitAndNoLettersAfter(String s) {
+		if (s == null) return false;
+		return COMMA_SPACE_DIGIT_NON_LETTERS.matcher(s).find();
 	}
 }
 
