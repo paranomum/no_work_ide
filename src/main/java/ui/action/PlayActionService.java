@@ -44,6 +44,7 @@ public class PlayActionService {
 
 	private Thread playThread;
 	private volatile boolean stopped = false;
+	private volatile int currentRow = -1;
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
@@ -92,6 +93,7 @@ public class PlayActionService {
 		}
 
 		stopped = false;
+		currentRow = -1;
 
 		playThread = new Thread(() -> {
 			try {
@@ -99,8 +101,11 @@ public class PlayActionService {
 				log.info("PlayScenarioThread started with {} steps", steps.size());
 				runScenario(actionWindow, steps);
 			} catch (Throwable e) {
+				int rowToShow = currentRow;
+				currentRow = -1;
+				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
 				log.error("Unexpected error in PlayScenarioThread", e);
-				showErrorOnUi(actionWindow, "Unexpected error: " + e.getMessage());
+				showErrorOnUi(actionWindow, "Stopped on step " + rowToShow + ".\n" + e.getMessage());
 			}
 		}, "PlayScenarioThread");
 
@@ -109,6 +114,7 @@ public class PlayActionService {
 
 	public synchronized void stopPlayback() {
 		stopped = true;
+		currentRow = -1;
 		if (playThread != null && playThread.isAlive()) {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
@@ -161,6 +167,8 @@ public class PlayActionService {
 		for (PlayStep step : steps) {
 			log.info("=== LOOP START, step={} ===", step.rowIndex + 1);
 			log.info(">>> before playOneStep, step={}", step.rowIndex + 1);
+			currentRow = step.rowIndex;
+			SwingUtilities.invokeLater(actionWindow::repaintActionTable);
 			playOneStep(step);
 			log.info(">>> after playOneStep, step={}", step.rowIndex + 1);
 		}
@@ -463,6 +471,10 @@ public class PlayActionService {
 	private String nullSafe(String v) {
 		if (v == null) return "";
 		return v.replace("\"", "\\\"");
+	}
+
+	public int getCurrentRow() {
+		return currentRow;
 	}
 
 	private static class PlayStep {

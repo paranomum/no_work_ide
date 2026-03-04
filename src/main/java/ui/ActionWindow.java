@@ -407,6 +407,84 @@ public class ActionWindow extends JFrame {
 			}
 		});
 
+		actionTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+			@Override
+			public Component getTableCellRendererComponent(
+					JTable table, Object value,
+					boolean isSelected, boolean hasFocus,
+					int row, int column) {
+
+				Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+				// переводим view-row в model-row (на случай сортировки/фильтра)
+				int modelRow = table.convertRowIndexToModel(row);
+
+				// currentRow берём из PlayActionService
+				int current = playActionService.getCurrentRow(); // поле сервиса должно быть доступно в ActionWindow
+
+				if (modelRow == current) {
+					// мягкий жёлтый
+					c.setBackground(new Color(255, 250, 180));
+				} else {
+					// стандартное поведение для selection / обычного фона
+					if (isSelected) {
+						c.setBackground(table.getSelectionBackground());
+					} else {
+						c.setBackground(table.getBackground());
+					}
+				}
+
+				return c;
+			}
+		});
+
+		actionTable.getColumnModel().getColumn(0).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						setHorizontalAlignment(SwingConstants.CENTER);
+						applyCurrentRowHighlight(c, table, isSelected, row);
+						return c;
+					}
+				}
+		);
+
+		actionTable.getColumnModel().getColumn(1).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof UserAction) {
+							setText(((UserAction) value).getCode());
+						}
+						applyCurrentRowHighlight(c, table, isSelected, row);
+						return c;
+					}
+				}
+		);
+
+		actionTable.getColumnModel().getColumn(5).setCellRenderer(
+				new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(JTable table, Object value,
+																   boolean isSelected, boolean hasFocus,
+																   int row, int column) {
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof ElementType) {
+							setText(((ElementType) value).getClassName());
+						}
+						applyCurrentRowHighlight(c, table, isSelected, row);
+						return c;
+					}
+				}
+		);
+
+
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
@@ -822,6 +900,30 @@ public class ActionWindow extends JFrame {
 			return true;                    // окно/сессия уже мертвы
 		}
 	}
+
+	// в классе ActionWindow
+	public void repaintActionTable() {
+		if (actionTable != null) {
+			actionTable.repaint();
+		}
+	}
+
+	private void applyCurrentRowHighlight(Component c, JTable table, boolean isSelected, int row) {
+		int modelRow = table.convertRowIndexToModel(row);
+		int current = playActionService.getCurrentRow();
+
+		if (modelRow == current) {
+			c.setBackground(new Color(255, 250, 180));
+		} else {
+			if (isSelected) {
+				c.setBackground(table.getSelectionBackground());
+			} else {
+				c.setBackground(table.getBackground());
+			}
+		}
+	}
+
+
 
 }
 
