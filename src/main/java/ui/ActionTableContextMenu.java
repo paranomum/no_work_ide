@@ -10,6 +10,7 @@ public class ActionTableContextMenu {
 		void deleteSelectedRow();
 		void toggleMarkSelectedRow();      // mark / unmark
 		void startScenarioFromSelectedRow();
+		void createMethodFromSelectedSteps();
 	}
 
 	private final JTable table;
@@ -36,6 +37,10 @@ public class ActionTableContextMenu {
 		startFromHereItem.addActionListener(e -> callback.startScenarioFromSelectedRow());
 		popup.add(startFromHereItem);
 
+		JMenuItem createMethodItem = new JMenuItem("Create method from steps");
+		createMethodItem.addActionListener(e -> callback.createMethodFromSelectedSteps());
+		popup.add(createMethodItem);
+
 		table.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -52,9 +57,39 @@ public class ActionTableContextMenu {
 				int col = table.columnAtPoint(e.getPoint());
 
 				if (row >= 0 && col >= 0) {
-					table.setRowSelectionInterval(row, row);
+					int[] selected = table.getSelectedRows();
+					boolean rowAlreadySelected = false;
+					for (int r : selected) {
+						if (r == row) {
+							rowAlreadySelected = true;
+							break;
+						}
+					}
+					if (!rowAlreadySelected) {
+						table.setRowSelectionInterval(row, row);
+					}
 				} else {
 					table.clearSelection();
+				}
+
+				int selectedCount = table.getSelectedRowCount();
+
+				// Start scenario: только при одной выбранной строке
+				if (selectedCount == 1) {
+					startFromHereItem.setEnabled(true);
+					startFromHereItem.setToolTipText(null);
+				} else {
+					startFromHereItem.setEnabled(false);
+					startFromHereItem.setToolTipText("Doesn't work for multi selected rows");
+				}
+
+				// Create method: только если выбрано >= 2 строк
+				if (selectedCount >= 2) {
+					createMethodItem.setEnabled(true);
+					createMethodItem.setToolTipText(null);
+				} else {
+					createMethodItem.setEnabled(false);
+					createMethodItem.setToolTipText("Select at least 2 steps");
 				}
 
 				popup.show(table, e.getX(), e.getY());

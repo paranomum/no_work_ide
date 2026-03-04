@@ -265,7 +265,7 @@ public class ActionWindow extends JFrame {
 
 		actionTable.setDragEnabled(true);
 		actionTable.setDropMode(DropMode.INSERT_ROWS);
-		actionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		actionTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable, this));
 
 		JTableHeader header = actionTable.getTableHeader();
@@ -383,7 +383,7 @@ public class ActionWindow extends JFrame {
 		am.put("delete-row", new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				deleteRow();
+				deleteRow(actionTable.getEditingRow());
 			}
 		});
 
@@ -515,28 +515,74 @@ public class ActionWindow extends JFrame {
 		new ActionTableContextMenu(actionTable, new ActionTableContextMenu.Callback() {
 			@Override
 			public void deleteSelectedRow() {
-				deleteRow();
-			}
+				int[] viewRows = actionTable.getSelectedRows();
+				if (viewRows.length == 0) return;
 
-			@Override
-			public void toggleMarkSelectedRow() {
-				int row = actionTable.getSelectedRow();
-				if (row >= 0) {
-					int modelRow = actionTable.convertRowIndexToModel(row);
-					showMarkColorChooser(modelRow);
+				// конвертируем в model indices и сортируем по убыванию,
+				// чтобы при удалении индексы не съезжали
+				int[] modelRows = Arrays.stream(viewRows)
+						.map(actionTable::convertRowIndexToModel)
+						.sorted()
+						.toArray();
+
+				for (int i = modelRows.length - 1; i >= 0; i--) {
+					deleteRow(modelRows[i]); // вынеси твою логику из deleteRow в этот метод
 				}
 			}
 
 			@Override
+			public void toggleMarkSelectedRow() {
+				int[] viewRows = actionTable.getSelectedRows();
+				if (viewRows.length == 0) return;
+
+				int[] modelRows = Arrays.stream(viewRows)
+						.map(actionTable::convertRowIndexToModel)
+						.sorted()
+						.toArray();
+
+				// спросим цвет один раз, применим ко всем
+				int firstRow = modelRows[0];
+				Color mark = showMarkColorChooser(firstRow); // изменим showMarkColorChooser
+
+				for (int modelRow : modelRows) {
+					if (mark == null) {
+						rowMarks.remove(modelRow); // условный сигнал «снять метку»
+					} else {
+						rowMarks.put(modelRow, mark);
+					}
+				}
+
+				actionTable.repaint();
+			}
+
+			@Override
 			public void startScenarioFromSelectedRow() {
-				int viewRow = actionTable.getSelectedRow();
-				if (viewRow < 0 || !playActionService.isStopped()) return;
+				int[] viewRows = actionTable.getSelectedRows();
+				if (viewRows.length != 1 || !playActionService.isStopped()) {
+					// можно ничего не делать или показать сообщение
+					return;
+				}
+				int viewRow = viewRows[0];
 
 				int modelRow = actionTable.convertRowIndexToModel(viewRow);
 
 				playButton.setText("■");
 				playButton.setToolTipText("Stop scenario");
 				playActionService.playActionsFromTable(ActionWindow.this, modelRow);
+			}
+
+			@Override
+			public void createMethodFromSelectedSteps() {
+				int[] viewRows = actionTable.getSelectedRows();
+				if (viewRows.length < 2) return;
+
+				int[] modelRows = Arrays.stream(viewRows)
+						.map(actionTable::convertRowIndexToModel)
+						.sorted()
+						.toArray();
+
+				// здесь ты потом реализуешь свою генерацию метода по диапазону шагов
+				// например: generateMethodFromSteps(modelRows[0], modelRows[modelRows.length - 1]);
 			}
 		});
 
@@ -823,10 +869,9 @@ public class ActionWindow extends JFrame {
 		}
 	}
 
-	private void deleteRow() {
+	private void deleteRow(int row) {
 		// 1. если сейчас редактируется ячейка — аккуратно остановить
 		if (actionTable.isEditing()) {
-			int row = actionTable.getEditingRow();
 			int col = actionTable.getEditingColumn();
 			TableCellEditor editor = actionTable.getCellEditor(row, col);
 			if (editor != null) {
@@ -837,8 +882,6 @@ public class ActionWindow extends JFrame {
 			}
 		}
 
-		// 2. дальше твоя логика удаления
-		int row = actionTable.getSelectedRow();
 		if (row >= 0) {
 			Object[] data = new Object[tableModel.getColumnCount()];
 			for (int c = 0; c < data.length; c++) {
@@ -862,7 +905,7 @@ public class ActionWindow extends JFrame {
 		}
 	}
 
-	private void showMarkColorChooser(int modelRow) {
+	private Color showMarkColorChooser(int modelRow) {
 		Object[] options = {"Красный", "Зелёный", "Синий", "Жёлтый", "Снять метку"};
 		int choice = JOptionPane.showOptionDialog(
 				this,
@@ -876,18 +919,16 @@ public class ActionWindow extends JFrame {
 		);
 
 		if (choice == -1) {
-			return; // отмена
+			return null; // отмена
 		}
 
-		switch (choice) {
-			case 0 -> rowMarks.put(modelRow, new Color(255, 150, 150)); // мягкий красный
-			case 1 -> rowMarks.put(modelRow, new Color(180, 240, 180)); // мягкий зелёный
-			case 2 -> rowMarks.put(modelRow, new Color(150, 180, 255)); // мягкий синий
-			case 3 -> rowMarks.put(modelRow, new Color(255, 250, 180)); // мягкий жёлтый
-			case 4 -> rowMarks.remove(modelRow);                        // снять метку
-		}
-
-		actionTable.repaint();
+		return switch (choice) {
+			case 0 -> new Color(255, 150, 150); // мягкий красный
+			case 1 -> new Color(180, 240, 180); // мягкий зелёный
+			case 2 -> new Color(150, 180, 255); // мягкий синий
+			case 3 -> new Color(255, 250, 180); // мягкий жёлтый
+			default -> null;
+		};
 	}
 
 	private void toggleScenario(int rowStart) {
