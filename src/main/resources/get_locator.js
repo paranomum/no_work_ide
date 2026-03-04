@@ -44,8 +44,8 @@ function findLocatorXpath(element) {
         // 1) пробуем кликабельный элемент (кнопки, ссылки, табы, селекты, чекбоксы...)
         var clickable = isClickableElement(current);
         if (clickable && clickable.isClickable && clickable.buttonInfo && clickable.buttonInfo.xpath) {
-            if (clickable.index >= 1) {
-                return "(" + clickable.buttonInfo.xpath + ")[" + (clickable.index + 1) + "]";
+            if (clickable.index > 1) {
+                return "(" + clickable.buttonInfo.xpath + ")[" + (clickable.index) + "]";
             }
             return clickable.buttonInfo.xpath;
         }
@@ -53,8 +53,8 @@ function findLocatorXpath(element) {
         // 2) пробуем поле ввода (input, textarea, form-select)
         var field = getFieldInfoFromInput(current);
         if (field && field.xpath) {
-            if (field.index >= 1) {
-                        return "(" + field.xpath + ")[" + (clickable.index + 1) + "]";
+            if (field.index > 1) {
+                        return "(" + field.xpath + ")[" + (clickable.index) + "]";
                     }
             return field.xpath;
         }
