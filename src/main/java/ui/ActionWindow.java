@@ -195,11 +195,10 @@ public class ActionWindow extends JFrame {
 			}
 		});
 
-		// НОВАЯ КНОПКА ПРОГОНА
 		playButton = new JButton("▶");
 		playButton.setToolTipText("Run actions from table in browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		playButton.addActionListener(e -> playActionService.playActionsFromTable(this));
+		playButton.addActionListener(e -> toggleScenario(0));
 
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
@@ -530,12 +529,14 @@ public class ActionWindow extends JFrame {
 
 			@Override
 			public void startScenarioFromSelectedRow() {
-				int row = actionTable.getSelectedRow();
-				if (row >= 0) {
-//					int modelRow = actionTable.convertRowIndexToModel(row);
-//					// сюда потом подцепишь PlayActionService, чтобы запускать с modelRow
-//					startScenarioFromRow(modelRow);
-				}
+				int viewRow = actionTable.getSelectedRow();
+				if (viewRow < 0 || !playActionService.isStopped()) return;
+
+				int modelRow = actionTable.convertRowIndexToModel(viewRow);
+
+				playButton.setText("■");
+				playButton.setToolTipText("Stop scenario");
+				playActionService.playActionsFromTable(ActionWindow.this, modelRow);
 			}
 		});
 
@@ -888,6 +889,26 @@ public class ActionWindow extends JFrame {
 
 		actionTable.repaint();
 	}
+
+	private void toggleScenario(int rowStart) {
+		if (playActionService.isStopped()) {
+			playButton.setText("■");
+			playButton.setToolTipText("Stop scenario");
+			playActionService.playActionsFromTable(this, rowStart);
+		} else {
+			playActionService.setStopped(true);
+			playButton.setText("▶");
+			playButton.setToolTipText("Run actions from table in browser");
+		}
+	}
+
+	public void onScenarioFinished() {
+		SwingUtilities.invokeLater(() -> {
+			playButton.setText("▶");
+			playButton.setToolTipText("Run actions from table in browser");
+		});
+	}
+
 
 
 }

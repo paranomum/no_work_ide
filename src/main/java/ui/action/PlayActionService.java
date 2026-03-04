@@ -2,6 +2,7 @@ package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
 import dto.UsersServiceSpec;
+import lombok.Getter;
 import lombok.Setter;
 import model.UserAction;
 import org.openqa.selenium.By;
@@ -43,6 +44,7 @@ public class PlayActionService {
 	private final UsersService usersService;
 
 	private Thread playThread;
+	@Getter @Setter
 	private volatile boolean stopped = false;
 	private volatile int currentRow = -1;
 
@@ -56,7 +58,7 @@ public class PlayActionService {
 		log.info("PlayActionService created, speedMode=FAST");
 	}
 
-	public void playActionsFromTable(ActionWindow actionWindow) {
+	public void playActionsFromTable(ActionWindow actionWindow, int startRowIndex) {
 		if (driver == null) {
 			log.warn("playActionsFromTable: WebDriver is null, showing browser-required dialog");
 			JOptionPane.showMessageDialog(
@@ -80,6 +82,8 @@ public class PlayActionService {
 		}
 
 		List<PlayStep> steps = buildStepsFromTable();
+		steps.removeIf(step -> step.rowIndex < startRowIndex);
+
 		log.info("playActionsFromTable: built {} steps from table", steps.size());
 
 		if (steps.isEmpty()) {
@@ -93,25 +97,23 @@ public class PlayActionService {
 		}
 
 		stopped = false;
-		currentRow = -1;
+		currentRow = startRowIndex > 0 ? startRowIndex : -1;
 
 		playThread = new Thread(() -> {
 			try {
 				WebDriverRunner.setWebDriver(driver);
-				log.info("PlayScenarioThread started with {} steps", steps.size());
+				log.info("PlayScenarioThread started with {} steps from row {}", steps.size(), startRowIndex + 1);
 				runScenario(actionWindow, steps);
-				currentRow = -1;
-				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
-				stopPlayback();
 				log.info("=== runScenario finished, stopped={} ===", stopped);
 				showInfoOnUi(actionWindow, "Scenario finished successfully");
 			} catch (Throwable e) {
-				int rowToShow = currentRow;
+				showErrorOnUi(actionWindow, "Stopped on step " + currentRow + ".\n" + e.getMessage());
+				log.error("Unexpected error in PlayScenarioThread", e);
+			} finally {
+				stopPlayback();
 				currentRow = -1;
 				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
-				log.error("Unexpected error in PlayScenarioThread", e);
-				showErrorOnUi(actionWindow, "Stopped on step " + rowToShow + ".\n" + e.getMessage());
-				stopPlayback();
+				actionWindow.onScenarioFinished();
 			}
 		}, "PlayScenarioThread");
 
@@ -119,11 +121,11 @@ public class PlayActionService {
 	}
 
 	public synchronized void stopPlayback() {
-		stopped = true;
 		if (playThread != null && playThread.isAlive()) {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
 		}
+		stopped = true;
 	}
 
 	private List<PlayStep> buildStepsFromTable() {
@@ -170,6 +172,11 @@ public class PlayActionService {
 
 	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps) {
 		for (PlayStep step : steps) {
+			if (stopped) {
+				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
+				showInfoOnUi(actionWindow,"Playback stopped on step " + (step.rowIndex - 1));
+				break;
+			}
 			log.info("=== LOOP START, step={} ===", step.rowIndex + 1);
 			log.info(">>> before playOneStep, step={}", step.rowIndex + 1);
 			currentRow = step.rowIndex;
