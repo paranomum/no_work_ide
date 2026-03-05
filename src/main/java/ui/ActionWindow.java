@@ -1,6 +1,8 @@
 package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import dto.AppConfig;
 import lombok.val;
 import model.ElementType;
@@ -23,6 +25,7 @@ import javax.swing.event.*;
 import javax.swing.table.*;
 import java.awt.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 
@@ -69,6 +72,7 @@ public class ActionWindow extends JFrame {
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
+		this.customMethodsService.load();
 		driver = null;
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
@@ -197,7 +201,13 @@ public class ActionWindow extends JFrame {
 		playButton = new JButton("▶");
 		playButton.setToolTipText("Run actions from table in browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
-		playButton.addActionListener(e -> toggleScenario(0));
+		playButton.addActionListener(e -> {
+			int viewRow = actionTable.getSelectedRow();
+			if (viewRow <= 0) {
+				toggleScenario(0);
+			}
+			toggleScenario(viewRow);
+		});
 
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
@@ -636,6 +646,42 @@ public class ActionWindow extends JFrame {
 						.sorted()
 						.toArray();
 
+				// 1) спросить имя и файл
+				CustomMethodSaveData data = askCustomMethodNameAndFile();
+				if (data == null) {
+					return;
+				}
+
+				List<dto.ActionRecord> records = buildActionRecordsForRows(modelRows);
+
+				// 3) сохранить JSON
+				try (Writer writer = new OutputStreamWriter(
+						new FileOutputStream(data.file), StandardCharsets.UTF_8)) {
+
+					Gson gson = new GsonBuilder().setPrettyPrinting().create();
+					gson.toJson(records, writer);
+				} catch (Exception ex) {
+					ex.printStackTrace();
+					JOptionPane.showMessageDialog(
+							ActionWindow.this,
+							"Failed to save custom method steps: " + ex.getMessage(),
+							"Error",
+							JOptionPane.ERROR_MESSAGE
+					);
+					return;
+				}
+
+				// 4) добавить запись в CustomMethodsService
+				customMethodsService.load(); // подтянуть текущее
+				customMethodsService.addMethod(data.name, data.file.getAbsolutePath());
+				customMethodsService.save();
+
+				JOptionPane.showMessageDialog(
+						ActionWindow.this,
+						"Custom method '" + data.name + "' saved to:\n" + data.file.getAbsolutePath(),
+						"Saved",
+						JOptionPane.INFORMATION_MESSAGE
+				);
 			}
 		});
 
@@ -959,7 +1005,125 @@ public class ActionWindow extends JFrame {
 		});
 	}
 
+	private static class CustomMethodSaveData {
+		final String name;
+		final File file;
+		CustomMethodSaveData(String name, File file) {
+			this.name = name;
+			this.file = file;
+		}
+	}
 
+	private CustomMethodSaveData askCustomMethodNameAndFile() {
+		JTextField nameField = new JTextField(20);
+		JButton browseBtn = new JButton("Browse...");
+		JTextField pathField = new JTextField(25);
+
+		JPanel panel = new JPanel(new GridBagLayout());
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.insets = new Insets(4, 4, 4, 4);
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+
+		gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
+		panel.add(new JLabel("Method name:"), gbc);
+		gbc.gridx = 1; gbc.weightx = 1.0;
+		panel.add(nameField, gbc);
+
+		gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+		panel.add(new JLabel("File path:"), gbc);
+		gbc.gridx = 1; gbc.weightx = 1.0;
+		panel.add(pathField, gbc);
+		gbc.gridx = 2; gbc.weightx = 0;
+		panel.add(browseBtn, gbc);
+
+		browseBtn.addActionListener(e -> {
+			JFileChooser chooser = new JFileChooser();
+			chooser.setDialogTitle("Select file to save custom method");
+			chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+					"JSON files", "json"));
+			int res = chooser.showSaveDialog(this);
+			if (res == JFileChooser.APPROVE_OPTION) {
+				File f = chooser.getSelectedFile();
+				if (!f.getName().toLowerCase().endsWith(".json")) {
+					f = new File(f.getParentFile(), f.getName() + ".json");
+				}
+				pathField.setText(f.getAbsolutePath());
+			}
+		});
+
+		int result = JOptionPane.showConfirmDialog(
+				this,
+				panel,
+				"Save selected steps as custom method",
+				JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.PLAIN_MESSAGE
+		);
+
+		if (result != JOptionPane.OK_OPTION) {
+			return null;
+		}
+
+		String name = nameField.getText().trim();
+		String path = pathField.getText().trim();
+		if (name.isEmpty() || path.isEmpty()) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Method name and file path must not be empty",
+					"Validation error",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return null;
+		}
+
+		return new CustomMethodSaveData(name, new File(path));
+	}
+
+	private List<dto.ActionRecord> buildActionRecordsForRows(int[] modelRows) {
+		List<dto.ActionRecord> list = new ArrayList<>();
+		for (int r : modelRows) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			String actionCode = null;
+			if (actionObj instanceof UserAction ua) {
+				actionCode = ua.getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+
+			Object elementTypeObj = tableModel.getValueAt(r, 5);
+			String elementType = null;
+			if (elementTypeObj instanceof ElementType et) {
+				elementType = et.getClassName();
+			} else if (elementTypeObj != null) {
+				elementType = elementTypeObj.toString();
+			}
+
+			String selector = val(r, 2);
+			String value    = val(r, 3);
+			String comment  = val(r, 4);
+			String xpath    = val(r, 6);
+			String name     = val(r, 7);
+			String index    = val(r, 8);
+			String byXpath  = val(r, 9);
+
+			list.add(new dto.ActionRecord(
+					actionCode,
+					selector,
+					value,
+					comment,
+					elementType,
+					xpath,
+					name,
+					index,
+					byXpath
+			));
+		}
+		return list;
+	}
+
+	private String val(int row, int col) {
+		Object v = tableModel.getValueAt(row, col);
+		return v == null ? null : v.toString();
+	}
 
 }
 

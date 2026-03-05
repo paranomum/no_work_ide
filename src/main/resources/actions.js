@@ -134,15 +134,16 @@ if (!window.__iqhrActionsInitialized) {
     document.removeEventListener('focus', window.__iqhrFocusHandler, true);
   }
 
-  window.__iqhrFocusHandler = function (e) {
-    var element = e.target;
-    if (isEditableInput(element)) {
-      var fieldInfo = getFieldInfoFromInput(element); // из input.js
-      window.currentFocusedXPath = fieldInfo ? fieldInfo.xpath : getXPath(element);
-      window.currentFocusedElement = element;
-      window.currentFocusedValue = element.value || '';
-    }
-  };
+window.__iqhrFocusHandler = function (e) {
+  var element = e.target;
+  if (isEditableInput(element)) {
+    var fieldInfo = getFieldInfoSmart(element);
+
+    window.currentFocusedXPath = fieldInfo ? fieldInfo.xpath : getXPath(element);
+    window.currentFocusedElement = element;
+    window.currentFocusedValue = getElementValueLikeInput(element);
+  }
+};
 
   document.addEventListener('focus', window.__iqhrFocusHandler, true);
 
@@ -153,23 +154,24 @@ if (!window.__iqhrActionsInitialized) {
 
   window.__iqhrBlurHandler = function (e) {
     if (isEditableInput(e.target) && window.currentFocusedXPath) {
-      var currentValue = e.target.value || '';
+      var element = e.target;
+      var currentValue = getElementValueLikeInput(element);
 
       if (window.currentFocusedValue !== currentValue) {
-        var picker = getFieldInfoFromDatePicker(e.target); // из date_picker-2.js
+        var picker = getFieldInfoFromDatePicker(element);
         if (picker === null) {
-          var fieldInfo = getFieldInfoFromInput(e.target);
+          var fieldInfo = getFieldInfoSmart(element);
           var clickRecord = {
-                xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
-                value: currentValue,
-                id: e.target.id || '',
-                type: fieldInfo ? fieldInfo.type : 'Field',
-                name: fieldInfo ? fieldInfo.name : '',
-                timestamp: Date.now(),
-                javaData: '',
-                index : fieldInfo ? fieldInfo.indexIndex : 0,
-                initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
-              };
+            xpath: fieldInfo ? fieldInfo.xpath : window.currentFocusedXPath,
+            value: currentValue,
+            id: element.id || '',
+            type: fieldInfo ? fieldInfo.type : 'Field',   // тут уже придёт 'RichField'
+            name: fieldInfo ? fieldInfo.name : '',
+            timestamp: Date.now(),
+            javaData: '',
+            index: fieldInfo ? fieldInfo.indexIndex : 0,
+            initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
+          };
           console.log(clickRecord);
           window.recordedInputs.push(clickRecord);
         }

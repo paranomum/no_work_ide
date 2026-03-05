@@ -101,7 +101,27 @@ function getButtonIndex(buttonElement) {
 function isEditableInput(element) {
   if (!element) return false;
   var tagName = element.tagName ? element.tagName.toUpperCase().trim() : '';
-  return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD';
+  var role = element.getAttribute && element.getAttribute('role');
+
+  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'MAT-FORM-FIELD') {
+    return true;
+  }
+
+  // Rich editor: DIV с role="textbox"
+  if (tagName === 'DIV' && role && role.toLowerCase().trim() === 'textbox') {
+    return true;
+  }
+
+  return false;
+}
+
+function getElementValueLikeInput(element) {
+  if (!element) return '';
+  if ('value' in element) {
+    return element.value || '';
+  }
+  // для contenteditable DIV
+  return element.textContent || '';
 }
 
 function findClickable(element) {
@@ -118,4 +138,20 @@ function findClickable(element) {
     depth++;
   }
   return { isClickable: false, buttonInfo: null, javaData: null };
+}
+
+function getFieldInfoSmart(element) {
+//  // 1. DatePicker
+//  var picker = getFieldInfoFromDatePicker(element);
+//  if (picker) return picker;
+
+  // 2. RichField
+  var rich = getFieldInfoFromRichField(element);
+  if (rich) return rich;
+
+  // 3. Обычный Field
+  var field = getFieldInfoFromInput(element);
+  if (field) return field;
+
+  return null;
 }

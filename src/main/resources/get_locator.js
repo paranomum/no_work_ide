@@ -51,7 +51,7 @@ function findLocatorXpath(element) {
         }
 
         // 2) пробуем поле ввода (input, textarea, form-select)
-        var field = getFieldInfoFromInput(current);
+        var field = getFieldInfoSmart(current);
         if (field && field.xpath) {
             if (field.index > 1) {
                         return "(" + field.xpath + ")[" + (clickable.index) + "]";

@@ -454,6 +454,7 @@ public class PlayActionService {
 
 			return switch (type) {
 				case "Field"      -> new Field("", $x(indexedXpath));
+				case "RichField"      -> new RichField("", $x(indexedXpath));
 				case "Select"     -> new Select("", $x(indexedXpath));
 				case "Dropdown"   -> new Dropdown("", $x(indexedXpath));
 				case "DatePicker" -> new DatePicker("", $x(indexedXpath));
@@ -477,6 +478,7 @@ public class PlayActionService {
 		if (isProbablyXPath(trimmed)) {
 			return switch (type) {
 				case "Field"      -> new Field("", $x(trimmed));
+				case "RichField"  -> new RichField("", $x(trimmed));
 				case "Select"     -> new Select("", $x(trimmed));
 				case "Dropdown"   -> new Dropdown("", $x(trimmed));
 				case "DatePicker" -> new DatePicker("", $x(trimmed));
@@ -504,6 +506,7 @@ public class PlayActionService {
 
 				return switch (type) {
 					case "Field"      -> new Field(namePart, index);
+					case "RichField"  -> new RichField(namePart, index);
 					case "Select"     -> new Select(namePart, index);
 					case "Dropdown"   -> new Dropdown(namePart, index);
 					case "DatePicker" -> new DatePicker(namePart, index);
@@ -521,6 +524,7 @@ public class PlayActionService {
 
 		return switch (type) {
 			case "Field"      -> new Field(nameFromSelector);
+			case "RichField"  -> new RichField(nameFromSelector);
 			case "Select"     -> new Select(nameFromSelector);
 			case "Dropdown"   -> new Dropdown(nameFromSelector);
 			case "DatePicker" -> new DatePicker(nameFromSelector);
