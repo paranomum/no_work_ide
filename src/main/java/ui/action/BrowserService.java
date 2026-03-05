@@ -77,6 +77,7 @@ public class BrowserService {
 		String osName = System.getProperty("os.name");
 		if (osName.startsWith("Windows")) {
 			System.setProperty("webdriver.chrome.driverToInit", driverPath);
+			System.setProperty("webdriver.chrome.driver", driverPath);
 			chromeOptions.addArguments("--incognito");
 		} else {
 			chromeOptions.setBinary(driverPath);
