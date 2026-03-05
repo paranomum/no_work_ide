@@ -90,7 +90,7 @@ public class ActionWindow extends JFrame {
 		actionRecorder = new ActionRecorder(tableModel);
 		playActionService =  new PlayActionService(tableModel, usersService, customMethodsService);
 		driver = null;
-		fileService = new ActionFileService(this, tableModel);
+		fileService = new ActionFileService(this, tableModel, customMethodsService);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());

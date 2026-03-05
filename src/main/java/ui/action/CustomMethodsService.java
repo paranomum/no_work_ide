@@ -9,6 +9,10 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -285,6 +289,33 @@ public class CustomMethodsService {
 			return steps != null ? steps : java.util.List.of();
 		} catch (Exception ex) {
 			throw new RuntimeException("Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
+		}
+	}
+
+	// ВНУТРИ CustomMethodsService
+	public List<ActionRecord> loadMethodStepsAsActionRecords(String methodName) {
+		MethodDef def = findByName(methodName); // тут тип виден без полного имени
+		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
+			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
+		}
+
+		File file = new File(def.getPath());
+		if (!file.exists()) {
+			throw new IllegalArgumentException("Custom method file not found: " + file.getAbsolutePath());
+		}
+
+		try (Reader reader = new InputStreamReader(
+				new FileInputStream(file), StandardCharsets.UTF_8)) {
+
+			Gson gson = new GsonBuilder().create();
+			ActionRecord[] records = gson.fromJson(reader, ActionRecord[].class);
+			if (records == null) {
+				return List.of();
+			}
+			return java.util.Arrays.asList(records);
+		} catch (Exception ex) {
+			throw new RuntimeException(
+					"Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
 		}
 	}
 

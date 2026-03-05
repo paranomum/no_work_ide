@@ -22,10 +22,12 @@ public class ActionFileService {
 
 	private final DefaultTableModel tableModel;
 	private final JFrame parent;
+	private final CustomMethodsService customMethodsService;
 
-	public ActionFileService(JFrame parent, DefaultTableModel tableModel) {
+	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService) {
 		this.parent = parent;
 		this.tableModel = tableModel;
+		this.customMethodsService = customMethodsService;
 	}
 
 	// --------- Публичный вход ---------
@@ -41,7 +43,13 @@ public class ActionFileService {
 			return;
 		}
 
-		String[] options = { "Test plan (JSON)", "Generated auto test (.java)", "Cancel" };
+		String[] options = {
+				"Test plan (JSON)",                 // 0 — как сейчас (без разворачивания)
+				"Generated auto test (.java)",      // 1
+				"Full test plan JSON (inline)",     // 2 — НОВОЕ
+				"Cancel"                            // 3
+		};
+
 		int choice = JOptionPane.showOptionDialog(
 				parent,
 				"Что сохранить?",
@@ -53,14 +61,16 @@ public class ActionFileService {
 				options[0]
 		);
 
-		if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) {
+		if (choice == 3 || choice == JOptionPane.CLOSED_OPTION) {
 			return;
 		}
 
 		if (choice == 1) {
 			saveGeneratedJava();
-		} else {
-			saveJsonPlan();
+		} else if (choice == 0) {
+			saveJsonPlan();             // как было
+		} else if (choice == 2) {
+			saveJsonPlanWithInlinedCustomMethods(); // НОВЫЙ метод
 		}
 	}
 
@@ -485,5 +495,141 @@ public class ActionFileService {
 		if (s == null) return false;
 		return COMMA_SPACE_DIGIT_NON_LETTERS.matcher(s).find();
 	}
+
+	private void saveJsonPlanWithInlinedCustomMethods() {
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Save full test plan (inline custom methods)");
+		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+				"JSON files", "json"));
+
+		int result = chooser.showSaveDialog(parent);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+
+		File file = chooser.getSelectedFile();
+		if (!file.getName().toLowerCase().endsWith(".json")) {
+			file = new File(file.getParentFile(), file.getName() + ".json");
+		}
+
+		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
+
+		try (Writer writer = new OutputStreamWriter(
+				new FileOutputStream(file), StandardCharsets.UTF_8)) {
+
+			Gson gson = new GsonBuilder()
+					.setPrettyPrinting()
+					.create();
+			gson.toJson(rows, writer);
+			writer.flush();
+
+			JOptionPane.showMessageDialog(
+					parent,
+					"Full test plan (inline) saved to:\n" + file.getAbsolutePath(),
+					"Save Successful",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			JOptionPane.showMessageDialog(
+					parent,
+					"Failed to save full test plan: " + ex.getMessage(),
+					"Error",
+					JOptionPane.ERROR_MESSAGE
+			);
+		}
+	}
+	private List<ActionRecord> buildActionRecordsWithInlinedCustomMethods() {
+		List<ActionRecord> result = new ArrayList<>();
+		int rowCount = tableModel.getRowCount();
+
+		for (int r = 0; r < rowCount; r++) {
+			// вытаскиваем actionCode так же, как в buildActionRecords()
+			Object actionObj = tableModel.getValueAt(r, 1);
+			String actionCode = null;
+			if (actionObj instanceof UserAction) {
+				actionCode = ((UserAction) actionObj).getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+
+			// если это не customMethod — просто добавляем один ActionRecord
+			if (!"customMethod".equals(actionCode)) {
+				result.add(buildActionRecordForRow(r, actionCode));
+				continue;
+			}
+
+			// customMethod: берём имя метода из Value
+			String methodName = val(r, 3); // колонка Value
+			if (methodName == null || methodName.isBlank() || customMethodsService == null) {
+				// если что-то не так — сохраняем как есть, чтобы не потерять шаг
+				result.add(buildActionRecordForRow(r, actionCode));
+				continue;
+			}
+
+			// грузим шаги метода и inline-им их
+			try {
+				List<ActionRecord> methodSteps =
+						customMethodsService.loadMethodStepsAsActionRecords(methodName);
+				if (methodSteps == null || methodSteps.isEmpty()) {
+					// если метод пуст — можно либо ничего не добавлять,
+					// либо сохранить исходный шаг; я предлагаю сохранить исходный
+					result.add(buildActionRecordForRow(r, actionCode));
+				} else {
+					result.addAll(methodSteps);
+				}
+			} catch (Exception ex) {
+				ex.printStackTrace();
+				// в случае ошибки лучше сохранить исходный шаг, чтобы сценарий не «терялся»
+				result.add(buildActionRecordForRow(r, actionCode));
+			}
+		}
+
+		return result;
+	}
+
+
+	private ActionRecord buildActionRecordForRow(int r, String actionCodeFromOutside) {
+		String actionCode = actionCodeFromOutside;
+
+		if (actionCode == null) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			if (actionObj instanceof UserAction) {
+				actionCode = ((UserAction) actionObj).getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+		}
+
+		Object elementTypeObj = tableModel.getValueAt(r, 5);
+		String elementType = null;
+		if (elementTypeObj instanceof ElementType) {
+			elementType = ((ElementType) elementTypeObj).getClassName();
+		} else if (elementTypeObj != null) {
+			elementType = elementTypeObj.toString();
+		}
+
+		String selector = val(r, 2);
+		String value    = val(r, 3);
+		String comment  = val(r, 4);
+		String xpath    = val(r, 6);
+		String name     = val(r, 7);
+		String index    = val(r, 8);
+		String byXpath  = val(r, 9);
+
+		return new ActionRecord(
+				actionCode,
+				selector,
+				value,
+				comment,
+				elementType,
+				xpath,
+				name,
+				index,
+				byXpath
+		);
+	}
+
+
 }
 
