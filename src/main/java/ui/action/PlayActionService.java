@@ -194,7 +194,6 @@ public class PlayActionService {
 		String javaClassName = step.javaClassName;
 
 		boolean passValue = !action.contains("click")
-				&& !action.contains("selectOption")
 				&& !action.contains("fillDate");
 
 		log.debug("playOneStep row={}, action={}, class={}, selector={}, value={}",

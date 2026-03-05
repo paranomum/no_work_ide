@@ -382,7 +382,12 @@ public class ActionWindow extends JFrame {
 		am.put("delete-row", new AbstractAction() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				deleteRow(actionTable.getEditingRow());
+				int[] rows = actionTable.getSelectedRows();
+				if (rows.length == 0) return;
+
+				for (int i = rows.length - 1; i >= 0; i--) {
+					deleteRow(rows[i]);
+				}
 			}
 		});
 
