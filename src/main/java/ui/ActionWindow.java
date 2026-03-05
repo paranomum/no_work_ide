@@ -88,7 +88,7 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
-		playActionService =  new PlayActionService(tableModel, usersService);
+		playActionService =  new PlayActionService(tableModel, usersService, customMethodsService);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel);
 

@@ -2,6 +2,7 @@ package ui.action;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import dto.ActionRecord;
 import dto.AppConfig;
 
 import javax.swing.*;
@@ -263,6 +264,27 @@ public class CustomMethodsService {
 						1 // колонка Path
 				);
 			}
+		}
+	}
+
+	public java.util.List<ActionRecord> loadMethodSteps(String methodName) {
+		MethodDef def = findByName(methodName);
+		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
+			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
+		}
+
+		java.io.File file = new java.io.File(def.getPath());
+		if (!file.exists()) {
+			throw new IllegalArgumentException("Custom method file not found: " + file.getAbsolutePath());
+		}
+
+		try (java.io.Reader reader = new java.io.FileReader(file, java.nio.charset.StandardCharsets.UTF_8)) {
+			java.lang.reflect.Type listType =
+					new com.google.gson.reflect.TypeToken<java.util.List<ActionRecord>>() {}.getType();
+			java.util.List<ActionRecord> steps = gson.fromJson(reader, listType);
+			return steps != null ? steps : java.util.List.of();
+		} catch (Exception ex) {
+			throw new RuntimeException("Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
 		}
 	}
 

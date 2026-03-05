@@ -1,6 +1,7 @@
 package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
+import dto.ActionRecord;
 import dto.UsersServiceSpec;
 import lombok.Getter;
 import lombok.Setter;
@@ -42,6 +43,7 @@ public class PlayActionService {
 	private final TabManager tabManager = new TabManager();
 	private final FormFiller formFiller;
 	private final UsersService usersService;
+	private final CustomMethodsService customMethodsService;
 
 	private Thread playThread;
 	@Getter @Setter
@@ -50,11 +52,12 @@ public class PlayActionService {
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
-	public PlayActionService(DefaultTableModel tableModel, UsersService usersService) {
+	public PlayActionService(DefaultTableModel tableModel, UsersService usersService, CustomMethodsService customMethodsService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
 		this.usersService = usersService;
+		this.customMethodsService = customMethodsService;
 		log.info("PlayActionService created, speedMode=FAST");
 	}
 
@@ -205,7 +208,8 @@ public class PlayActionService {
 				|| action.contains("waitLoadingPage")
 				|| action.contains("pause")
 				|| action.contains("auth")
-				|| action.contains("open");
+				|| action.contains("open")
+				|| action.contains("customMethod");
 
 		if (isSpecial) {
 			log.info("Row {}: special action '{}'", step.rowIndex + 1, action);
@@ -297,6 +301,11 @@ public class PlayActionService {
 			formFiller.fillRequiredEmptyByLabel(parent);
 			formFiller.fillRequiredConfirmationSteps(parent,
 					"superuser_1@autotest.rt", "superuser_1@autotest.rt");
+		} else if (action.contains("customMethod")) {
+			if (!hasValue) {
+				throw new IllegalArgumentException("value for action 'customMethod' must be a method name");
+			}
+			playCustomMethod(value);
 		} else if (action.contains("waitLoadingPage")) {
 			if (hasValue) {
 				int timeout = Integer.parseInt(value.replaceAll("[\\D]", ""));
@@ -333,6 +342,52 @@ public class PlayActionService {
 			log.info("specialAction placeholder executed");
 		}
 	}
+
+	private void playCustomMethod(String methodName) {
+		log.info("playCustomMethod: '{}'", methodName);
+
+		java.util.List<ActionRecord> methodSteps =
+				customMethodsService.loadMethodSteps(methodName);
+		if (methodSteps.isEmpty()) {
+			log.warn("Custom method '{}' has no steps", methodName);
+			return;
+		}
+
+		// конвертируем CustomMethodStepDto -> PlayStep и прогоняем той же логикой
+		for (ActionRecord dto : methodSteps) {
+			if (stopped) {
+				log.info("Playback stopped inside custom method '{}'", methodName);
+				break;
+			}
+
+			PlayStep step = new PlayStep();
+			step.rowIndex      = -1; // внешней строки нет, это внутренний шаг
+			step.actionCode    = dto.getAction();
+			step.selector      = dto.getSelector();
+			step.value         = dto.getValue();
+			step.javaClassName = dto.getElementType();
+			step.xpath         = dto.getXpath();
+			step.name          = dto.getName();
+			step.index         = dto.getIndex();
+			step.byXpath       = dto.getByXpath();
+
+			log.debug(
+					"customStep={\"method\":\"{}\",\"action\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
+					methodName,
+					nullSafe(step.actionCode),
+					nullSafe(step.javaClassName),
+					nullSafe(step.selector),
+					nullSafe(step.xpath),
+					nullSafe(step.name),
+					nullSafe(step.index),
+					nullSafe(step.byXpath)
+			);
+
+			// здесь важно: playOneStep уже умеет обработать и спец‑действия, и обычные
+			playOneStep(step);
+		}
+	}
+
 
 	private WebElement findByXpath(String xpath) {
 		// Здесь можно навесить ожидания (WebDriverWait) и обработку ошибок.
