@@ -15,6 +15,7 @@ import java.util.HashMap;
 public class ConfigService {
 	private static final String CONFIG_FILE_NAME = "settings.json";
 	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
+	private static final String CUSTOM_METHODS_FILE_NAME = "customMethods.json";
 	private static final String USERS_FILE_NAME = "users.json";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
@@ -66,6 +67,7 @@ public class ConfigService {
 				if (cfg.theme == null) cfg.theme = "Light";
 				if (cfg.chromeDriverPath == null) cfg.chromeDriverPath = "";
 				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
+				if (cfg.customMethodsPath == null) cfg.customMethodsPath = "";
 				if (cfg.usersSpecsPath == null) cfg.usersSpecsPath = "";
 				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
 
@@ -107,6 +109,30 @@ public class ConfigService {
 
 		if (!Files.exists(file)) {
 			// создаём пустой json массив по дефолту
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	// путь к openApiSpec.json
+	public Path getCustomMethodsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.customMethodsPath != null && !cfg.customMethodsPath.isBlank()) {
+			file = Paths.get(cfg.customMethodsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.customMethodsPath);
+			}
+		} else {
+			file = dir.resolve(CUSTOM_METHODS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
 			try (Writer w = Files.newBufferedWriter(file)) {
 				w.write("[]");
 			}

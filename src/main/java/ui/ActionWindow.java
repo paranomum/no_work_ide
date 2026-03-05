@@ -235,20 +235,42 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initActionTable() {
-		String[] columns = {"#", "Action", "Selector", "Value", "Comment", "Element Type", "Xpath", "Name", "Index", "By xpath"};
+		initTableModel();
+		initTableComponent();
+		initDnD();
+		initHeader();
+		initColumnWidths();
+		initColumnEditors();
+		initIndexUpdater();
+		initKeyBindingsTable();
+		initMouseBehaviors();
+		initRenderersCommon();   // всё, кроме 0 и 1
+		initColumn0Renderer();   // только колонка 0
+		initColumn1Renderer();   // только колонка 1
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(6));
+		createActionMenu();
+	}
+
+	private void initTableModel() {
+		String[] columns = {"#", "Action", "Selector", "Value", "Comment",
+				"Element Type", "Xpath", "Name", "Index", "By xpath"};
+
 		tableModel = new DefaultTableModel(columns, 0) {
 			@Override
 			public boolean isCellEditable(int row, int column) {
-				// колонка с индексом не редактируется
 				return column != 0;
 			}
 		};
+	}
 
+	private void initTableComponent() {
 		actionTable = new JTable(tableModel) {
 			@Override
 			public boolean editCellAt(int row, int column, EventObject e) {
-				if (e instanceof java.awt.event.MouseEvent) {
-					java.awt.event.MouseEvent me = (java.awt.event.MouseEvent) e;
+				if (e instanceof MouseEvent me) {
 					if (me.getClickCount() < 2) {
 						return false;
 					}
@@ -261,55 +283,78 @@ public class ActionWindow extends JFrame {
 		actionTable.setShowGrid(true);
 		actionTable.setGridColor(new Color(180, 180, 180));
 		actionTable.setIntercellSpacing(new Dimension(2, 2));
+	}
 
+	private void initDnD() {
 		actionTable.setDragEnabled(true);
 		actionTable.setDropMode(DropMode.INSERT_ROWS);
 		actionTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 		actionTable.setTransferHandler(new TableRowTransferHandler(actionTable, this));
+	}
 
+	private void initHeader() {
 		JTableHeader header = actionTable.getTableHeader();
 		header.setBackground(new Color(200, 200, 200));
 		header.setForeground(Color.BLACK);
 		header.setOpaque(true);
+
 		DefaultTableCellRenderer headerRenderer = new DefaultTableCellRenderer();
 		headerRenderer.setBackground(new Color(200, 200, 200));
 		headerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
 		header.setDefaultRenderer(headerRenderer);
+	}
 
+	private void initColumnWidths() {
 		if (config.actionTableColumnWidths.isEmpty()) {
 			actionTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-		} else {
-			List<String> columnList = Arrays.stream(columns).toList();
-			for (String column : columnList) {
-				if (config.actionTableColumnWidths.containsKey(column)) {
-					int index = columnList.indexOf(column);
-					int width = config.actionTableColumnWidths.get(column);
-					actionTable.getColumnModel().getColumn(index).setPreferredWidth(width);
-					actionTable.getColumnModel().getColumn(index).setWidth(width);
-				}
-			}
+			return;
 		}
 
-		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
-		actionTable.getColumnModel().getColumn(1).setCellEditor(
-				new DefaultCellEditor(actionComboBox)
-		);
-		actionTable.getColumnModel().getColumn(1).setCellRenderer(
-				new DefaultTableCellRenderer() {
-					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
-						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-						if (value instanceof UserAction) {
-							setText(((UserAction) value).getCode());
-						}
-						return c;
-					}
-				}
-		);
+		List<String> columnList = Arrays.stream(
+				new String[]{"#", "Action", "Selector", "Value", "Comment",
+						"Element Type", "Xpath", "Name", "Index", "By xpath"}
+		).toList();
 
-		// Selector column (index 2)
+		for (String column : columnList) {
+			if (config.actionTableColumnWidths.containsKey(column)) {
+				int index = columnList.indexOf(column);
+				int width = config.actionTableColumnWidths.get(column);
+				actionTable.getColumnModel().getColumn(index).setPreferredWidth(width);
+				actionTable.getColumnModel().getColumn(index).setWidth(width);
+			}
+		}
+	}
+
+	private void initColumnEditors() {
+		// колонка 1 — UserAction
+		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
+		actionComboBox.putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
+
+		actionComboBox.addItemListener(e -> {
+			if (e.getStateChange() != ItemEvent.SELECTED) return;
+
+			UserAction selected = (UserAction) e.getItem();
+			if (selected == UserAction.CUSTOM_METHOD) {
+				CustomMethodsService.MethodDef method = showCustomMethodChooser();
+				if (method == null) {
+					return;
+				}
+
+				int viewRow = actionTable.getSelectedRow();
+				if (viewRow < 0) {
+					return;
+				}
+				int modelRow = actionTable.convertRowIndexToModel(viewRow);
+
+				int valueColIndex = 3; // "Value"
+				tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
+			}
+		});
+
+		DefaultCellEditor actionEditor = new DefaultCellEditor(actionComboBox);
+		actionTable.getColumnModel().getColumn(1).setCellEditor(actionEditor);
+
+		// колонка 2 — Selector
 		SelectorCellEditor selectorEditor = new SelectorCellEditor();
 		selectorEditor.setLocatorPicker(callback -> {
 			if (actionRecorder == null) return;
@@ -319,52 +364,71 @@ public class ActionWindow extends JFrame {
 			if (actionRecorder == null) return;
 			actionRecorder.highlightByXpath(xpath);
 		});
-		actionTable.getColumnModel()
-				.getColumn(2)
-				.setCellEditor(selectorEditor);
+		actionTable.getColumnModel().getColumn(2).setCellEditor(selectorEditor);
 
-
-
+		// колонка 5 — ElementType
 		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
-		actionTable.getColumnModel().getColumn(5).setCellEditor(
-				new DefaultCellEditor(elementComboBox)
-		);
-		actionTable.getColumnModel().getColumn(5).setCellRenderer(
-				new DefaultTableCellRenderer() {
-					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
-						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-						if (value instanceof ElementType) {
-							setText(((ElementType) value).getClassName());
-						}
-						return c;
-					}
-				}
+		actionTable.getColumnModel().getColumn(5)
+				.setCellEditor(new DefaultCellEditor(elementComboBox));
+	}
+
+	private CustomMethodsService.MethodDef showCustomMethodChooser() {
+		customMethodsService.load();
+		java.util.List<CustomMethodsService.MethodDef> methods = customMethodsService.getMethods();
+		if (methods == null || methods.isEmpty()) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Список кастомных методов пуст",
+					"Custom method",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return null;
+		}
+
+		JComboBox<CustomMethodsService.MethodDef> combo =
+				new JComboBox<>(methods.toArray(new CustomMethodsService.MethodDef[0]));
+		combo.setSelectedIndex(0);
+
+		int result = JOptionPane.showConfirmDialog(
+				this,
+				combo,
+				"Выберите кастомный метод",
+				JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.PLAIN_MESSAGE
 		);
 
+		if (result != JOptionPane.OK_OPTION) {
+			return null;
+		}
+
+		Object selected = combo.getSelectedItem();
+		return (selected instanceof CustomMethodsService.MethodDef)
+				? (CustomMethodsService.MethodDef) selected
+				: null;
+	}
+
+	private void initIndexUpdater() {
 		TableModelListener[] holder = new TableModelListener[1];
 
 		TableModelListener indexUpdater = e -> {
-			// временно отключаем себя, чтобы не поймать рекурсию
 			tableModel.removeTableModelListener(holder[0]);
 
 			int rowCount = tableModel.getRowCount();
 			for (int i = 0; i < rowCount; i++) {
 				Object cur = tableModel.getValueAt(i, 0);
 				if (!(cur instanceof Integer) || ((Integer) cur) != i) {
-					tableModel.setValueAt(i, i, 0); // индексы с 0
+					tableModel.setValueAt(i, i, 0);
 				}
 			}
 
-			// возвращаем слушатель
 			tableModel.addTableModelListener(holder[0]);
 		};
 
 		holder[0] = indexUpdater;
 		tableModel.addTableModelListener(indexUpdater);
+	}
 
+	private void initKeyBindingsTable() {
 		InputMap im = actionTable.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
 		ActionMap am = actionTable.getActionMap();
 
@@ -384,27 +448,14 @@ public class ActionWindow extends JFrame {
 			public void actionPerformed(ActionEvent e) {
 				int[] rows = actionTable.getSelectedRows();
 				if (rows.length == 0) return;
-
 				for (int i = rows.length - 1; i >= 0; i--) {
 					deleteRow(rows[i]);
 				}
 			}
 		});
+	}
 
-
-		actionTable.addMouseListener(new MouseAdapter() {
-			@Override
-			public void mousePressed(MouseEvent e) {
-				int row = actionTable.rowAtPoint(e.getPoint());
-				int col = actionTable.columnAtPoint(e.getPoint());
-
-				// клик вне реальных ячеек таблицы
-				if (row == -1 || col == -1) {
-					actionTable.clearSelection();
-				}
-			}
-		});
-
+	private void initRenderersCommon() {
 		actionTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
 			@Override
 			public Component getTableCellRendererComponent(
@@ -413,31 +464,26 @@ public class ActionWindow extends JFrame {
 					int row, int column) {
 
 				Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-
-				// переводим view-row в model-row (на случай сортировки/фильтра)
 				int modelRow = table.convertRowIndexToModel(row);
-
-				// currentRow берём из PlayActionService
-				int current = playActionService.getCurrentRow(); // поле сервиса должно быть доступно в ActionWindow
+				int current = playActionService.getCurrentRow();
 
 				if (modelRow == current) {
-					// мягкий жёлтый
 					c.setBackground(new Color(255, 250, 180));
 				} else {
-					// стандартное поведение для selection / обычного фона
 					if (isSelected) {
 						c.setBackground(table.getSelectionBackground());
 					} else {
 						c.setBackground(table.getBackground());
 					}
 				}
-
 				return c;
 			}
 		});
+	}
 
-		actionTable.getColumnModel().getColumn(0).setCellRenderer(
-				new DefaultTableCellRenderer() {
+	private void initColumn0Renderer() {
+		actionTable.getColumnModel().getColumn(0)
+				.setCellRenderer(new DefaultTableCellRenderer() {
 					@Override
 					public Component getTableCellRendererComponent(
 							JTable table, Object value,
@@ -448,19 +494,16 @@ public class ActionWindow extends JFrame {
 						setHorizontalAlignment(SwingConstants.CENTER);
 
 						int modelRow = table.convertRowIndexToModel(row);
-						int current  = playActionService.getCurrentRow();
-						Color mark   = rowMarks.get(modelRow);
+						int current = playActionService.getCurrentRow();
+						Color mark = rowMarks.get(modelRow);
 
 						if (modelRow == current) {
-							// текущий шаг — всегда жёлтый, метку игнорируем
 							c.setBackground(new Color(255, 250, 180));
 							c.setForeground(Color.BLACK);
 						} else if (mark != null) {
-							// не текущий шаг, но есть метка
 							c.setBackground(mark);
 							c.setForeground(Color.BLACK);
 						} else {
-							// ни шаг, ни метка — стандарт
 							if (isSelected) {
 								c.setBackground(table.getSelectionBackground());
 								c.setForeground(table.getSelectionForeground());
@@ -469,51 +512,61 @@ public class ActionWindow extends JFrame {
 								c.setForeground(table.getForeground());
 							}
 						}
-
 						return c;
 					}
-				}
-		);
-
-		actionTable.getColumnModel().getColumn(1).setCellRenderer(
-				new DefaultTableCellRenderer() {
-					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
-						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-						if (value instanceof UserAction) {
-							setText(((UserAction) value).getCode());
-						}
-						applyCurrentRowHighlight(c, table, isSelected, row);
-						return c;
-					}
-				}
-		);
-
-		actionTable.getColumnModel().getColumn(5).setCellRenderer(
-				new DefaultTableCellRenderer() {
-					@Override
-					public Component getTableCellRendererComponent(JTable table, Object value,
-																   boolean isSelected, boolean hasFocus,
-																   int row, int column) {
-						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-						if (value instanceof ElementType) {
-							setText(((ElementType) value).getClassName());
-						}
-						applyCurrentRowHighlight(c, table, isSelected, row);
-						return c;
-					}
-				}
-		);
-
-
-		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
-		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
-		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
-		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(6));
-		createActionMenu();
+				});
 	}
+
+	private void initColumn1Renderer() {
+		actionTable.getColumnModel().getColumn(1)
+				.setCellRenderer(new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(
+							JTable table, Object value,
+							boolean isSelected, boolean hasFocus,
+							int row, int column) {
+
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof UserAction ua) {
+							setText(ua.getCode());
+						}
+						applyCurrentRowHighlight(c, table, isSelected, row);
+						return c;
+					}
+				});
+
+		actionTable.getColumnModel().getColumn(5)
+				.setCellRenderer(new DefaultTableCellRenderer() {
+					@Override
+					public Component getTableCellRendererComponent(
+							JTable table, Object value,
+							boolean isSelected, boolean hasFocus,
+							int row, int column) {
+
+						Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+						if (value instanceof ElementType et) {
+							setText(et.getClassName());
+						}
+						applyCurrentRowHighlight(c, table, isSelected, row);
+						return c;
+					}
+				});
+	}
+
+
+	private void initMouseBehaviors() {
+		actionTable.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				int row = actionTable.rowAtPoint(e.getPoint());
+				int col = actionTable.columnAtPoint(e.getPoint());
+				if (row == -1 || col == -1) {
+					actionTable.clearSelection();
+				}
+			}
+		});
+	}
+
 
 	private void createActionMenu() {
 		new ActionTableContextMenu(actionTable, new ActionTableContextMenu.Callback() {
@@ -522,8 +575,6 @@ public class ActionWindow extends JFrame {
 				int[] viewRows = actionTable.getSelectedRows();
 				if (viewRows.length == 0) return;
 
-				// конвертируем в model indices и сортируем по убыванию,
-				// чтобы при удалении индексы не съезжали
 				int[] modelRows = Arrays.stream(viewRows)
 						.map(actionTable::convertRowIndexToModel)
 						.sorted()
@@ -585,13 +636,10 @@ public class ActionWindow extends JFrame {
 						.sorted()
 						.toArray();
 
-				// здесь ты потом реализуешь свою генерацию метода по диапазону шагов
-				// например: generateMethodFromSteps(modelRows[0], modelRows[modelRows.length - 1]);
 			}
 		});
 
 	}
-
 
 	private void initBottomPanel() {
 		themeSelect = new JComboBox<>(new String[]{"Light", "Dark"});

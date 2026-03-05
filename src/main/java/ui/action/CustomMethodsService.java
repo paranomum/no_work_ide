@@ -1,15 +1,18 @@
 package ui.action;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import dto.AppConfig;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
 
 public class CustomMethodsService {
 
@@ -27,20 +30,27 @@ public class CustomMethodsService {
 
 		@Override
 		public String toString() {
-			return name; // для отображения в меню/списке
+			return name;
 		}
 	}
-
 
 	private JTable customMethodsTable;
 	private DefaultTableModel customMethodsTableModel;
 	private final ConfigService configService;
 	private final AppConfig config;
 
+	// внутренняя коллекция как у OpenApiService (там map, здесь список)
+	private final List<MethodDef> methods = new ArrayList<>();
+
+	// Gson один раз на сервис
+	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+
 	public CustomMethodsService(ConfigService configService, AppConfig config) {
 		this.configService = configService;
 		this.config = config;
 	}
+
+	// ---------- SETTINGS PANEL ----------
 
 	public JPanel createCustomMethodsSettingsPanel(JDialog parentDialog) {
 		JPanel panel = new JPanel(new BorderLayout(5, 5));
@@ -91,6 +101,10 @@ public class CustomMethodsService {
 		panel.add(top, BorderLayout.NORTH);
 
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
+		JButton browseBtn = new JButton("Browse...");
+		browseBtn.addActionListener(e -> openPathFileChooser(parentDialog));
+
 		JButton saveBtn = new JButton("Save");
 		saveBtn.addActionListener(e -> {
 			if (customMethodsTable.isEditing()) {
@@ -98,13 +112,20 @@ public class CustomMethodsService {
 			}
 			saveCustomMethods(parentDialog);
 		});
+
+		bottom.add(browseBtn);
 		bottom.add(saveBtn);
 		panel.add(bottom, BorderLayout.SOUTH);
 
+		// 1) грузим из файла во внутренний список
+		load();
+		// 2) отображаем во вью
 		loadCustomMethodsIntoTable();
 
 		return panel;
 	}
+
+	// ---------- TABLE <-> LIST BINDING ----------
 
 	private void loadCustomMethodsIntoTable() {
 		customMethodsTableModel.setRowCount(0);
@@ -118,16 +139,22 @@ public class CustomMethodsService {
 		for (int row = 0; row < customMethodsTableModel.getRowCount(); row++) {
 			String name = Objects.toString(customMethodsTableModel.getValueAt(row, 0), "").trim();
 			String path = Objects.toString(customMethodsTableModel.getValueAt(row, 1), "").trim();
-			if (!name.isEmpty()) {
+			if (!name.isEmpty() || !path.isEmpty()) {
 				list.add(new MethodDef(name, path));
 			}
 		}
 		this.setMethods(list);
 		this.save();
-		// можно показать диалог "Saved"
+
+		JOptionPane.showMessageDialog(
+				parentDialog,
+				"Custom methods saved",
+				"Saved",
+				JOptionPane.INFORMATION_MESSAGE
+		);
 	}
 
-	private final List<MethodDef> methods = new ArrayList<>();
+	// ---------- IN-MEMORY API ----------
 
 	public List<MethodDef> getMethods() {
 		return Collections.unmodifiableList(methods);
@@ -135,7 +162,9 @@ public class CustomMethodsService {
 
 	public void setMethods(List<MethodDef> list) {
 		methods.clear();
-		methods.addAll(list);
+		if (list != null) {
+			methods.addAll(list);
+		}
 	}
 
 	public void addMethod(String name, String path) {
@@ -146,15 +175,6 @@ public class CustomMethodsService {
 		methods.remove(index);
 	}
 
-	// TODO: сюда же load/save (в файл/Preferences/JSON) — по аналогии с OpenAPI
-	public void load() {
-		// ...
-	}
-
-	public void save() {
-		// ...
-	}
-
 	public MethodDef findByName(String name) {
 		for (MethodDef m : methods) {
 			if (Objects.equals(m.getName(), name)) {
@@ -163,5 +183,87 @@ public class CustomMethodsService {
 		}
 		return null;
 	}
-}
 
+	// ---------- PERSISTENCE (по образцу OpenApiService) ----------
+
+	// тут использую аналогичный подход: отдельный json-файл рядом с конфигом
+	private Path getCustomMethodsFile() throws Exception {
+		// сделай в ConfigService метод вроде getCustomMethodsFile(config)
+		return configService.getCustomMethodsFile(config);
+	}
+
+	public void load() {
+		methods.clear();
+		try {
+			Path file = getCustomMethodsFile();
+			if (!Files.exists(file)) {
+				return;
+			}
+			String json = Files.readString(file);
+			MethodDef[] arr = gson.fromJson(json, MethodDef[].class);
+			if (arr != null) {
+				methods.addAll(Arrays.asList(arr));
+			}
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			// здесь, как в loadOpenApiSpecsIntoTable, можно в тихую, без диалога
+		}
+	}
+
+	public void save() {
+		try {
+			Path file = getCustomMethodsFile();
+			String json = gson.toJson(methods.toArray(new MethodDef[0]));
+			Files.writeString(file, json, StandardCharsets.UTF_8);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			// при желании можно показать JOptionPane из вызывающего кода
+		}
+	}
+
+	private void openPathFileChooser(JDialog parentDialog) {
+		int row = customMethodsTable.getSelectedRow();
+		if (row < 0) {
+			JOptionPane.showMessageDialog(
+					parentDialog,
+					"Select a row first",
+					"No row selected",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return;
+		}
+
+		JFileChooser chooser = new JFileChooser();
+		chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+		chooser.setDialogTitle("Select custom method JSON");
+
+		// можно попробовать инициализировать текущим значением path
+		String currentPath = Objects.toString(
+				customMethodsTableModel.getValueAt(row, 1), ""
+		).trim();
+		if (!currentPath.isEmpty()) {
+			java.io.File cur = new java.io.File(currentPath);
+			if (cur.exists()) {
+				if (cur.isDirectory()) {
+					chooser.setCurrentDirectory(cur);
+				} else {
+					chooser.setCurrentDirectory(cur.getParentFile());
+					chooser.setSelectedFile(cur);
+				}
+			}
+		}
+
+		int res = chooser.showOpenDialog(parentDialog);
+		if (res == JFileChooser.APPROVE_OPTION) {
+			java.io.File file = chooser.getSelectedFile();
+			if (file != null) {
+				customMethodsTableModel.setValueAt(
+						file.getAbsolutePath(),
+						row,
+						1 // колонка Path
+				);
+			}
+		}
+	}
+
+}
