@@ -203,10 +203,7 @@ public class ActionWindow extends JFrame {
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		playButton.addActionListener(e -> {
 			int viewRow = actionTable.getSelectedRow();
-			if (viewRow <= 0) {
-				toggleScenario(0);
-			}
-			toggleScenario(viewRow);
+			toggleScenario(Math.max(viewRow, 0));
 		});
 
 		recordingButton = new JButton("⏺ Start Recording");
