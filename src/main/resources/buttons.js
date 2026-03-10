@@ -18,6 +18,7 @@ function isClickableElement(element) {
 
         console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
+        isClickable = true;
         buttonInfo = isButtonOrLink(element);
         if (buttonInfo != null) {
 
@@ -30,7 +31,6 @@ function isClickableElement(element) {
 
     // ===== Радио/чекбоксы =====
     } else if (tagName === 'LABEL' || tagName === 'INPUT') {
-
         var radioOrCheck = isRadioOrCheckBox(element);
         if (radioOrCheck != null) {
             buttonInfo = radioOrCheck.buttonInfo;
@@ -41,7 +41,6 @@ function isClickableElement(element) {
 
     // ===== input с aria-haspopup =====
     } else if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
-
         console.log("[CLICKABLE] INPUT aria-haspopup", element);
         isClickable = true;
 
@@ -53,6 +52,7 @@ function isClickableElement(element) {
         (role == 'tab' || element.getAttribute('data-node-key') != null)
     ) {
 
+        isClickable = true;
         buttonInfo = isTab(element);
         if (buttonInfo != null) {
 
@@ -133,7 +133,16 @@ function isClickableElement(element) {
         }
     }
 
-    if (isClickable && !init_by_xpath){
+    if (isClickable && (!buttonInfo || !buttonInfo.domElement || !buttonInfo.xpath)) {
+        buttonInfo = {
+            domElement: element,
+            name: buttonInfo && buttonInfo.name ? buttonInfo.name : '',
+            xpath: getXPath(element)
+        };
+        elType = 'Unknown';
+    }
+
+    if (isClickable && !init_by_xpath && buttonInfo && buttonInfo.xpath && buttonInfo.domElement) {
         index = getIndexByXPathAndElement(buttonInfo.xpath, buttonInfo.domElement);
     }
 
@@ -411,65 +420,24 @@ function checkboxConditions(element) {
     var textContent = (element.textContent || "").trim();
     var currentElement = element;
 
-    // Если это label и ещё не поднялись до data-testid='form-checkbox',
-    // идём вверх, как и раньше
+    textContent = sanitizeText(textContent);
+
+if (textContent !== '') {
     if (element.tagName.toUpperCase() === 'LABEL') {
-        while (!currentElement.getAttribute('data-testid') &&
-               currentElement.parentElement != null) {
-
-            if (currentElement.getAttribute('data-testid') === 'form-checkbox') {
-                element = currentElement;
-                break;
-            }
-
-            currentElement = currentElement.parentElement;
-        }
+        return {
+            xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
+            name: textContent,
+            type: 'checkbox-single',
+            domElement: element
+        };
+    } else {
+        return {
+            xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
+            name: textContent,
+            type: 'checkbox-single',
+            domElement: element
+        };
     }
-
-    // Группа чекбоксов form-checkbox
-    if (element.getAttribute('data-testid') === 'form-checkbox') {
-        var label =
-            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
-            element.querySelector('label[title]') ||
-            element.querySelector('label') ||
-            element.closest('label');
-
-        if (label) {
-            var labelText = (label.textContent || "").trim();
-            var titleText = (label.getAttribute('title') || "").trim();
-            var nameText = labelText || titleText;
-            nameText = sanitizeText(nameText);
-
-            if (nameText) {
-                return {
-                    xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
-                    name: nameText,
-                    type: 'checkbox-group',
-                    domElement: element
-                };
-            }
-        }
-    }
-
-    // Обычный чекбокс (одиночный)
-    if (textContent !== '') {
-        textContent = sanitizeText(textContent);
-
-        if (element.tagName.toUpperCase() === 'LABEL') {
-            return {
-                xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
-                name: textContent,
-                type: 'checkbox-single',
-                domElement: element
-            };
-        } else {
-            return {
-                xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
-                name: textContent,
-                type: 'checkbox-single',
-                domElement: element
-            };
-        }
     }
 
     return null;
@@ -478,82 +446,6 @@ function checkboxConditions(element) {
 function radioConditions(element) {
     var textContent = (element.textContent || "").trim();
     var currentElement = element;
-
-    var radioRoot = element.closest && element.closest("[data-testid='form-radio']");
-    if (radioRoot) {
-        element = radioRoot;
-        currentElement = radioRoot;
-    }
-
-    if (element.tagName.toUpperCase() === 'LABEL') {
-        while (!currentElement.getAttribute('data-testid') &&
-               currentElement.parentElement != null) {
-
-            if (currentElement.getAttribute('data-testid') === 'form-radio') {
-                element = currentElement;
-                break;
-            }
-
-            currentElement = currentElement.parentElement;
-        }
-    }
-
-    if (element.getAttribute('data-testid') === 'form-radio') {
-        var label =
-            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
-            element.querySelector('label[title]') ||
-            element.querySelector('label') ||
-            element.closest('label');
-
-        if (label) {
-            var labelText = (label.textContent || "").trim();
-            var titleText = (label.getAttribute('title') || "").trim();
-            var nameText = labelText || titleText;
-            nameText = sanitizeText(nameText);
-
-            if (nameText) {
-                return {
-                    xpath: "//*[@data-testid='form-radio' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
-                    name: nameText,
-                    type: 'radio-group',
-                    domElement: element
-                };
-            }
-        }
-    }
-
-    var segmentedRoot = element.closest &&
-        element.closest("div.ant-segmented[role='radiogroup']");
-    if (segmentedRoot) {
-        var nameText =
-            (segmentedRoot.getAttribute("aria-label") || "").trim() ||
-            (segmentedRoot.getAttribute("id") || "").trim();
-
-        nameText = sanitizeText(nameText);
-
-        if (!nameText) {
-            var activeLabel = segmentedRoot.querySelector(
-                ".ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label"
-            );
-            if (activeLabel) {
-                nameText = sanitizeText((activeLabel.textContent || "").trim());
-            }
-        }
-
-        if (nameText) {
-            var safeName = nameText.replace(/'/g, "\\'");
-            var xpath =
-                "//div[@role='radiogroup' and contains(@class, 'ant-segmented') and " +
-                "(@id='" + safeName + "' or @aria-label='" + safeName + "')]";
-
-            return {
-                xpath: xpath,
-                name: nameText,
-                type: 'radio-group',
-                domElement: segmentedRoot
-            };
-        }
-    }
 
     if (textContent !== '') {
         textContent = sanitizeText(textContent);

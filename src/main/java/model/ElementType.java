@@ -17,8 +17,6 @@ public enum ElementType {
 	DROPDOWN("Dropdown", "Dropdown list"),
 	CHECKBOX("CheckBoxButton", "Checkbox"),
 	RADIO_BUTTON("RadioButton","Radio button"),
-	CHECKBOX_GROUP("CheckBoxGroup","Checkbox Group"),
-	RADIO_GROUP("RadioGroup","Radio Group"),
 	DATE_PICKER("DatePicker","DatePicker"),
 	UNKNOWN("UNKNOWN","Unknown element");
 

@@ -20,7 +20,15 @@ function clearHighlight() {
     lastHighlighted = null;
 }
 
-// Гарантируем наличие стиля для подсветки
+// общий метод выключения режима выбора
+function stopLocatorPickMode() {
+    clearHighlight();
+    document.removeEventListener('mousemove', locatorMouseMoveHandler, true);
+    document.removeEventListener('click', locatorClickHandler, true);
+    document.removeEventListener('keydown', locatorKeydownHandler, true);
+}
+
+// гарантируем наличие стиля для подсветки
 (function ensureLocatorHighlightStyle() {
     if (document.getElementById('__locator-highlight-style')) {
         return;
@@ -41,7 +49,6 @@ function findLocatorXpath(element) {
     var depth = 0;
 
     while (current && depth < 20) {
-        // 1) пробуем кликабельный элемент (кнопки, ссылки, табы, селекты, чекбоксы...)
         var clickable = isClickableElement(current);
         if (clickable && clickable.isClickable && clickable.buttonInfo && clickable.buttonInfo.xpath) {
             if (clickable.index > 1) {
@@ -50,12 +57,11 @@ function findLocatorXpath(element) {
             return clickable.buttonInfo.xpath;
         }
 
-        // 2) пробуем поле ввода (input, textarea, form-select)
         var field = getFieldInfoSmart(current);
         if (field && field.xpath) {
             if (field.index > 1) {
-                        return "(" + field.xpath + ")[" + (clickable.index) + "]";
-                    }
+                return "(" + field.xpath + ")[" + (field.index) + "]";
+            }
             return field.xpath;
         }
 
@@ -82,17 +88,23 @@ function locatorClickHandler(e) {
 
     var xpath = findLocatorXpath(el);
     if (!xpath) {
-        xpath = getClickableXPath(el); // Fallback для любых элементов
+        xpath = getClickableXPath(el); // Fallback
     }
 
     console.log('LOCATOR_PICK xpath:', xpath);
     window.locatorPickResult = xpath || '';
 
-    clearHighlight();
-    document.removeEventListener('mousemove', locatorMouseMoveHandler, true);
-    document.removeEventListener('click', locatorClickHandler, true);
+    stopLocatorPickMode();
 }
 
-// режим выбора: подсветка при движении мыши, фиксация по клику
+function locatorKeydownHandler(e) {
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        console.log('LOCATOR_PICK cancelled by Esc');
+        window.locatorPickResult = null;
+        stopLocatorPickMode();
+    }
+}
+
 document.addEventListener('mousemove', locatorMouseMoveHandler, true);
 document.addEventListener('click', locatorClickHandler, true);
+document.addEventListener('keydown', locatorKeydownHandler, true);
