@@ -4,12 +4,9 @@ import com.codeborne.selenide.WebDriverRunner;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.AppConfig;
-import lombok.val;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
 import ui.action.*;
 
 import javax.swing.ActionMap;
@@ -640,7 +637,7 @@ public class ActionWindow extends JFrame {
 			@Override
 			public void startScenarioFromSelectedRow() {
 				int[] viewRows = actionTable.getSelectedRows();
-				if (viewRows.length != 1 || !playActionService.isStopped()) {
+				if (viewRows.length != 1 || !playActionService.isPlaying()) {
 					// можно ничего не делать или показать сообщение
 					return;
 				}
@@ -656,7 +653,7 @@ public class ActionWindow extends JFrame {
 			@Override
 			public void playOnlyStep() {
 				int[] viewRows = actionTable.getSelectedRows();
-				if (viewRows.length != 1 || !playActionService.isStopped()) {
+				if (viewRows.length != 1 || !playActionService.isPlaying()) {
 					return;
 				}
 				int viewRow = viewRows[0];
@@ -758,6 +755,12 @@ public class ActionWindow extends JFrame {
 					JOptionPane.WARNING_MESSAGE
 			);
 			return;
+		}
+
+		if (!playActionService.isPlaying() && !actionRecorder.isRecording()) {
+			playActionService.setPlaying(true);
+			playButton.setText("▶");
+			playButton.setToolTipText("Run actions from table in browser");
 		}
 
 		actionRecorder.toggleRecording();
@@ -1019,12 +1022,15 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void toggleScenario(int rowStart) {
-		if (playActionService.isStopped()) {
+		if (!playActionService.isPlaying() && actionRecorder.isRecording()) {
+			actionRecorder.toggleRecording();
+		}
+		if (playActionService.isPlaying()) {
 			playButton.setText("■");
 			playButton.setToolTipText("Stop scenario");
 			playActionService.playActionsFromTable(this, rowStart, false);
 		} else {
-			playActionService.setStopped(true);
+			playActionService.setPlaying(true);
 			playButton.setText("▶");
 			playButton.setToolTipText("Run actions from table in browser");
 		}

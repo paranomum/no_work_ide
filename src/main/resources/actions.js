@@ -20,46 +20,40 @@ if (!window.__iqhrActionsInitialized) {
     document.removeEventListener('click', window.__iqhrClickHandler, true);
   }
 
+window.__lastClickXPath = window.__lastClickXPath || null;
+window.__lastClickTime  = window.__lastClickTime  || 0;
+
   window.__iqhrClickHandler = function (e) {
-    var element = e.target;
-    console.log('[ACTIONS] RAW CLICK target:', element.tagName, element.className);
+    var rawTarget = e.target;
+    var element = rawTarget;
 
-    // 1. Режем дубль для обычных ant-radio
-    if (
-      element.tagName &&
-      element.tagName.toUpperCase() === 'INPUT' &&
-      element.classList &&
-      element.classList.contains('ant-radio-input') &&
-      element.closest &&
-      element.closest('label.ant-radio-wrapper')
-    ) {
-      console.log("[ACTIONS] skip ant-radio input");
-      return;
+    // --- НОРМАЛИЗАЦИЯ ---
+
+    // 1) ant-radio: если кликнули по input внутри label.ant-radio-wrapper,
+    //    считаем, что клик по label
+    var radioLabel = element.closest &&
+                     element.closest('label.ant-radio-wrapper');
+    if (radioLabel) {
+      element = radioLabel;
     }
 
-    // 2. Режем дубль для ant-segmented
-    if (
-      element.tagName &&
-      element.tagName.toUpperCase() === 'INPUT' &&
-      element.classList &&
-      element.classList.contains('ant-segmented-item-input') &&
-      element.closest &&
-      element.closest('div.ant-segmented[role=\"radiogroup\"]')
-    ) {
-      console.log("[ACTIONS] skip ant-segmented input");
-      return;
+    // 2) ant-checkbox: если кликнули по input/span внутри label.ant-checkbox-wrapper,
+    //    считаем, что клик по label
+    var checkboxLabel = element.closest &&
+                        element.closest('label.ant-checkbox-wrapper');
+    if (checkboxLabel) {
+      element = checkboxLabel;
     }
 
-    // 3. Режем дубль для input внутри checkbox/radio label
-    if (
-      element.tagName &&
-      element.tagName.toUpperCase() === 'INPUT' &&
-      element.closest &&
-      (element.closest('label.ant-checkbox-wrapper') || element.closest('label.ant-radio-wrapper'))
-    ) {
-      console.log("[ACTIONS] skip input inside ant-checkbox-wrapper");
-      return;
+    // 3) ant-segmented: поднимаем до контейнера radiogroup
+    var segmentedRoot = element.closest &&
+                        element.closest('div.ant-segmented[role="radiogroup"]');
+    if (segmentedRoot) {
+      element = segmentedRoot;
     }
+
+    console.log('[ACTIONS] RAW CLICK target:', rawTarget.tagName, rawTarget.className);
+    console.log('[ACTIONS] NORMALIZED target:', element.tagName, element.className);
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     var clickable = findClickable(element);
@@ -69,6 +63,16 @@ if (!window.__iqhrActionsInitialized) {
       var info = clickable.buttonInfo || {};
       console.log("CLICKED ON ", info);
       var isNewTab = isOpenNewTab(info);
+
+      var xpath = info.xpath || getXPath(element);
+          var now = Date.now();
+
+          if (window.__lastClickXPath === xpath && now - window.__lastClickTime < 200) {
+            console.log('[ACTIONS] skip duplicate click for', xpath);
+            return;
+          }
+          window.__lastClickXPath = xpath;
+          window.__lastClickTime  = now;
 
       console.log("[ACTIONS] CLICK captured:", {
         tag: tagName,
@@ -91,7 +95,7 @@ if (!window.__iqhrActionsInitialized) {
       }
 
       var clickRecord = {
-        xpath: info.xpath || getXPath(element),
+        xpath: xpath,
         id: element.id || '',
         tag: tagName,
         text: info.name || '',

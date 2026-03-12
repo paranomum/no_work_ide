@@ -19,14 +19,16 @@ import ui.ActionWindow;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
 import static com.codeborne.selenide.Selenide.$x;
 import static com.codeborne.selenide.Selenide.open;
-import static ru.rt.iqhr.framework.util.WebElementUtil.waitLoadingPage;
+import static ru.rt.iqhr.framework.util.WebElementUtil.*;
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
 import org.slf4j.Logger;
@@ -47,7 +49,7 @@ public class PlayActionService {
 
 	private Thread playThread;
 	@Getter @Setter
-	private volatile boolean stopped = true;
+	private volatile boolean isPlaying = true;
 	private volatile int currentRow = -1;
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
@@ -102,7 +104,7 @@ public class PlayActionService {
 			return;
 		}
 
-		stopped = false;
+		isPlaying = false;
 		currentRow = startRowIndex > 0 ? startRowIndex : -1;
 
 		playThread = new Thread(() -> {
@@ -110,7 +112,7 @@ public class PlayActionService {
 				WebDriverRunner.setWebDriver(driver);
 				log.info("PlayScenarioThread started with {} steps from row {}", steps.size(), startRowIndex + 1);
 				runScenario(actionWindow, steps);
-				log.info("=== runScenario finished, stopped={} ===", stopped);
+				log.info("=== runScenario finished, stopped={} ===", isPlaying);
 				showInfoOnUi(actionWindow, "Scenario finished successfully");
 			} catch (Throwable e) {
 				showErrorOnUi(actionWindow, "Stopped on step " + currentRow + ".\n" + e.getMessage());
@@ -131,7 +133,7 @@ public class PlayActionService {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
 		}
-		stopped = true;
+		isPlaying = true;
 	}
 
 	private List<PlayStep> buildStepsFromTable() {
@@ -178,7 +180,7 @@ public class PlayActionService {
 
 	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps) {
 		for (PlayStep step : steps) {
-			if (stopped) {
+			if (isPlaying) {
 				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
 				showInfoOnUi(actionWindow,"Playback stopped on step " + (step.rowIndex - 1));
 				break;
@@ -200,7 +202,8 @@ public class PlayActionService {
 		String javaClassName = step.javaClassName;
 
 		boolean passValue = !action.contains("click")
-				&& !action.contains("fillDate");
+				&& !action.contains("fillDate")
+				&& !action.contains("clear");
 
 		log.debug("playOneStep row={}, action={}, class={}, selector={}, value={}",
 				step.rowIndex + 1, action, javaClassName, selector, value);
@@ -212,11 +215,13 @@ public class PlayActionService {
 				|| action.contains("pause")
 				|| action.contains("auth")
 				|| action.contains("open")
-				|| action.contains("customMethod");
+				|| action.contains("customMethod")
+				|| action.contains("assertExists")
+				|| action.contains("assertNotExists");
 
 		if (isSpecial) {
 			log.info("Row {}: special action '{}'", step.rowIndex + 1, action);
-			playSpecialAction(action, value);
+			playSpecialAction(action, selector, value);
 			return;
 		}
 
@@ -245,19 +250,29 @@ public class PlayActionService {
 					button.click();
 				}
 			}
-			case "Field" -> {
+			case "Field", "RichField" -> {
 				Field field = (Field) element;
 				if (passValue && hasText(value)) {
 					field.fill(value);
+				} else if (action.contains("clear")) {
+					field.clear();
 				}
 			}
 			case "Select" -> {
 				Select field = (Select) element;
 				String valueToSelect = passValue && hasText(value) ? value : "";
-				if (action.contains("selectOption")) {
+				if (action.contains("selectOptions")) {
+					List<String> parts = Arrays.stream(value.split(", "))
+							.map(String::trim)   // на случай лишних пробелов
+							.filter(p -> !p.isEmpty())
+							.toList();
+					field.selectOptions(parts);
+				} else if (action.contains("selectOption")) {
 					field.selectOption(valueToSelect);
 				} else if (action.contains("selectExactOption") && !valueToSelect.isEmpty()) {
 					field.selectExactOption(valueToSelect);
+				} else if (action.contains("clear")) {
+					field.clear();
 				}
 			}
 			case "Dropdown" -> {
@@ -282,7 +297,7 @@ public class PlayActionService {
 
 	// ---- спец‑действия ----
 
-	private void playSpecialAction(String action, String value){
+	private void playSpecialAction(String action, String selector, String value){
 		boolean hasValue = value != null && !value.isEmpty() && !value.isBlank();
 		log.info("playSpecialAction: action='{}', value='{}'", action, value);
 
@@ -318,6 +333,16 @@ public class PlayActionService {
 				log.debug("waitLoadingPage() default");
 				waitLoadingPage();
 			}
+		} else if (action.equals("assertExists")) {
+			if (!isProbablyXPath(selector)) {
+				throw new IllegalArgumentException("select must not be null and must be xpath");
+			}
+			assertExists($x(selector), "element " + selector + " not exists on page");
+		} else if (action.equals("assertNotExists")) {
+			if (!isProbablyXPath(selector)) {
+				throw new IllegalArgumentException("select must not be null and must be xpath");
+			}
+			assertNotExists($x(selector), "element " + selector + " exists on page");
 		} else if (action.equals("auth")) {
 			if (hasValue) {
 				log.info("auth with user '{}'", value);
@@ -358,7 +383,7 @@ public class PlayActionService {
 
 		// конвертируем CustomMethodStepDto -> PlayStep и прогоняем той же логикой
 		for (ActionRecord dto : methodSteps) {
-			if (stopped) {
+			if (isPlaying) {
 				log.info("Playback stopped inside custom method '{}'", methodName);
 				break;
 			}
