@@ -903,11 +903,14 @@ public class ActionWindow extends JFrame {
 		mainPanel.add(new JLabel("Main settings (TODO move theme/chromeDriver here)"));
 		tabs.addTab("Main", mainPanel);
 
-		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
-		tabs.addTab("Users", usersPanel);
-
 		JPanel customMethods = customMethodsService.createCustomMethodsSettingsPanel(dialog);
 		tabs.addTab("CustomMethods", customMethods);
+
+		JPanel variables = variablesService.createVariablesSettingsPanel(dialog);
+		tabs.addTab("Variables", variables);
+
+		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
+		tabs.addTab("Users", usersPanel);
 
 		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
 		tabs.addTab("OpenApi", openApiPanel);
