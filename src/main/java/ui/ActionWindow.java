@@ -202,6 +202,19 @@ public class ActionWindow extends JFrame {
 		playButton.setToolTipText("Run actions from table in browser");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		playButton.addActionListener(e -> {
+			javax.swing.table.TableModel model = actionTable.getModel();
+			int rowCount = model.getRowCount();
+			int colCount = model.getColumnCount();
+			System.out.println("==== TABLE DUMP ====");
+			for (int r = 0; r < rowCount; r++) {
+				System.out.print("row " + r + ": ");
+				for (int c = 0; c < colCount; c++) {
+					System.out.print("[" + c + "]=" + model.getValueAt(r, c) + "  ");
+				}
+				System.out.println();
+			}
+			System.out.println("====================");
+
 			int viewRow = actionTable.getSelectedRow();
 			toggleScenario(Math.max(viewRow, 0));
 		});
@@ -337,26 +350,33 @@ public class ActionWindow extends JFrame {
 		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
 		actionComboBox.putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
 
-		actionComboBox.addItemListener(e -> {
+		ItemListener listener = e -> {
 			if (e.getStateChange() != ItemEvent.SELECTED) return;
 
 			UserAction selected = (UserAction) e.getItem();
-			if (selected == UserAction.CUSTOM_METHOD) {
-				CustomMethodsService.MethodDef method = showCustomMethodChooser();
-				if (method == null) {
-					return;
-				}
+			if (selected != UserAction.CUSTOM_METHOD) return;
 
-				int viewRow = actionTable.getSelectedRow();
-				if (viewRow < 0) {
-					return;
-				}
-				int modelRow = actionTable.convertRowIndexToModel(viewRow);
-
-				int valueColIndex = 3; // "Value"
-				tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
+			CustomMethodsService.MethodDef method = showCustomMethodChooser();
+			if (method == null) {
+				// Ничего не делаем, просто выходим, выбор останется как есть
+				return;
 			}
-		});
+
+			int editingRow = actionTable.getEditingRow();
+			if (editingRow < 0) {
+				return;
+			}
+			int modelRow = actionTable.convertRowIndexToModel(editingRow);
+			int valueColIndex = 3; // "Value"
+
+			if (actionTable.isEditing()) {
+				actionTable.getCellEditor().stopCellEditing(); // критично важно[web:2]
+			}
+
+			tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
+		};
+
+		actionComboBox.addItemListener(listener);
 
 		DefaultCellEditor actionEditor = new DefaultCellEditor(actionComboBox);
 		actionTable.getColumnModel().getColumn(1).setCellEditor(actionEditor);
@@ -630,7 +650,22 @@ public class ActionWindow extends JFrame {
 
 				playButton.setText("■");
 				playButton.setToolTipText("Stop scenario");
-				playActionService.playActionsFromTable(ActionWindow.this, modelRow);
+				playActionService.playActionsFromTable(ActionWindow.this, modelRow, false);
+			}
+
+			@Override
+			public void playOnlyStep() {
+				int[] viewRows = actionTable.getSelectedRows();
+				if (viewRows.length != 1 || !playActionService.isStopped()) {
+					return;
+				}
+				int viewRow = viewRows[0];
+
+				int modelRow = actionTable.convertRowIndexToModel(viewRow);
+
+				playButton.setText("■");
+				playButton.setToolTipText("Stop scenario");
+				playActionService.playActionsFromTable(ActionWindow.this, modelRow, true);
 			}
 
 			@Override
@@ -987,7 +1022,7 @@ public class ActionWindow extends JFrame {
 		if (playActionService.isStopped()) {
 			playButton.setText("■");
 			playButton.setToolTipText("Stop scenario");
-			playActionService.playActionsFromTable(this, rowStart);
+			playActionService.playActionsFromTable(this, rowStart, false);
 		} else {
 			playActionService.setStopped(true);
 			playButton.setText("▶");

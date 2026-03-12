@@ -11,6 +11,7 @@ public class ActionTableContextMenu {
 		void toggleMarkSelectedRow();      // mark / unmark
 		void startScenarioFromSelectedRow();
 		void createMethodFromSelectedSteps();
+		void playOnlyStep();
 	}
 
 	private final JTable table;
@@ -36,6 +37,10 @@ public class ActionTableContextMenu {
 		JMenuItem startFromHereItem = new JMenuItem("Start scenario from this step");
 		startFromHereItem.addActionListener(e -> callback.startScenarioFromSelectedRow());
 		popup.add(startFromHereItem);
+
+		JMenuItem playOnlyThisStep = new JMenuItem("Play only this step");
+		playOnlyThisStep.addActionListener(e -> callback.playOnlyStep());
+		popup.add(playOnlyThisStep);
 
 		JMenuItem createMethodItem = new JMenuItem("Create method from steps");
 		createMethodItem.addActionListener(e -> callback.createMethodFromSelectedSteps());
@@ -78,9 +83,13 @@ public class ActionTableContextMenu {
 				if (selectedCount == 1) {
 					startFromHereItem.setEnabled(true);
 					startFromHereItem.setToolTipText(null);
+					playOnlyThisStep.setEnabled(true);
+					playOnlyThisStep.setToolTipText(null);
 				} else {
 					startFromHereItem.setEnabled(false);
 					startFromHereItem.setToolTipText("Doesn't work for multi selected rows");
+					playOnlyThisStep.setEnabled(false);
+					playOnlyThisStep.setToolTipText("Doesn't work for multi selected rows");
 				}
 
 				// Create method: только если выбрано >= 2 строк

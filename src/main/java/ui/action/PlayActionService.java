@@ -47,7 +47,7 @@ public class PlayActionService {
 
 	private Thread playThread;
 	@Getter @Setter
-	private volatile boolean stopped = false;
+	private volatile boolean stopped = true;
 	private volatile int currentRow = -1;
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
@@ -61,7 +61,7 @@ public class PlayActionService {
 		log.info("PlayActionService created, speedMode=FAST");
 	}
 
-	public void playActionsFromTable(ActionWindow actionWindow, int startRowIndex) {
+	public void playActionsFromTable(ActionWindow actionWindow, int startRowIndex, boolean onlyOne) {
 		if (driver == null) {
 			log.warn("playActionsFromTable: WebDriver is null, showing browser-required dialog");
 			JOptionPane.showMessageDialog(
@@ -85,7 +85,10 @@ public class PlayActionService {
 		}
 
 		List<PlayStep> steps = buildStepsFromTable();
-		steps.removeIf(step -> step.rowIndex < startRowIndex);
+		steps.removeIf(step ->
+				step.rowIndex < startRowIndex
+				|| (onlyOne && step.rowIndex > startRowIndex)
+		);
 
 		log.info("playActionsFromTable: built {} steps from table", steps.size());
 

@@ -263,7 +263,7 @@ public class CustomMethodsService {
 			java.io.File file = chooser.getSelectedFile();
 			if (file != null) {
 				customMethodsTableModel.setValueAt(
-						file.getAbsolutePath(),
+						file.getAbsolutePath().toString(),
 						row,
 						1 // колонка Path
 				);
