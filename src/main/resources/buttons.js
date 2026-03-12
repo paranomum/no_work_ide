@@ -4,11 +4,12 @@ function isClickableElement(element) {
 
     var tagName = element.tagName ? element.tagName.toUpperCase() : '';
     var buttonInfo = null;
-    var javaData = null;
+    var init_by_xpath = false;
     var isClickable = false;
     var role = element.getAttribute('role');
     var eventType = null;
     var elType = null;
+    var index = 0;
 
     console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
@@ -17,38 +18,29 @@ function isClickableElement(element) {
 
         console.log("INFO: TAGNAME =", tagName, ", ROLE = ", role);
 
+        isClickable = true;
         buttonInfo = isButtonOrLink(element);
         if (buttonInfo != null) {
 
             console.log("[CLICKABLE] BUTTON/LINK", buttonInfo);
             isClickable = true;
 
-            elType = "Button";
-            if (tagName === 'BUTTON') {
-                javaData = "new Button(\"" + buttonInfo.name + "\")";
-            } else if (tagName === 'A') {
-                javaData = "new LinkButton(\"" + buttonInfo.name + "\")";
-                elType = "LinkButton";
-            } else {
-                javaData = "new Button(\"" + buttonInfo.name + "\", $x(\"" + buttonInfo.xpath + "\"))";
-            }
+            elType = tagName === 'A' ? "LinkButton" : "Button";
+            init_by_xpath = tagName !== 'BUTTON' && tagName !== 'A';
         }
 
     // ===== Радио/чекбоксы =====
     } else if (tagName === 'LABEL' || tagName === 'INPUT') {
-
         var radioOrCheck = isRadioOrCheckBox(element);
         if (radioOrCheck != null) {
             buttonInfo = radioOrCheck.buttonInfo;
             console.log("[CLICKABLE] RADIO/CHECKBOX", buttonInfo);
             isClickable = true;
             elType = radioOrCheck.type;
-            javaData = radioOrCheck.javaData;
         }
 
     // ===== input с aria-haspopup =====
     } else if (tagName === 'INPUT' && element.getAttribute('aria-haspopup')) {
-
         console.log("[CLICKABLE] INPUT aria-haspopup", element);
         isClickable = true;
 
@@ -60,12 +52,12 @@ function isClickableElement(element) {
         (role == 'tab' || element.getAttribute('data-node-key') != null)
     ) {
 
+        isClickable = true;
         buttonInfo = isTab(element);
         if (buttonInfo != null) {
 
             console.log("[CLICKABLE] TAB", buttonInfo);
             isClickable = true;
-            javaData = "new TabButton(\"" + buttonInfo.name + "\")";
             elType = "TabButton";
         }
     }
@@ -77,7 +69,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = selectResult.buttonInfo;
             eventType = selectResult.eventType;
-            javaData = "new Select(\"" + buttonInfo.name + "\")";
             elType = "Select";
         }
     }
@@ -89,7 +80,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dropdownResult.buttonInfo;
             eventType = dropdownResult.eventType;
-            javaData = "new Dropdown(\"" + buttonInfo.name + "\")";
             elType = "Dropdown";
         }
     }
@@ -101,7 +91,6 @@ function isClickableElement(element) {
             isClickable = true;
             buttonInfo = dateResult.buttonInfo;
             eventType = dateResult.eventType;
-            javaData = dateResult.javaData;
             elType = dateResult.uiType || "DatePicker";
         }
     }
@@ -144,13 +133,27 @@ function isClickableElement(element) {
         }
     }
 
+    if (isClickable && (!buttonInfo || !buttonInfo.domElement || !buttonInfo.xpath)) {
+        buttonInfo = {
+            domElement: element,
+            name: buttonInfo && buttonInfo.name ? buttonInfo.name : '',
+            xpath: getXPath(element)
+        };
+        elType = 'Unknown';
+    }
+
+    if (isClickable && !init_by_xpath && buttonInfo && buttonInfo.xpath && buttonInfo.domElement) {
+        index = getIndexByXPathAndElement(buttonInfo.xpath, buttonInfo.domElement);
+    }
 
     return {
         isClickable: isClickable,
         buttonInfo: buttonInfo,
-        javaData: javaData,
+        init_by_xpath: init_by_xpath,
         eventType: eventType,
-        type: elType
+        type: elType,
+        index: (index + 1),
+        javaData: ""
     };
 }
 
@@ -216,7 +219,7 @@ function getTabConditions(tabBtn) {
         xpath: xpath,
         name: safeText,
         type: 'tab',
-        domElement: tabBtn   // ← вот так, не element
+        domElement: tabBtn
     };
 }
 
@@ -242,8 +245,11 @@ function getElementConditions(element, tagName) {
 			!(tagName === 'BUTTON' && element.className.includes('-trigger'))) {
 			    elText = sanitizeText(elText);
 			return {
-				xpath: "//*[@data-testid='" + dataTestId + "' and contains(., '" + elText + "')]" +
-						(tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : ""),
+				xpath:
+                  "//*[@data-testid='" + dataTestId + "'" +
+                  " and contains(., '" + elText + "')" +
+                  (tagName === 'BUTTON' ? " and not(contains(@class, '-trigger'))" : "") +
+                  "]",
 				name: elText,
 				domElement: element
 			};
@@ -361,14 +367,14 @@ function isRadioOrCheckBox(element) {
                     return {
                         buttonInfo: checkbox,
                         type: 'CheckBoxGroup',
-                        javaData: "new CheckBoxGroup(" + checkbox.name + ")"
+                        javaData: "new CheckBoxGroup(\"" + checkbox.name + "\")"
                     };
                     }
                     else {
                     return {
                             buttonInfo: checkbox,
                             type: 'CheckBoxButton',
-                            javaData: "new CheckBoxButton(" + checkbox.name + ")"
+                            javaData: "new CheckBoxButton(\"" + checkbox.name + "\")"
                         };
                     }
                 }
@@ -382,13 +388,13 @@ function isRadioOrCheckBox(element) {
                         return {
                             buttonInfo: radio,
                             type: 'RadioGroup',
-                            javaData: "new RadioGroup(" + radio.name + ")"
+                            javaData: "new RadioGroup(\"" + radio.name + "\")"
                         };
                     } else {
                         return {
                                 buttonInfo: radio,
                                 type: 'RadioButton',
-                                javaData: "new RadioButton(" + radio.name + ")"
+                                javaData: "new RadioButton(\"" + radio.name + "\")"
                             };
                     }
                 }
@@ -414,65 +420,24 @@ function checkboxConditions(element) {
     var textContent = (element.textContent || "").trim();
     var currentElement = element;
 
-    // Если это label и ещё не поднялись до data-testid='form-checkbox',
-    // идём вверх, как и раньше
+    textContent = sanitizeText(textContent);
+
+if (textContent !== '') {
     if (element.tagName.toUpperCase() === 'LABEL') {
-        while (!currentElement.getAttribute('data-testid') &&
-               currentElement.parentElement != null) {
-
-            if (currentElement.getAttribute('data-testid') === 'form-checkbox') {
-                element = currentElement;
-                break;
-            }
-
-            currentElement = currentElement.parentElement;
-        }
+        return {
+            xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
+            name: textContent,
+            type: 'checkbox-single',
+            domElement: element
+        };
+    } else {
+        return {
+            xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
+            name: textContent,
+            type: 'checkbox-single',
+            domElement: element
+        };
     }
-
-    // Группа чекбоксов form-checkbox
-    if (element.getAttribute('data-testid') === 'form-checkbox') {
-        var label =
-            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
-            element.querySelector('label[title]') ||
-            element.querySelector('label') ||
-            element.closest('label');
-
-        if (label) {
-            var labelText = (label.textContent || "").trim();
-            var titleText = (label.getAttribute('title') || "").trim();
-            var nameText = labelText || titleText;
-            nameText = sanitizeText(nameText);
-
-            if (nameText) {
-                return {
-                    xpath: "//*[@data-testid='form-checkbox' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
-                    name: nameText,
-                    type: 'checkbox-group',
-                    domElement: element
-                };
-            }
-        }
-    }
-
-    // Обычный чекбокс (одиночный)
-    if (textContent !== '') {
-        textContent = sanitizeText(textContent);
-
-        if (element.tagName.toUpperCase() === 'LABEL') {
-            return {
-                xpath: "//label[contains(@class, 'ant-checkbox-wrapper') and contains(., '" + textContent + "')]",
-                name: textContent,
-                type: 'checkbox-single',
-                domElement: element
-            };
-        } else {
-            return {
-                xpath: "//mat-checkbox[contains(., '" + textContent + "')]",
-                name: textContent,
-                type: 'checkbox-single',
-                domElement: element
-            };
-        }
     }
 
     return null;
@@ -481,82 +446,6 @@ function checkboxConditions(element) {
 function radioConditions(element) {
     var textContent = (element.textContent || "").trim();
     var currentElement = element;
-
-    var radioRoot = element.closest && element.closest("[data-testid='form-radio']");
-    if (radioRoot) {
-        element = radioRoot;
-        currentElement = radioRoot;
-    }
-
-    if (element.tagName.toUpperCase() === 'LABEL') {
-        while (!currentElement.getAttribute('data-testid') &&
-               currentElement.parentElement != null) {
-
-            if (currentElement.getAttribute('data-testid') === 'form-radio') {
-                element = currentElement;
-                break;
-            }
-
-            currentElement = currentElement.parentElement;
-        }
-    }
-
-    if (element.getAttribute('data-testid') === 'form-radio') {
-        var label =
-            element.closest('.ant-form-item-row')?.querySelector('.ant-form-item-label label') ||
-            element.querySelector('label[title]') ||
-            element.querySelector('label') ||
-            element.closest('label');
-
-        if (label) {
-            var labelText = (label.textContent || "").trim();
-            var titleText = (label.getAttribute('title') || "").trim();
-            var nameText = labelText || titleText;
-            nameText = sanitizeText(nameText);
-
-            if (nameText) {
-                return {
-                    xpath: "//*[@data-testid='form-radio' and (.//label[contains(text(), '" + nameText + "') or contains(@title, '" + nameText + "')])]",
-                    name: nameText,
-                    type: 'radio-group',
-                    domElement: element
-                };
-            }
-        }
-    }
-
-    var segmentedRoot = element.closest &&
-        element.closest("div.ant-segmented[role='radiogroup']");
-    if (segmentedRoot) {
-        var nameText =
-            (segmentedRoot.getAttribute("aria-label") || "").trim() ||
-            (segmentedRoot.getAttribute("id") || "").trim();
-
-        nameText = sanitizeText(nameText);
-
-        if (!nameText) {
-            var activeLabel = segmentedRoot.querySelector(
-                ".ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label"
-            );
-            if (activeLabel) {
-                nameText = sanitizeText((activeLabel.textContent || "").trim());
-            }
-        }
-
-        if (nameText) {
-            var safeName = nameText.replace(/'/g, "\\'");
-            var xpath =
-                "//div[@role='radiogroup' and contains(@class, 'ant-segmented') and " +
-                "(@id='" + safeName + "' or @aria-label='" + safeName + "')]";
-
-            return {
-                xpath: xpath,
-                name: nameText,
-                type: 'radio-group',
-                domElement: segmentedRoot
-            };
-        }
-    }
 
     if (textContent !== '') {
         textContent = sanitizeText(textContent);

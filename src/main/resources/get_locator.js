@@ -3,37 +3,6 @@ window.locatorPickResult = null;
 // Глобальный подсвеченный элемент
 let lastHighlighted = null;
 
-function getXPath(element) {
-	if (!element || element.nodeType !== 1) return '';
-		if (element.id && document.getElementById(element.id) === element) {
-			return "//*[@id='" + element.id + "']";
-	}
-	var paths = [];
-	for (; element && element.nodeType === 1; element = element.parentNode) {
-		var index = 0;
-		var hasFollowingSiblings = false;
-		if (element.id && document.getElementById(element.id) === element) {
-			paths.splice(0, 0, "/*[@id='" + element.id + "']");
-			break;
-		}
-		for (var sibling = element.previousSibling; sibling; sibling = sibling.previousSibling) {
-			if (sibling.nodeType === 1 && sibling.nodeName === element.nodeName) {
-				index++;
-			}
-		}
-		for (var sibling = element.nextSibling; sibling && !hasFollowingSiblings; sibling = sibling.nextSibling) {
-			if (sibling.nodeType === 1 && sibling.nodeName === element.nodeName) {
-				hasFollowingSiblings = true;
-			}
-		}
-		var tagName = element.nodeName.toLowerCase();
-		var pathIndex = (index || hasFollowingSiblings) ? '[' + (index + 1) + ']' : '';
-		paths.splice(0, 0, tagName + pathIndex);
-		if (element.nodeName.toLowerCase() === 'html') break;
-	}
-	return paths.length ? '/' + paths.join('/') : '';
-}
-
 function highlightElement(el) {
     if (!el) return;
 
@@ -51,7 +20,15 @@ function clearHighlight() {
     lastHighlighted = null;
 }
 
-// Гарантируем наличие стиля для подсветки
+// общий метод выключения режима выбора
+function stopLocatorPickMode() {
+    clearHighlight();
+    document.removeEventListener('mousemove', locatorMouseMoveHandler, true);
+    document.removeEventListener('click', locatorClickHandler, true);
+    document.removeEventListener('keydown', locatorKeydownHandler, true);
+}
+
+// гарантируем наличие стиля для подсветки
 (function ensureLocatorHighlightStyle() {
     if (document.getElementById('__locator-highlight-style')) {
         return;
@@ -72,15 +49,19 @@ function findLocatorXpath(element) {
     var depth = 0;
 
     while (current && depth < 20) {
-        // 1) пробуем кликабельный элемент (кнопки, ссылки, табы, селекты, чекбоксы...)
         var clickable = isClickableElement(current);
         if (clickable && clickable.isClickable && clickable.buttonInfo && clickable.buttonInfo.xpath) {
+            if (clickable.index > 1) {
+                return "(" + clickable.buttonInfo.xpath + ")[" + (clickable.index) + "]";
+            }
             return clickable.buttonInfo.xpath;
         }
 
-        // 2) пробуем поле ввода (input, textarea, form-select)
-        var field = getFieldInfoFromInput(current);
+        var field = getFieldInfoSmart(current);
         if (field && field.xpath) {
+            if (field.index > 1) {
+                return "(" + field.xpath + ")[" + (field.index) + "]";
+            }
             return field.xpath;
         }
 
@@ -102,21 +83,28 @@ function locatorClickHandler(e) {
     e.stopPropagation();
     e.stopImmediatePropagation();
 
-    const el = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+    const el = e.target;
+    console.log('target:', el, 'tag:', el.tagName, 'classes:', el.className);
 
     var xpath = findLocatorXpath(el);
     if (!xpath) {
-        xpath = getXPath(el); // Fallback для любых элементов
+        xpath = getClickableXPath(el); // Fallback
     }
 
     console.log('LOCATOR_PICK xpath:', xpath);
     window.locatorPickResult = xpath || '';
 
-    clearHighlight();
-    document.removeEventListener('mousemove', locatorMouseMoveHandler, true);
-    document.removeEventListener('click', locatorClickHandler, true);
+    stopLocatorPickMode();
 }
 
-// режим выбора: подсветка при движении мыши, фиксация по клику
+function locatorKeydownHandler(e) {
+    if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        console.log('LOCATOR_PICK cancelled by Esc');
+        window.locatorPickResult = null;
+        stopLocatorPickMode();
+    }
+}
+
 document.addEventListener('mousemove', locatorMouseMoveHandler, true);
 document.addEventListener('click', locatorClickHandler, true);
+document.addEventListener('keydown', locatorKeydownHandler, true);

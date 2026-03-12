@@ -10,13 +10,17 @@ public enum UserAction {
 
 	CLICK("click", "Click element"),
 	FILL("fill", "Fill text field"),
-	FILL_DATA("fillData", "Filling ll fields of form"),
 	SELECT_OPTION("selectOption", "Choose select or dropdown option"),
 	SELECT_EXACT_OPTION("selectExactOption", "Choose select or dropdown option"),
 	FILL_DATE("fillDate", "Fill date picker"),
-	SWITCH_TAB("switchTab", "Switch to tab"),
+	PAUSE("pause", "pause for n milliseconds"),
+	WAIT_LOADING_PAGE("waitLoadingPage", "Wait loading of page"),
+	FILL_DATA("fillData", "Filling all fields of form"),
+	AUTH("auth", "Auth on platform with configured user"),
 	SPEC_ACTION("specialAction", "Action before test"),
-	OPEN("open", "Open URL");
+	SWITCH_TAB("switchTab", "Switch to tab"),
+	OPEN("open", "Open URL"),
+	CUSTOM_METHOD("customMethod", "Use ur custom method");
 
 	private final String code;
 	private final String description;

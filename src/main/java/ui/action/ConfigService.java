@@ -10,9 +10,13 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 
 public class ConfigService {
 	private static final String CONFIG_FILE_NAME = "settings.json";
+	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
+	private static final String CUSTOM_METHODS_FILE_NAME = "customMethods.json";
+	private static final String USERS_FILE_NAME = "users.json";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
 	private Path getConfigDir() throws IOException {
@@ -52,12 +56,21 @@ public class ConfigService {
 			}
 			try (Reader r = Files.newBufferedReader(file)) {
 				AppConfig cfg = gson.fromJson(r, AppConfig.class);
+				Gson dbgGson = new GsonBuilder().setPrettyPrinting().create();
+				System.out.println("=== CONFIG AFTER LOAD ===");
+				System.out.println(dbgGson.toJson(cfg));
+
 				if (cfg == null) {
 					cfg = new AppConfig();
 				}
 				// на всякий случай подстрахуем поля
 				if (cfg.theme == null) cfg.theme = "Light";
 				if (cfg.chromeDriverPath == null) cfg.chromeDriverPath = "";
+				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
+				if (cfg.customMethodsPath == null) cfg.customMethodsPath = "";
+				if (cfg.usersSpecsPath == null) cfg.usersSpecsPath = "";
+				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
+
 				return cfg;
 			}
 		} catch (Exception e) {
@@ -76,6 +89,84 @@ public class ConfigService {
 		try (Writer w = Files.newBufferedWriter(file)) {
 			gson.toJson(config, w);
 		}
+	}
+
+	// путь к openApiSpec.json
+	public Path getOpenApiSpecsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.openApiSpecsPath != null && !cfg.openApiSpecsPath.isBlank()) {
+			file = Paths.get(cfg.openApiSpecsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.openApiSpecsPath);
+			}
+		} else {
+			file = dir.resolve(OPENAPI_SPECS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			// создаём пустой json массив по дефолту
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	// путь к openApiSpec.json
+	public Path getCustomMethodsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.customMethodsPath != null && !cfg.customMethodsPath.isBlank()) {
+			file = Paths.get(cfg.customMethodsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.customMethodsPath);
+			}
+		} else {
+			file = dir.resolve(CUSTOM_METHODS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	// путь к openApiSpec.json
+	public Path getUsersFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.usersSpecsPath != null && !cfg.usersSpecsPath.isBlank()) {
+			file = Paths.get(cfg.usersSpecsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.usersSpecsPath);
+			}
+		} else {
+			file = dir.resolve(USERS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			// создаём пустой json массив по дефолту
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
+	}
+
+	public Path loadConfigDir() throws IOException {
+		return getConfigDir();
 	}
 }
 

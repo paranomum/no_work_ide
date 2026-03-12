@@ -18,6 +18,9 @@ public class ActionRecord {
 	private String value;
 	private String comment;
 	private String elementType;
-	private String javaElementAndAction;
+	private String xpath;
+	private String name;
+	private String index;
+	private String byXpath;
 }
 

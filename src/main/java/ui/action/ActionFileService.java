@@ -14,15 +14,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
+
+import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 
 public class ActionFileService {
 
 	private final DefaultTableModel tableModel;
 	private final JFrame parent;
+	private final CustomMethodsService customMethodsService;
 
-	public ActionFileService(JFrame parent, DefaultTableModel tableModel) {
+	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService) {
 		this.parent = parent;
 		this.tableModel = tableModel;
+		this.customMethodsService = customMethodsService;
 	}
 
 	// --------- Публичный вход ---------
@@ -38,7 +43,13 @@ public class ActionFileService {
 			return;
 		}
 
-		String[] options = { "Test plan (JSON)", "Generated auto test (.java)", "Cancel" };
+		String[] options = {
+				"Test plan (JSON)",                 // 0 — как сейчас (без разворачивания)
+				"Generated auto test (.java)",      // 1
+				"Full test plan JSON (inline)",     // 2 — НОВОЕ
+				"Cancel"                            // 3
+		};
+
 		int choice = JOptionPane.showOptionDialog(
 				parent,
 				"Что сохранить?",
@@ -50,14 +61,16 @@ public class ActionFileService {
 				options[0]
 		);
 
-		if (choice == 2 || choice == JOptionPane.CLOSED_OPTION) {
+		if (choice == 3 || choice == JOptionPane.CLOSED_OPTION) {
 			return;
 		}
 
 		if (choice == 1) {
 			saveGeneratedJava();
-		} else {
-			saveJsonPlan();
+		} else if (choice == 0) {
+			saveJsonPlan();             // как было
+		} else if (choice == 2) {
+			saveJsonPlanWithInlinedCustomMethods(); // НОВЫЙ метод
 		}
 	}
 
@@ -131,7 +144,10 @@ public class ActionFileService {
 			String selector = val(r, 2);
 			String value = val(r, 3);
 			String comment = val(r, 4);
-			String java = val(r, 6);
+			String xpath = val(r, 6);
+			String name = val(r, 7);
+			String index = val(r, 8);
+			String byXpath = val(r, 9);
 
 			rows.add(new ActionRecord(
 					actionCode,
@@ -139,7 +155,10 @@ public class ActionFileService {
 					value,
 					comment,
 					elementType,
-					java
+					xpath,
+					name,
+					index,
+					byXpath
 			));
 		}
 
@@ -206,45 +225,102 @@ public class ActionFileService {
 		int rowCount = tableModel.getRowCount();
 
 		for (int r = 0; r < rowCount; r++) {
-			String action = extractAction(r);
-			if (action == null || action.isBlank()) {
+			// --- исходные значения из таблицы ---
+			String actionCode = val(r, 1);           // UserAction / строка
+			String selector   = val(r, 2);
+			String value      = val(r, 3);           // Value
+			String comment    = val(r, 4);           // Comment
+			String javaClass  = val(r, 5);           // ElementType.className
+			String xpath      = val(r, 6);           // Xpath
+			String name       = val(r, 7);           // Name
+			String indexStr   = val(r, 8);           // Index
+			String byXpathStr = val(r, 9);           // "true"/"false" или null
+
+			if (actionCode == null || actionCode.isBlank()) {
 				continue;
 			}
 
-			String javaData = val(r, 6);
-			String value    = val(r, 3);
-			String comment  = val(r, 4);
+			String actionLower = actionCode.toLowerCase();
+			boolean isValueAction = !actionLower.contains("click")
+					&& !actionLower.contains("filldate");
 
+			boolean specialAction = actionLower.contains("pause")
+					|| actionLower.contains("waitloadingpage")
+					|| actionLower.contains("filldata")
+					|| actionLower.contains("auth")
+					|| actionLower.contains("specialaction")
+					|| actionLower.contains("switchtab")
+					|| actionLower.contains("open");
+
+			if (specialAction) {
+				lines.add(appendSpecialAction(actionCode, value, comment));
+				continue;
+			}
+
+			// --- javaWebElement ---
+
+			String javaWebElement = "new " + javaClass + "(\"";
+
+			boolean hasName = name != null && !name.isBlank();
+			boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
+
+			if (hasName) {
+				// есть name
+				if (!byXpath) {
+					// byXpath == false
+					Integer index = null;
+					if (indexStr != null && !indexStr.isBlank()) {
+						try {
+							index = Integer.parseInt(indexStr.trim());
+						} catch (NumberFormatException ignore) {}
+					}
+
+					if (index != null && index > 1) {
+						// index > 1
+						javaWebElement = javaWebElement + name + "\", " + index + ")";
+					} else {
+						// index <= 1
+						javaWebElement = javaWebElement + name + "\")";
+					}
+				} else {
+					// byXpath == true
+					String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
+					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
+				}
+			} else {
+				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
+				if (isProbablyXPath(selector))
+					javaWebElement = javaWebElement + javaClass + "\", $x(\"" + safeSelector + "\"))";
+				else {
+					if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
+						String[] selectors = selector.trim().split(",");
+						javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
+					}
+					else {
+						javaWebElement = javaWebElement + selector + "\")";
+					}
+				}
+			}
+
+			// --- action ---
 			StringBuilder sb = new StringBuilder();
 
-			// 1) Если есть javaData — используем его как точку входа
-			val passValue = !action.contains("click") && !action.contains("selectOption") && !action.contains("fillDate");
-			if (hasText(javaData)) {
-				appendCall(sb, javaData, action, value, comment, passValue);
-				lines.add(sb.toString());
-				continue;
+			sb.append(javaWebElement);
+			sb.append(".");
+			sb.append(actionCode);
+			sb.append("(");
+
+			if (value != null && !value.isBlank() && isValueAction) {
+				String safeValue = value.replace("\"", "\\\"");
+				sb.append("\"").append(safeValue).append("\"");
 			}
 
-			// 2) Специальные действия (switchTab / fillData)
-			boolean isSpecial = action.contains("switchTab") || action.contains("fillData") || action.contains("specialAction");
-			if (isSpecial) {
-				appendSpecialCall(sb, action, value, comment);
-				lines.add(sb.toString());
-				continue;
+			sb.append(");");
+
+			// --- comment ---
+			if (comment != null && !comment.isBlank()) {
+				sb.append(" // ").append(comment);
 			}
-
-			// 3) Обычные действия по селектору и типу элемента
-			String javaClassName = val(r, 5);
-			String selector      = val(r, 2);
-			if (!hasText(javaClassName) || !hasText(selector)) {
-				continue;
-			}
-
-			sb.append("new ")
-					.append(javaClassName)
-					.append("($x(\"").append(selector.replace("\"", "\\\"")).append("\"))");
-
-			appendCall(sb, null, action, value, comment, passValue);
 
 			lines.add(sb.toString());
 		}
@@ -253,6 +329,63 @@ public class ActionFileService {
 	}
 
 	// --------- helper ---------
+
+	private String appendSpecialAction(String actionCode, String value, String comment) {
+		String actionLower = actionCode == null ? "" : actionCode.toLowerCase();
+
+		boolean isParamAction =
+				"open".equals(actionLower)
+						|| "auth".equals(actionLower)
+						|| "waitloadingpage".equals(actionLower)
+						|| "pause".equals(actionLower);
+
+		StringBuilder sb = new StringBuilder();
+
+		// --- action ---
+		sb.append(actionCode);
+		sb.append("(");
+
+		if (isParamAction && value != null && !value.isBlank()) {
+			if ("waitloadingpage".equals(actionLower) || "pause".equals(actionLower)) {
+				// value.replaceAll("[\\D]", "");
+				sb.append("\"")
+						.append(value.replaceAll("[\\D]", ""))
+						.append("\"");
+			} else {
+				// open/auth: просто "value"
+				sb.append("\"")
+						.append(value.replace("\"", "\\\""))
+						.append("\"");
+			}
+		}
+
+		sb.append(");");
+
+		// --- comment ---
+		if (comment != null && !comment.isBlank() || (value != null && !value.isBlank() && !isParamAction)) {
+			sb.append(" // ");
+			if (isParamAction) {
+				// open, auth, waitloadingpage, pause -> только comment
+				if (comment != null && !comment.isBlank()) {
+					sb.append(comment);
+				}
+			} else {
+				// всё остальное -> "comment, value"
+				boolean hasComment = comment != null && !comment.isBlank();
+				if (hasComment) {
+					sb.append(comment);
+				}
+				if (value != null && !value.isBlank()) {
+					if (hasComment) {
+						sb.append(", ");
+					}
+					sb.append(value);
+				}
+			}
+		}
+
+		return sb.toString();
+	}
 
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
@@ -269,57 +402,6 @@ public class ActionFileService {
 
 	private boolean hasText(String s) {
 		return s != null && !s.isBlank();
-	}
-
-	/**
-	 * Строит вызов вида:
-	 *   prefix.action("value") // comment
-	 * если prefix == null:
-	 *   .action("value") // comment
-	 */
-	private void appendCall(StringBuilder sb,
-							String prefix,
-							String action,
-							String value,
-							String comment,
-							boolean passValue) {
-		if (hasText(prefix)) {
-			sb.append(prefix);
-			sb.append(".");
-		}
-		sb.append(action);
-		sb.append("(");
-
-		if (passValue && hasText(value)) {
-			sb.append("\"").append(value.replace("\"", "\\\"")).append("\"");
-		}
-
-		sb.append(");");
-
-		if (hasText(comment)) {
-			sb.append(" // ").append(comment);
-		}
-	}
-
-	/**
-	 * Спец‑ кейсы типа switchTab / fillData
-	 */
-	private void appendSpecialCall(StringBuilder sb,
-								   String action,
-								   String value,
-								   String comment) {
-		sb.append(action).append("();");
-		if (hasText(comment)) {
-			sb.append(" // ").append(comment);
-		}
-		if (hasText(value)) {
-			if (!hasText(comment)) {
-				sb.append(" // ");
-			} else {
-				sb.append(", ");
-			}
-			sb.append(value);
-		}
 	}
 
 	// --------- JSON load ---------
@@ -358,7 +440,10 @@ public class ActionFileService {
 				String selector = rec.getSelector();
 				String value = rec.getValue();
 				String comment = rec.getComment();
-				String javaData = rec.getJavaElementAndAction(); // если поле так называется
+				String xpath = rec.getXpath(); // если поле так называется
+				String name = rec.getName();
+				String index = rec.getIndex();
+				String byXpath = rec.getByXpath();
 
 				tableModel.addRow(new Object[] {
 						null,               // индекс проставится листенером
@@ -367,7 +452,10 @@ public class ActionFileService {
 						value,              // 3 Value
 						comment,            // 4 Comment
 						elementTypeValue,   // 5 Element Type (строка)
-						javaData            // 6 Java
+						xpath,
+						name,
+						index,
+						byXpath
 				});
 			}
 
@@ -399,5 +487,149 @@ public class ActionFileService {
 		}
 		return actionCode; // если не нашли — положим строкой
 	}
+
+	private static final Pattern COMMA_SPACE_DIGIT_NON_LETTERS =
+			Pattern.compile(",\\s*\\d[^A-Za-z]*");
+
+	public static boolean hasCommaSpacesDigitAndNoLettersAfter(String s) {
+		if (s == null) return false;
+		return COMMA_SPACE_DIGIT_NON_LETTERS.matcher(s).find();
+	}
+
+	private void saveJsonPlanWithInlinedCustomMethods() {
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Save full test plan (inline custom methods)");
+		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+				"JSON files", "json"));
+
+		int result = chooser.showSaveDialog(parent);
+		if (result != JFileChooser.APPROVE_OPTION) {
+			return;
+		}
+
+		File file = chooser.getSelectedFile();
+		if (!file.getName().toLowerCase().endsWith(".json")) {
+			file = new File(file.getParentFile(), file.getName() + ".json");
+		}
+
+		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
+
+		try (Writer writer = new OutputStreamWriter(
+				new FileOutputStream(file), StandardCharsets.UTF_8)) {
+
+			Gson gson = new GsonBuilder()
+					.setPrettyPrinting()
+					.create();
+			gson.toJson(rows, writer);
+			writer.flush();
+
+			JOptionPane.showMessageDialog(
+					parent,
+					"Full test plan (inline) saved to:\n" + file.getAbsolutePath(),
+					"Save Successful",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+			JOptionPane.showMessageDialog(
+					parent,
+					"Failed to save full test plan: " + ex.getMessage(),
+					"Error",
+					JOptionPane.ERROR_MESSAGE
+			);
+		}
+	}
+	private List<ActionRecord> buildActionRecordsWithInlinedCustomMethods() {
+		List<ActionRecord> result = new ArrayList<>();
+		int rowCount = tableModel.getRowCount();
+
+		for (int r = 0; r < rowCount; r++) {
+			// вытаскиваем actionCode так же, как в buildActionRecords()
+			Object actionObj = tableModel.getValueAt(r, 1);
+			String actionCode = null;
+			if (actionObj instanceof UserAction) {
+				actionCode = ((UserAction) actionObj).getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+
+			// если это не customMethod — просто добавляем один ActionRecord
+			if (!"customMethod".equals(actionCode)) {
+				result.add(buildActionRecordForRow(r, actionCode));
+				continue;
+			}
+
+			// customMethod: берём имя метода из Value
+			String methodName = val(r, 3); // колонка Value
+			if (methodName == null || methodName.isBlank() || customMethodsService == null) {
+				// если что-то не так — сохраняем как есть, чтобы не потерять шаг
+				result.add(buildActionRecordForRow(r, actionCode));
+				continue;
+			}
+
+			// грузим шаги метода и inline-им их
+			try {
+				List<ActionRecord> methodSteps =
+						customMethodsService.loadMethodStepsAsActionRecords(methodName);
+				if (methodSteps == null || methodSteps.isEmpty()) {
+					// если метод пуст — можно либо ничего не добавлять,
+					// либо сохранить исходный шаг; я предлагаю сохранить исходный
+					result.add(buildActionRecordForRow(r, actionCode));
+				} else {
+					result.addAll(methodSteps);
+				}
+			} catch (Exception ex) {
+				ex.printStackTrace();
+				// в случае ошибки лучше сохранить исходный шаг, чтобы сценарий не «терялся»
+				result.add(buildActionRecordForRow(r, actionCode));
+			}
+		}
+
+		return result;
+	}
+
+
+	private ActionRecord buildActionRecordForRow(int r, String actionCodeFromOutside) {
+		String actionCode = actionCodeFromOutside;
+
+		if (actionCode == null) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			if (actionObj instanceof UserAction) {
+				actionCode = ((UserAction) actionObj).getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+		}
+
+		Object elementTypeObj = tableModel.getValueAt(r, 5);
+		String elementType = null;
+		if (elementTypeObj instanceof ElementType) {
+			elementType = ((ElementType) elementTypeObj).getClassName();
+		} else if (elementTypeObj != null) {
+			elementType = elementTypeObj.toString();
+		}
+
+		String selector = val(r, 2);
+		String value    = val(r, 3);
+		String comment  = val(r, 4);
+		String xpath    = val(r, 6);
+		String name     = val(r, 7);
+		String index    = val(r, 8);
+		String byXpath  = val(r, 9);
+
+		return new ActionRecord(
+				actionCode,
+				selector,
+				value,
+				comment,
+				elementType,
+				xpath,
+				name,
+				index,
+				byXpath
+		);
+	}
+
+
 }
 

@@ -12,12 +12,11 @@ public enum ElementType {
 	LINKBUTTON("LinkButton", "Button with link"),
 	TABBUTTON("TabButton", "Button with link"),
 	FIELD("Field", "Input field"),
+	RICH_FIELD("RichField", "Rich Input text"),
 	SELECT("Select", "Select list"),
 	DROPDOWN("Dropdown", "Dropdown list"),
 	CHECKBOX("CheckBoxButton", "Checkbox"),
 	RADIO_BUTTON("RadioButton","Radio button"),
-	CHECKBOX_GROUP("CheckBoxGroup","Checkbox Group"),
-	RADIO_GROUP("RadioGroup","Radio Group"),
 	DATE_PICKER("DatePicker","DatePicker"),
 	UNKNOWN("UNKNOWN","Unknown element");
 

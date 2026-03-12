@@ -19,7 +19,7 @@ public class SelectorCellEditor extends AbstractCellEditor implements TableCellE
 	private LocatorHighlighter locatorHighlighter;
 
 	public SelectorCellEditor() {
-		JPanel buttons = new JPanel(new GridLayout(1, 2));
+		JPanel buttons =  new JPanel(new GridLayout(1, 2, 3, 0));
 		buttons.add(pickButton);
 		buttons.add(highlightButton);
 

@@ -3,11 +3,13 @@ package ui;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.datatransfer.*;
+import java.io.IOException;
+import java.util.Arrays;
 
 public class TableRowTransferHandler extends TransferHandler {
 
-	private static final DataFlavor ROW_FLAVOR =
-			new DataFlavor(Integer.class, "Integer Row Index");
+	private static final DataFlavor ROWS_FLAVOR =
+			new DataFlavor(int[].class, "Integer Row Indices");
 
 	private final JTable table;
 	private final ActionWindow window;
@@ -19,25 +21,34 @@ public class TableRowTransferHandler extends TransferHandler {
 
 	@Override
 	protected Transferable createTransferable(JComponent c) {
-		final int row = table.getSelectedRow();
+		// берём ВСЕ выделенные строки (вью-индексы)
+		int[] selected = table.getSelectedRows();
+		if (selected == null || selected.length == 0) {
+			return null;
+		}
+		// копируем, чтобы не трогать внутренний массив
+		int[] rows = Arrays.copyOf(selected, selected.length);
+		// сортируем, чтобы «самый верхний идёт первым»
+		Arrays.sort(rows);
+
 		return new Transferable() {
 			@Override
 			public DataFlavor[] getTransferDataFlavors() {
-				return new DataFlavor[]{ROW_FLAVOR};
+				return new DataFlavor[]{ROWS_FLAVOR};
 			}
 
 			@Override
 			public boolean isDataFlavorSupported(DataFlavor flavor) {
-				return ROW_FLAVOR.equals(flavor);
+				return ROWS_FLAVOR.equals(flavor);
 			}
 
 			@Override
 			public Object getTransferData(DataFlavor flavor)
-					throws UnsupportedFlavorException {
+					throws UnsupportedFlavorException, IOException {
 				if (!isDataFlavorSupported(flavor)) {
 					throw new UnsupportedFlavorException(flavor);
 				}
-				return row;
+				return rows;
 			}
 		};
 	}
@@ -50,7 +61,7 @@ public class TableRowTransferHandler extends TransferHandler {
 	@Override
 	public boolean canImport(TransferSupport info) {
 		return info.isDrop()
-				&& info.isDataFlavorSupported(ROW_FLAVOR)
+				&& info.isDataFlavorSupported(ROWS_FLAVOR)
 				&& info.getComponent() == table;
 	}
 
@@ -69,27 +80,52 @@ public class TableRowTransferHandler extends TransferHandler {
 
 		try {
 			Transferable t = info.getTransferable();
-			Integer from = (Integer) t.getTransferData(ROW_FLAVOR);
-			if (from == -1 || from == index) {
+			int[] fromRows = (int[]) t.getTransferData(ROWS_FLAVOR);
+			if (fromRows == null || fromRows.length == 0) {
+				return false;
+			}
+
+			// если дропнули внутрь того же самого диапазона — ничего не делаем
+			int minFrom = fromRows[0];
+			int maxFrom = fromRows[fromRows.length - 1] + 1;
+			if (index >= minFrom && index <= maxFrom) {
 				return false;
 			}
 
 			DefaultTableModel model = (DefaultTableModel) table.getModel();
 			int columnCount = model.getColumnCount();
-			Object[] rowData = new Object[columnCount];
-			for (int col = 0; col < columnCount; col++) {
-				rowData[col] = model.getValueAt(from, col);
+
+			// сохраняем данные всех переносимых строк
+			Object[][] rowsData = new Object[fromRows.length][columnCount];
+			for (int i = 0; i < fromRows.length; i++) {
+				int row = fromRows[i];
+				for (int col = 0; col < columnCount; col++) {
+					rowsData[i][col] = model.getValueAt(row, col);
+				}
 			}
 
-			model.removeRow(from);
-			if (index > from) {
-				index--;
+			// удаляем строки, двигаясь снизу вверх,
+			// чтобы индексы выше не «съехали»
+			for (int i = fromRows.length - 1; i >= 0; i--) {
+				model.removeRow(fromRows[i]);
+				// если точка вставки была ниже удаляемой строки — она смещается на 1 вверх
+				if (fromRows[i] < index) {
+					index--;
+				}
 			}
-			model.insertRow(index, rowData);
-			table.getSelectionModel().setSelectionInterval(index, index);
 
-			// регистрируем операцию для undo/redo
-			window.pushMoveUndo(from, index, rowData);
+			// вставляем пачкой, сохраняя порядок (верхняя — первая)
+			int insertIndex = index;
+			for (Object[] rowData : rowsData) {
+				model.insertRow(insertIndex, rowData);
+				insertIndex++;
+			}
+
+			// выделяем перемещённый блок
+			table.getSelectionModel().setSelectionInterval(index, insertIndex - 1);
+
+			// регистрируем операцию для undo/redo (можно сохранить весь диапазон)
+			window.pushMoveUndo(minFrom, index, rowsData);
 
 			return true;
 		} catch (Exception ex) {
@@ -98,4 +134,3 @@ public class TableRowTransferHandler extends TransferHandler {
 		return false;
 	}
 }
-
