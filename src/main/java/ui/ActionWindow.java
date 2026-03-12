@@ -48,7 +48,6 @@ public class ActionWindow extends JFrame {
 	private JButton playButton;
 	private JComboBox<String> themeSelect;
 	private JTextField driverPathField;
-	private Map<String, String> variables;
 	private final ActionRecorder actionRecorder;
 	private WebDriver driver;
 	private JButton recordingButton;
@@ -62,9 +61,11 @@ public class ActionWindow extends JFrame {
 	private final PlayActionService playActionService;
 	private final BrowserService browserService;
 	private final CustomMethodsService customMethodsService;
+	private final VariablesService variablesService;
 
 	public ActionWindow() {
 		config = configService.load();
+		variablesService = new VariablesService();
 		openApiService = new OpenApiService(configService, config);
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
@@ -89,9 +90,9 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
-		playActionService =  new PlayActionService(tableModel, usersService, customMethodsService);
+		playActionService =  new PlayActionService(tableModel, usersService, customMethodsService, variablesService);
 		driver = null;
-		fileService = new ActionFileService(this, tableModel, customMethodsService);
+		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());
@@ -214,6 +215,36 @@ public class ActionWindow extends JFrame {
 
 			int viewRow = actionTable.getSelectedRow();
 			toggleScenario(Math.max(viewRow, 0));
+		});
+
+		// --- popup меню ---
+		JPopupMenu playPopup = new JPopupMenu();
+
+		JMenuItem forceStopItem = new JMenuItem("Force stop");
+		forceStopItem.addActionListener(e -> {
+			// здесь твоя логика принудительной остановки
+			playActionService.stopPlayback();
+		});
+
+		playPopup.add(forceStopItem);
+
+		// показываем меню по правому клику
+		playButton.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				maybeShowPopup(e);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e) {
+				maybeShowPopup(e);
+			}
+
+			private void maybeShowPopup(MouseEvent e) {
+				if (e.isPopupTrigger()) {              // учитывает платформу [web:138]
+					playPopup.show(e.getComponent(), e.getX(), e.getY());
+				}
+			}
 		});
 
 		recordingButton = new JButton("⏺ Start Recording");
@@ -389,6 +420,10 @@ public class ActionWindow extends JFrame {
 			actionRecorder.highlightByXpath(xpath);
 		});
 		actionTable.getColumnModel().getColumn(2).setCellEditor(selectorEditor);
+
+		ValueCellEditor valueEditor = new ValueCellEditor(actionTable, variablesService);
+		actionTable.getColumnModel().getColumn(3).setCellEditor(valueEditor);
+
 
 		// колонка 5 — ElementType
 		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());

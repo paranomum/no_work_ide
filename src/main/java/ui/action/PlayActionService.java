@@ -18,23 +18,19 @@ import ui.ActionWindow;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
 import static com.codeborne.selenide.Selenide.$x;
 import static com.codeborne.selenide.Selenide.open;
+import static ru.rt.iqhr.framework.util.StringUtils.*;
 import static ru.rt.iqhr.framework.util.WebElementUtil.*;
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-
 
 public class PlayActionService {
 
@@ -46,6 +42,7 @@ public class PlayActionService {
 	private final FormFiller formFiller;
 	private final UsersService usersService;
 	private final CustomMethodsService customMethodsService;
+	private final VariablesService variablesService;
 
 	private Thread playThread;
 	@Getter @Setter
@@ -54,12 +51,13 @@ public class PlayActionService {
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
-	public PlayActionService(DefaultTableModel tableModel, UsersService usersService, CustomMethodsService customMethodsService) {
+	public PlayActionService(DefaultTableModel tableModel, UsersService usersService, CustomMethodsService customMethodsService, VariablesService variablesService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
 		this.usersService = usersService;
 		this.customMethodsService = customMethodsService;
+		this.variablesService = variablesService;
 		log.info("PlayActionService created, speedMode=FAST");
 	}
 
@@ -138,6 +136,7 @@ public class PlayActionService {
 
 	private List<PlayStep> buildStepsFromTable() {
 		List<PlayStep> steps = new ArrayList<>();
+		Map<String, String> nameToValue = new HashMap<>();
 
 		int rowCount = tableModel.getRowCount();
 		log.debug("buildStepsFromTable: rowCount={}", rowCount);
@@ -153,12 +152,41 @@ public class PlayActionService {
 			step.rowIndex      = r;
 			step.actionCode    = actionCode;
 			step.selector      = val(r, 2);
-			step.value         = val(r, 3);
+			String value         = val(r, 3);
 			step.javaClassName = val(r, 5);
 			step.xpath         = val(r, 6);
 			step.name          = val(r, 7);
 			step.index         = val(r, 8);
 			step.byXpath       = val(r, 9);
+
+			if (value != null && !value.isEmpty() && !value.isBlank()) {
+				String varName = "";
+				if (value.startsWith("${") && value.endsWith("}")) {
+					varName = value.substring(2, value.length() - 1);
+					if (!nameToValue.containsKey(varName)) {
+						nameToValue.put(varName, "UNDEFINED");
+						value = variablesService.getVariableValueByNameFormatted(varName);
+					}
+				}
+
+				if (value.startsWith("addUuid(") && value.endsWith(")")) {
+					value = addUuid(value.substring(8, value.length() - 1));
+				} else if (value.contains("generatePhoneNumber()")) {
+					value = generatePhoneNumber();
+				} else if (value.contains("generateEmail()")) {
+					value = generateEmail();
+				}
+
+				if (!varName.isBlank() && !varName.isEmpty() && nameToValue.get(varName).equals("UNDEFINED")) {
+					nameToValue.put(varName, value);
+				}
+
+				if (!varName.isBlank() && !varName.isEmpty() && nameToValue.containsKey(varName)) {
+					step.value = nameToValue.get(varName);
+				} else {
+					step.value = value;
+				}
+			}
 
 			log.debug(
 					"rowData={\"rowIndex\":{},\"actionCode\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
@@ -333,6 +361,8 @@ public class PlayActionService {
 				log.debug("waitLoadingPage() default");
 				waitLoadingPage();
 			}
+		} else if (action.contains("refreshPage")) {
+			refreshPage();
 		} else if (action.equals("assertExists")) {
 			if (!isProbablyXPath(selector)) {
 				throw new IllegalArgumentException("select must not be null and must be xpath");

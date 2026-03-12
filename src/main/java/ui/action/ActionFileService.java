@@ -3,6 +3,8 @@ package ui.action;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
+import dto.LocalVariables;
+import dto.Scenario;
 import lombok.val;
 import model.ElementType;
 import model.UserAction;
@@ -23,11 +25,13 @@ public class ActionFileService {
 	private final DefaultTableModel tableModel;
 	private final JFrame parent;
 	private final CustomMethodsService customMethodsService;
+	private final VariablesService variablesService;
 
-	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService) {
+	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService, VariablesService variablesService) {
 		this.parent = parent;
 		this.tableModel = tableModel;
 		this.customMethodsService = customMethodsService;
+		this.variablesService = variablesService;
 	}
 
 	// --------- Публичный вход ---------
@@ -93,6 +97,9 @@ public class ActionFileService {
 		}
 
 		List<ActionRecord> rows = buildActionRecords();
+		List<LocalVariables> vars = variablesService.getVariables(); // уже есть метод
+
+		Scenario scenario = new Scenario(rows, vars);
 
 		try (Writer writer = new OutputStreamWriter(
 				new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -100,7 +107,7 @@ public class ActionFileService {
 			Gson gson = new GsonBuilder()
 					.setPrettyPrinting()
 					.create();
-			gson.toJson(rows, writer);
+			gson.toJson(scenario, writer);
 			writer.flush();
 
 			JOptionPane.showMessageDialog(
@@ -426,8 +433,39 @@ public class ActionFileService {
 				new FileInputStream(file), StandardCharsets.UTF_8)) {
 
 			Gson gson = new GsonBuilder().create();
-			ActionRecord[] records = gson.fromJson(reader, ActionRecord[].class);
-			if (records == null) {
+
+			// пытаемся прочитать новый формат
+			Scenario scenario = null;
+			ActionRecord[] recordsArray = null;
+
+			// читаем в JsonElement, чтобы понять структуру
+			com.google.gson.JsonElement root = com.google.gson.JsonParser.parseReader(reader);
+
+			if (root.isJsonArray()) {
+				// старый формат: просто массив ActionRecord
+				recordsArray = gson.fromJson(root, ActionRecord[].class);
+			} else if (root.isJsonObject()) {
+				com.google.gson.JsonObject obj = root.getAsJsonObject();
+				// если есть поле "actions" — новый формат Scenario
+				if (obj.has("actions")) {
+					scenario = gson.fromJson(obj, Scenario.class);
+				} else {
+					// fallback: пробуем трактовать весь объект как массив actions (на всякий случай)
+					recordsArray = gson.fromJson(root, ActionRecord[].class);
+				}
+			}
+
+			List<ActionRecord> records;
+
+			if (scenario != null) {
+				records = scenario.getActions();
+				// грузим переменные в variablesService
+				loadVariablesIntoService(scenario.getVariables());
+			} else if (recordsArray != null) {
+				records = List.of(recordsArray);
+				// переменных нет (старый формат) — можно очистить или оставить как есть
+				// variablesService.clear(); // если хочешь чистить
+			} else {
 				return;
 			}
 
@@ -437,25 +475,18 @@ public class ActionFileService {
 			for (ActionRecord rec : records) {
 				Object actionValue = toUserAction(rec.getAction());
 				Object elementTypeValue = rec.getElementType(); // строка в 5 колонку
-				String selector = rec.getSelector();
-				String value = rec.getValue();
-				String comment = rec.getComment();
-				String xpath = rec.getXpath(); // если поле так называется
-				String name = rec.getName();
-				String index = rec.getIndex();
-				String byXpath = rec.getByXpath();
 
-				tableModel.addRow(new Object[] {
+				tableModel.addRow(new Object[]{
 						null,               // индекс проставится листенером
 						actionValue,        // 1 Action (UserAction или строка)
-						selector,           // 2 Selector
-						value,              // 3 Value
-						comment,            // 4 Comment
+						rec.getSelector(),  // 2 Selector
+						rec.getValue(),     // 3 Value
+						rec.getComment(),   // 4 Comment
 						elementTypeValue,   // 5 Element Type (строка)
-						xpath,
-						name,
-						index,
-						byXpath
+						rec.getXpath(),
+						rec.getName(),
+						rec.getIndex(),
+						rec.getByXpath()
 				});
 			}
 
@@ -512,7 +543,12 @@ public class ActionFileService {
 			file = new File(file.getParentFile(), file.getName() + ".json");
 		}
 
+		// шаги с развернутыми customMethod
 		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
+		// текущие переменные окружения
+		List<LocalVariables> vars = variablesService.getVariables();
+
+		Scenario scenario = new Scenario(rows, vars);
 
 		try (Writer writer = new OutputStreamWriter(
 				new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -520,7 +556,7 @@ public class ActionFileService {
 			Gson gson = new GsonBuilder()
 					.setPrettyPrinting()
 					.create();
-			gson.toJson(rows, writer);
+			gson.toJson(scenario, writer);
 			writer.flush();
 
 			JOptionPane.showMessageDialog(
@@ -539,6 +575,8 @@ public class ActionFileService {
 			);
 		}
 	}
+
+
 	private List<ActionRecord> buildActionRecordsWithInlinedCustomMethods() {
 		List<ActionRecord> result = new ArrayList<>();
 		int rowCount = tableModel.getRowCount();
@@ -629,6 +667,23 @@ public class ActionFileService {
 				byXpath
 		);
 	}
+
+	private void loadVariablesIntoService(List<LocalVariables> vars) {
+		if (vars == null || vars.isEmpty()) {
+			return;
+		}
+
+		// если нужно очищать предыдущие переменные перед загрузкой — добавь clear()
+		 variablesService.clear();
+
+		for (LocalVariables v : vars) {
+			if (v == null || v.getName() == null || v.getName().isBlank()) {
+				continue;
+			}
+			variablesService.addVariable(v);
+		}
+	}
+
 
 
 }
