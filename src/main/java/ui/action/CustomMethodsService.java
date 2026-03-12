@@ -227,6 +227,10 @@ public class CustomMethodsService {
 	}
 
 	private void openPathFileChooser(JDialog parentDialog) {
+		if (customMethodsTable.isEditing()) {
+			customMethodsTable.getCellEditor().stopCellEditing(); // важный вызов[web:75]
+		}
+
 		int row = customMethodsTable.getSelectedRow();
 		if (row < 0) {
 			JOptionPane.showMessageDialog(
