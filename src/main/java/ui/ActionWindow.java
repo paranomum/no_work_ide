@@ -7,6 +7,7 @@ import dto.AppConfig;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
 import ui.action.*;
 
 import javax.swing.ActionMap;
@@ -115,12 +116,15 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initTopBar() {
+		// один раз на всё окно
+		ToolTipManager.sharedInstance().setInitialDelay(200);
+
+		// --- Menu button ---
 		menuButton = new JButton("☰");
 		menuButton.setFocusable(false);
 		menuButton.setToolTipText("Menu");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
 
-		JPopupMenu popup = new JPopupMenu();
+		JPopupMenu menuPopup = new JPopupMenu();
 
 		JMenuItem openItem = new JMenuItem("Open..");
 		openItem.addActionListener(e -> {
@@ -128,81 +132,46 @@ public class ActionWindow extends JFrame {
 				fileService.loadFromJsonFile();
 			}
 		});
-		popup.add(openItem);
+		menuPopup.add(openItem);
 
 		JMenuItem generateApiClientItem = new JMenuItem("Generate ApiClient");
-		generateApiClientItem.addActionListener(e -> openApiService.openGenerateApiClientDialog(this));
-		popup.add(generateApiClientItem);
+		generateApiClientItem.addActionListener(
+				e -> openApiService.openGenerateApiClientDialog(this)
+		);
+		menuPopup.add(generateApiClientItem);
 
 		JMenuItem settingsItem = new JMenuItem("Settings");
 		settingsItem.addActionListener(e -> openSettingsDialog());
-
-		popup.add(settingsItem);
+		menuPopup.add(settingsItem);
 
 		JMenuItem exitItem = new JMenuItem("Exit");
 		exitItem.addActionListener(e -> dispose());
-		popup.add(exitItem);
+		menuPopup.add(exitItem);
 
-		menuButton.addActionListener(e ->
-				popup.show(menuButton, 0, menuButton.getHeight())
+		menuButton.addActionListener(
+				e -> menuPopup.show(menuButton, 0, menuButton.getHeight())
 		);
 
+		// --- Add action button ---
 		addActionButton = new JButton("+");
 		addActionButton.setFont(new Font("Arial", Font.BOLD, 16));
 		addActionButton.setToolTipText("Add action");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
 		addActionButton.addActionListener(e -> addNewAction());
 
+		// --- Open browser button ---
 		openBrowserButton = new JButton("🌐 Open Browser");
 		openBrowserButton.setToolTipText("Open Chrome for Testing browser");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
-		openBrowserButton.addActionListener(e -> {
-			try {
-				driver = browserService.openBrowser(this, driverPathField, this.driver);
-				if (driver != null) {
-					driver.manage().window().maximize();
-					WebDriverRunner.setWebDriver(driver);
-					open("https://test-iqhr.rt.ru/");
-					actionRecorder.setDriver(driver);
-					playActionService.setDriver(driver);
-					System.out.println("ChromeDriver initialized successfully with: " + driverPathField.getText().trim());
-				} else {
-					throw new RuntimeException("WebDriver is null!\nTry again");
-				}
-			} catch (Throwable ex) {
-				String errorMessage = ex.getMessage();
+		openBrowserButton.addActionListener(e -> openBrowserAsync());
 
-				if (errorMessage != null && (errorMessage.contains("DevToolsActivePort") ||
-						errorMessage.contains("Chrome failed to start") ||
-						errorMessage.contains("exited normally"))) {
-					JOptionPane.showMessageDialog(
-							this,
-							"Wrong Chrome version selected!\n\n" +
-									"You selected a ChromeDriver executable, but need to select 'Google Chrome for Testing' application.\n\n" +
-									"Please select the correct Chrome for Testing application.",
-							"Wrong Chrome Version",
-							JOptionPane.ERROR_MESSAGE
-					);
-				} else {
-					JOptionPane.showMessageDialog(
-							this,
-							"Failed to open browser: " + errorMessage,
-							"Error",
-							JOptionPane.ERROR_MESSAGE
-					);
-				}
-
-				ex.printStackTrace();
-			}
-		});
-
+		// --- Play button ---
 		playButton = new JButton("▶");
 		playButton.setToolTipText("Run actions from table in browser");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
 		playButton.addActionListener(e -> {
 			javax.swing.table.TableModel model = actionTable.getModel();
 			int rowCount = model.getRowCount();
 			int colCount = model.getColumnCount();
+
+			// TODO: перевести на нормальный логгер и/или debug-режим
 			System.out.println("==== TABLE DUMP ====");
 			for (int r = 0; r < rowCount; r++) {
 				System.out.print("row " + r + ": ");
@@ -217,18 +186,12 @@ public class ActionWindow extends JFrame {
 			toggleScenario(Math.max(viewRow, 0));
 		});
 
-		// --- popup меню ---
+		// popup на play (force stop)
 		JPopupMenu playPopup = new JPopupMenu();
-
 		JMenuItem forceStopItem = new JMenuItem("Force stop");
-		forceStopItem.addActionListener(e -> {
-			// здесь твоя логика принудительной остановки
-			playActionService.stopPlayback();
-		});
-
+		forceStopItem.addActionListener(e -> playActionService.stopPlayback());
 		playPopup.add(forceStopItem);
 
-		// показываем меню по правому клику
 		playButton.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -241,15 +204,15 @@ public class ActionWindow extends JFrame {
 			}
 
 			private void maybeShowPopup(MouseEvent e) {
-				if (e.isPopupTrigger()) {              // учитывает платформу [web:138]
+				if (e.isPopupTrigger()) {
 					playPopup.show(e.getComponent(), e.getX(), e.getY());
 				}
 			}
 		});
 
+		// --- Recording button ---
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
 		recordingButton.addActionListener(e -> toggleRecording());
 	}
 
@@ -257,6 +220,7 @@ public class ActionWindow extends JFrame {
 		JPanel topBar = new JPanel(new BorderLayout());
 		topBar.setBorder(new EmptyBorder(5, 5, 5, 5));
 
+		// левая часть: меню, добавление, сохранение
 		JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 		leftButtons.add(menuButton);
 		leftButtons.add(addActionButton);
@@ -267,10 +231,10 @@ public class ActionWindow extends JFrame {
 
 		JButton saveVarButton = new JButton("💾");
 		saveVarButton.setToolTipText("Save table to file");
-		ToolTipManager.sharedInstance().setInitialDelay(200);
 		saveVarButton.addActionListener(e -> saveTableToFile());
 		leftButtons.add(saveVarButton);
 
+		// правая часть: play, запись
 		JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 		rightButtons.add(playButton);
 		rightButtons.add(recordingButton);
@@ -672,7 +636,7 @@ public class ActionWindow extends JFrame {
 			@Override
 			public void startScenarioFromSelectedRow() {
 				int[] viewRows = actionTable.getSelectedRows();
-				if (viewRows.length != 1 || !playActionService.isPlaying()) {
+				if (viewRows.length != 1 || playActionService.isStopRequested()) {
 					// можно ничего не делать или показать сообщение
 					return;
 				}
@@ -688,7 +652,7 @@ public class ActionWindow extends JFrame {
 			@Override
 			public void playOnlyStep() {
 				int[] viewRows = actionTable.getSelectedRows();
-				if (viewRows.length != 1 || !playActionService.isPlaying()) {
+				if (viewRows.length != 1 || playActionService.isStopRequested()) {
 					return;
 				}
 				int viewRow = viewRows[0];
@@ -792,8 +756,8 @@ public class ActionWindow extends JFrame {
 			return;
 		}
 
-		if (!playActionService.isPlaying() && !actionRecorder.isRecording()) {
-			playActionService.setPlaying(true);
+		if (playActionService.isStopRequested() && !actionRecorder.isRecording()) {
+			playActionService.setStopRequested(false);
 			playButton.setText("▶");
 			playButton.setToolTipText("Run actions from table in browser");
 		}
@@ -1060,15 +1024,15 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void toggleScenario(int rowStart) {
-		if (!playActionService.isPlaying() && actionRecorder.isRecording()) {
+		if (playActionService.isStopRequested() && actionRecorder.isRecording()) {
 			actionRecorder.toggleRecording();
 		}
-		if (playActionService.isPlaying()) {
+		if (!playActionService.isStopRequested()) {
 			playButton.setText("■");
 			playButton.setToolTipText("Stop scenario");
 			playActionService.playActionsFromTable(this, rowStart, false);
 		} else {
-			playActionService.setPlaying(true);
+			playActionService.setStopRequested(false);
 			playButton.setText("▶");
 			playButton.setToolTipText("Run actions from table in browser");
 		}
@@ -1199,6 +1163,70 @@ public class ActionWindow extends JFrame {
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
 		return v == null ? null : v.toString();
+	}
+
+	private void openBrowserAsync() {
+		// чтобы пользователь не тыкал по 10 раз
+		openBrowserButton.setEnabled(false);
+
+		new SwingWorker<ChromeDriver, Void>() {
+			@Override
+			protected ChromeDriver doInBackground() {
+				// тяжёлая часть — в фоне
+				return browserService.openBrowser(
+						ActionWindow.this,
+						driverPathField,
+						driver
+				);
+			}
+
+			@Override
+			protected void done() {
+				try {
+					ChromeDriver newDriver = get(); // может быть null
+					if (newDriver != null) {
+						driver = newDriver;
+						driver.manage().window().maximize();
+						WebDriverRunner.setWebDriver(driver);
+						open("https://test-iqhr.rt.ru/"); // как у тебя
+						actionRecorder.setDriver(driver);
+						playActionService.setDriver(driver);
+						System.out.println(
+								"ChromeDriver initialized successfully with: "
+										+ driverPathField.getText().trim()
+						);
+					}
+				} catch (Throwable ex) {
+					String errorMessage = ex.getMessage();
+
+					if (errorMessage != null && (
+							errorMessage.contains("DevToolsActivePort") ||
+									errorMessage.contains("Chrome failed to start") ||
+									errorMessage.contains("exited normally")
+					)) {
+						JOptionPane.showMessageDialog(
+								ActionWindow.this,
+								"Wrong Chrome version selected!\n\n" +
+										"You selected a ChromeDriver executable, but need to select 'Google Chrome for Testing' application.\n\n" +
+										"Please select the correct Chrome for Testing application.",
+								"Wrong Chrome Version",
+								JOptionPane.ERROR_MESSAGE
+						);
+					} else {
+						JOptionPane.showMessageDialog(
+								ActionWindow.this,
+								"Failed to open browser: " + errorMessage,
+								"Error",
+								JOptionPane.ERROR_MESSAGE
+						);
+					}
+
+					ex.printStackTrace();
+				} finally {
+					openBrowserButton.setEnabled(true);
+				}
+			}
+		}.execute();
 	}
 
 }

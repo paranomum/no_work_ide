@@ -1,6 +1,7 @@
 package ui.action;
 
 import dto.LocalVariables;
+import ui.AbstractTableSettingsPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -9,7 +10,9 @@ import java.awt.*;
 import java.util.*;
 import java.util.List;
 
-public class VariablesService {
+import static ru.rt.iqhr.framework.util.StringUtils.*;
+
+public class VariablesService extends AbstractTableSettingsPanel {
 
 	private final Map<String, LocalVariables> variables = new HashMap<>();
 
@@ -80,68 +83,17 @@ public class VariablesService {
 	}
 
 	public JPanel createVariablesSettingsPanel(JDialog parentDialog) {
-		JPanel panel = new JPanel(new BorderLayout(5, 5));
-		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
-
-		String[] cols = {"Variable Name", "Value"};
-		variablesTableModel = new DefaultTableModel(cols, 0) {
-			@Override
-			public boolean isCellEditable(int row, int column) {
-				return true;
-			}
-		};
-		variablesTable = new JTable(variablesTableModel);
-
-		variablesTable.setRowHeight(24);
-		variablesTable.setShowHorizontalLines(true);
-		variablesTable.setShowVerticalLines(true);
-		variablesTable.setGridColor(new Color(180, 180, 180));
-		variablesTable.setIntercellSpacing(new Dimension(1, 1));
-		variablesTable.setFillsViewportHeight(true);
-
-		JScrollPane scroll = new JScrollPane(variablesTable);
-		scroll.setBorder(
-				BorderFactory.createCompoundBorder(
-						BorderFactory.createLineBorder(new Color(150, 150, 150)),
-						BorderFactory.createEmptyBorder(2, 2, 2, 2)
-				)
+		JPanel panel = buildTablePanel(
+				"Variables",
+				new String[] {"Variable Name", "Value"},
+				() -> saveVariables(parentDialog)
 		);
-		panel.add(scroll, BorderLayout.CENTER);
 
-		JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		JButton addBtn = new JButton("+");
-		JButton removeBtn = new JButton("-");
-
-		addBtn.addActionListener(e ->
-				variablesTableModel.addRow(new Object[]{"", ""})
-		);
-		removeBtn.addActionListener(e -> {
-			int row = variablesTable.getSelectedRow();
-			if (row >= 0) {
-				variablesTableModel.removeRow(row);
-			}
-		});
-
-		top.add(new JLabel("Variables:"));
-		top.add(addBtn);
-		top.add(removeBtn);
-		panel.add(top, BorderLayout.NORTH);
-
-		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-
-		JButton saveBtn = new JButton("Save");
-		saveBtn.addActionListener(e -> {
-			if (variablesTable.isEditing()) {
-				variablesTable.getCellEditor().stopCellEditing();
-			}
-			saveVariables(parentDialog);
-		});
-
-		bottom.add(saveBtn);
-		panel.add(bottom, BorderLayout.SOUTH);
+		// связываем наследуемые поля с нашими
+		this.variablesTable = this.table;
+		this.variablesTableModel = this.model;
 
 		loadVariablesIntoTable();
-
 		return panel;
 	}
 
@@ -180,5 +132,38 @@ public class VariablesService {
 				"Saved",
 				JOptionPane.INFORMATION_MESSAGE
 		);
+	}
+
+	public String resolveValue(String rawValue, Map<String, String> nameToValue) {
+		if (rawValue == null || rawValue.isBlank()) {
+			return rawValue;
+		}
+
+		String value = rawValue;
+
+		// ${varName}
+		if (value.startsWith("${") && value.endsWith("}")) {
+			String varName = value.substring(2, value.length() - 1);
+
+			// если не было ещё посчитано, берём базовое форматированное значение
+			if (!nameToValue.containsKey(varName)) {
+				String formatted = getVariableValueByNameFormatted(varName);
+				nameToValue.put(varName, formatted);
+			}
+
+			value = nameToValue.get(varName);
+		}
+
+		// дальше — интерпретация специальных методов
+		if (value.startsWith("addUuid(") && value.endsWith(")")) {
+			String arg = value.substring(8, value.length() - 1);
+			return addUuid(arg); // твой util
+		} else if (value.contains("generatePhoneNumber()")) {
+			return generatePhoneNumber(); // твой util
+		} else if (value.contains("generateEmail()")) {
+			return generateEmail(); // твой util
+		}
+
+		return value;
 	}
 }

@@ -3,6 +3,7 @@ package ui.action;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.AppConfig;
+import ui.AbstractTableSettingsPanel;
 import ui.ActionWindow;
 
 import javax.swing.*;
@@ -15,7 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-public class OpenApiService {
+public class OpenApiService extends AbstractTableSettingsPanel {
 
 	private DefaultTableModel openApiTableModel;
 	private JTable openApiTable;
@@ -30,64 +31,16 @@ public class OpenApiService {
 	// ----- SETTINGS PANEL -----
 
 	public JPanel createOpenApiSettingsPanel(JDialog parentDialog) {
-		JPanel panel = new JPanel(new BorderLayout(5, 5));
-		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
-
-		String[] cols = {"Service", "OpenAPI URL / file"};
-		openApiTableModel = new DefaultTableModel(cols, 0) {
-			@Override
-			public boolean isCellEditable(int row, int column) {
-				return true;
-			}
-		};
-		openApiTable = new JTable(openApiTableModel);
-
-		openApiTable.setRowHeight(24);
-		openApiTable.setShowHorizontalLines(true);
-		openApiTable.setShowVerticalLines(true);
-		openApiTable.setGridColor(new Color(180, 180, 180));
-		openApiTable.setIntercellSpacing(new Dimension(1, 1));
-		openApiTable.setFillsViewportHeight(true);
-
-		JScrollPane scroll = new JScrollPane(openApiTable);
-		scroll.setBorder(
-				BorderFactory.createCompoundBorder(
-						BorderFactory.createLineBorder(new Color(150, 150, 150)),
-						BorderFactory.createEmptyBorder(2, 2, 2, 2)
-				)
+		JPanel panel = buildTablePanel(
+				"Services",
+				new String[] {"Service", "OpenAPI URL / file"},
+				() -> saveOpenApiSpecs(parentDialog)
 		);
-		panel.add(scroll, BorderLayout.CENTER);
 
-		JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		JButton addBtn = new JButton("+");
-		JButton removeBtn = new JButton("-");
-
-		addBtn.addActionListener(e -> openApiTableModel.addRow(new Object[]{"", ""}));
-		removeBtn.addActionListener(e -> {
-			int row = openApiTable.getSelectedRow();
-			if (row >= 0) {
-				openApiTableModel.removeRow(row);
-			}
-		});
-
-		top.add(new JLabel("Services:"));
-		top.add(addBtn);
-		top.add(removeBtn);
-		panel.add(top, BorderLayout.NORTH);
-
-		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-		JButton saveBtn = new JButton("Save");
-		saveBtn.addActionListener(e -> {
-			if (openApiTable.isEditing()) {
-				openApiTable.getCellEditor().stopCellEditing();
-			}
-			saveOpenApiSpecs(parentDialog);
-		});
-		bottom.add(saveBtn);
-		panel.add(bottom, BorderLayout.SOUTH);
+		this.openApiTable = this.table;
+		this.openApiTableModel = this.model;
 
 		loadOpenApiSpecsIntoTable();
-
 		return panel;
 	}
 

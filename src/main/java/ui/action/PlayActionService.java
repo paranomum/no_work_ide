@@ -46,7 +46,7 @@ public class PlayActionService {
 
 	private Thread playThread;
 	@Getter @Setter
-	private volatile boolean isPlaying = true;
+	private volatile boolean stopRequested = false;
 	private volatile int currentRow = -1;
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
@@ -87,10 +87,8 @@ public class PlayActionService {
 		List<PlayStep> steps = buildStepsFromTable();
 		steps.removeIf(step ->
 				step.rowIndex < startRowIndex
-				|| (onlyOne && step.rowIndex > startRowIndex)
+						|| (onlyOne && step.rowIndex > startRowIndex)
 		);
-
-		log.info("playActionsFromTable: built {} steps from table", steps.size());
 
 		if (steps.isEmpty()) {
 			JOptionPane.showMessageDialog(
@@ -102,16 +100,16 @@ public class PlayActionService {
 			return;
 		}
 
-		isPlaying = false;
+		stopRequested = false;
 		currentRow = startRowIndex > 0 ? startRowIndex : -1;
 
 		playThread = new Thread(() -> {
 			try {
 				WebDriverRunner.setWebDriver(driver);
-				log.info("PlayScenarioThread started with {} steps from row {}", steps.size(), startRowIndex + 1);
 				runScenario(actionWindow, steps);
-				log.info("=== runScenario finished, stopped={} ===", isPlaying);
-				showInfoOnUi(actionWindow, "Scenario finished successfully");
+				if (!stopRequested) {
+					showInfoOnUi(actionWindow, "Scenario finished successfully");
+				}
 			} catch (Throwable e) {
 				showErrorOnUi(actionWindow, "Stopped on step " + currentRow + ".\n" + e.getMessage());
 				log.error("Unexpected error in PlayScenarioThread", e);
@@ -127,11 +125,11 @@ public class PlayActionService {
 	}
 
 	public synchronized void stopPlayback() {
+		stopRequested = true;
 		if (playThread != null && playThread.isAlive()) {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
 		}
-		isPlaying = true;
 	}
 
 	private List<PlayStep> buildStepsFromTable() {
@@ -149,44 +147,18 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex      = r;
-			step.actionCode    = actionCode;
-			step.selector      = val(r, 2);
-			String value         = val(r, 3);
+			step.rowIndex = r;
+			step.actionCode = actionCode;
+			step.selector = val(r, 2);
+			String rawValue = val(r, 3);
 			step.javaClassName = val(r, 5);
-			step.xpath         = val(r, 6);
-			step.name          = val(r, 7);
-			step.index         = val(r, 8);
-			step.byXpath       = val(r, 9);
+			step.xpath = val(r, 6);
+			step.name = val(r, 7);
+			step.index = val(r, 8);
+			step.byXpath = val(r, 9);
 
-			if (value != null && !value.isEmpty() && !value.isBlank()) {
-				String varName = "";
-				if (value.startsWith("${") && value.endsWith("}")) {
-					varName = value.substring(2, value.length() - 1);
-					if (!nameToValue.containsKey(varName)) {
-						nameToValue.put(varName, "UNDEFINED");
-						value = variablesService.getVariableValueByNameFormatted(varName);
-					}
-				}
-
-				if (value.startsWith("addUuid(") && value.endsWith(")")) {
-					value = addUuid(value.substring(8, value.length() - 1));
-				} else if (value.contains("generatePhoneNumber()")) {
-					value = generatePhoneNumber();
-				} else if (value.contains("generateEmail()")) {
-					value = generateEmail();
-				}
-
-				if (!varName.isBlank() && !varName.isEmpty() && nameToValue.get(varName).equals("UNDEFINED")) {
-					nameToValue.put(varName, value);
-				}
-
-				if (!varName.isBlank() && !varName.isEmpty() && nameToValue.containsKey(varName)) {
-					step.value = nameToValue.get(varName);
-				} else {
-					step.value = value;
-				}
-			}
+			// вся магия теперь внутри VariablesService
+			step.value = variablesService.resolveValue(rawValue, nameToValue);
 
 			log.debug(
 					"rowData={\"rowIndex\":{},\"actionCode\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
@@ -208,17 +180,15 @@ public class PlayActionService {
 
 	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps) {
 		for (PlayStep step : steps) {
-			if (isPlaying) {
+			if (stopRequested) {
 				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
-				showInfoOnUi(actionWindow,"Playback stopped on step " + (step.rowIndex - 1));
+				showInfoOnUi(actionWindow, "Playback stopped on step " + (step.rowIndex - 1));
 				break;
 			}
-			log.info("=== LOOP START, step={} ===", step.rowIndex + 1);
-			log.info(">>> before playOneStep, step={}", step.rowIndex + 1);
+
 			currentRow = step.rowIndex;
 			SwingUtilities.invokeLater(actionWindow::repaintActionTable);
 			playOneStep(step);
-			log.info(">>> after playOneStep, step={}", step.rowIndex + 1);
 		}
 	}
 
@@ -413,7 +383,7 @@ public class PlayActionService {
 
 		// конвертируем CustomMethodStepDto -> PlayStep и прогоняем той же логикой
 		for (ActionRecord dto : methodSteps) {
-			if (isPlaying) {
+			if (!stopRequested) {
 				log.info("Playback stopped inside custom method '{}'", methodName);
 				break;
 			}

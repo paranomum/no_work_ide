@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
+import ui.AbstractTableSettingsPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -19,7 +20,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 
-public class CustomMethodsService {
+public class CustomMethodsService extends AbstractTableSettingsPanel {
 
 	public static class MethodDef {
 		private String name;
@@ -58,77 +59,20 @@ public class CustomMethodsService {
 	// ---------- SETTINGS PANEL ----------
 
 	public JPanel createCustomMethodsSettingsPanel(JDialog parentDialog) {
-		JPanel panel = new JPanel(new BorderLayout(5, 5));
-		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
-
-		String[] cols = {"Method", "Path"};
-		customMethodsTableModel = new DefaultTableModel(cols, 0) {
-			@Override
-			public boolean isCellEditable(int row, int column) {
-				return true;
-			}
-		};
-		customMethodsTable = new JTable(customMethodsTableModel);
-
-		customMethodsTable.setRowHeight(24);
-		customMethodsTable.setShowHorizontalLines(true);
-		customMethodsTable.setShowVerticalLines(true);
-		customMethodsTable.setGridColor(new Color(180, 180, 180));
-		customMethodsTable.setIntercellSpacing(new Dimension(1, 1));
-		customMethodsTable.setFillsViewportHeight(true);
-
-		JScrollPane scroll = new JScrollPane(customMethodsTable);
-		scroll.setBorder(
-				BorderFactory.createCompoundBorder(
-						BorderFactory.createLineBorder(new Color(150, 150, 150)),
-						BorderFactory.createEmptyBorder(2, 2, 2, 2)
-				)
+		JPanel panel = buildTablePanel(
+				"Custom methods",
+				new String[] {"Method", "Path"},
+				() -> saveCustomMethods(parentDialog)
 		);
-		panel.add(scroll, BorderLayout.CENTER);
 
-		JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		JButton addBtn = new JButton("+");
-		JButton removeBtn = new JButton("-");
+		this.customMethodsTable = this.table;
+		this.customMethodsTableModel = this.model;
 
-		addBtn.addActionListener(e ->
-				customMethodsTableModel.addRow(new Object[]{"", ""})
-		);
-		removeBtn.addActionListener(e -> {
-			int row = customMethodsTable.getSelectedRow();
-			if (row >= 0) {
-				customMethodsTableModel.removeRow(row);
-			}
-		});
-
-		top.add(new JLabel("Custom methods:"));
-		top.add(addBtn);
-		top.add(removeBtn);
-		panel.add(top, BorderLayout.NORTH);
-
-		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-
-		JButton browseBtn = new JButton("Browse...");
-		browseBtn.addActionListener(e -> openPathFileChooser(parentDialog));
-
-		JButton saveBtn = new JButton("Save");
-		saveBtn.addActionListener(e -> {
-			if (customMethodsTable.isEditing()) {
-				customMethodsTable.getCellEditor().stopCellEditing();
-			}
-			saveCustomMethods(parentDialog);
-		});
-
-		bottom.add(browseBtn);
-		bottom.add(saveBtn);
-		panel.add(bottom, BorderLayout.SOUTH);
-
-		// 1) грузим из файла во внутренний список
-		load();
-		// 2) отображаем во вью
+		load();                  // как и сейчас
 		loadCustomMethodsIntoTable();
-
 		return panel;
 	}
+
 
 	// ---------- TABLE <-> LIST BINDING ----------
 
