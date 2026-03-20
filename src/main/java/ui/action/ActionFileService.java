@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.LocalVariables;
 import dto.Scenario;
-import lombok.val;
 import model.ElementType;
 import model.UserAction;
 import ui.frameworkmeta.PageObjectIntrospector;
@@ -183,8 +182,6 @@ public class ActionFileService {
 	// --------- Java test ---------
 
 	private void saveGeneratedJava() {
-		debugAllPageObjectsFromTable();
-
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save generated test");
 		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
@@ -200,10 +197,29 @@ public class ActionFileService {
 			file = new File(file.getParentFile(), file.getName() + ".java");
 		}
 
-		List<String> javaLines = buildJavaLinesFromTable();
+		JavaBuildResult buildResult = buildJavaLinesFromTableWithPageObjects();
 
 		StringBuilder body = new StringBuilder();
-		for (String line : javaLines) {
+
+		// --- объявления PageObject-переменных ---
+		for (String fqcn : buildResult.usedPageObjectClasses) {
+			// fqcn вида ru.rt.iqhr.pageobject.angular.pages.AuthorizationPage
+			String simple = fqcn.substring(fqcn.lastIndexOf('.') + 1);
+			String varName = decapitalize(simple);
+			body.append("        ")
+					.append(simple)
+					.append(" ")
+					.append(varName)
+					.append(" = new ")
+					.append(simple)
+					.append("();\n");
+		}
+		if (!buildResult.usedPageObjectClasses.isEmpty()) {
+			body.append("\n");
+		}
+
+		// --- сами шаги ---
+		for (String line : buildResult.lines) {
 			body.append("        ").append(line).append("\n");
 		}
 
@@ -236,6 +252,7 @@ public class ActionFileService {
 			);
 		}
 	}
+
 
 //	private List<String> buildJavaLinesFromTable() {
 //		List<String> lines = new ArrayList<>();
@@ -345,21 +362,21 @@ public class ActionFileService {
 //		return lines;
 //	}
 
-	private List<String> buildJavaLinesFromTable() {
-		List<String> lines = new ArrayList<>();
+	private JavaBuildResult buildJavaLinesFromTableWithPageObjects() {
+		JavaBuildResult result = new JavaBuildResult();
 		int rowCount = tableModel.getRowCount();
 
 		for (int r = 0; r < rowCount; r++) {
-			String actionCode = val(r, 1);
-			String selector   = val(r, 2);
-			String value      = val(r, 3);
-			String comment    = val(r, 4);
+			String actionCode  = val(r, 1);
+			String selector    = val(r, 2);
+			String value       = val(r, 3);
+			String comment     = val(r, 4);
 			String elementType = val(r, 5);
-			String xpath      = val(r, 6);
-			String name       = val(r, 7);
-			String indexStr   = val(r, 8);
-			String byXpathStr = val(r, 9);
-			String pageUrlPath = val(r, 10);   // путь страницы
+			String xpath       = val(r, 6);
+			String name        = val(r, 7);
+			String indexStr    = val(r, 8);
+			String byXpathStr  = val(r, 9);
+			String pageUrlPath = val(r, 10);
 
 			if (actionCode == null || actionCode.isBlank()) {
 				continue;
@@ -378,45 +395,50 @@ public class ActionFileService {
 					|| actionLower.contains("open");
 
 			if (specialAction) {
-				lines.add(appendSpecialAction(actionCode, value, comment));
+				result.lines.add(appendSpecialAction(actionCode, value, comment));
 				continue;
 			}
 
-			// === НОВОЕ: пробуем найти PageObject‑элемент ===
 			String javaWebElement = null;
 
-			if (pageUrlPath != null && !pageUrlPath.isBlank()
-					&& elementType != null && name != null && !name.isBlank()) {
+			// --- пробуем матчить на PageObject ---
+			if (elementType != null && name != null && !name.isBlank()) {
 
-				List<PageObjectIntrospector.Descriptor> descriptors =
-						pageObjectRegistry.getElementsForPath(pageUrlPath);
+				PageObjectIntrospector.Descriptor match = null;
 
-				PageObjectIntrospector.Descriptor match =
-						PageObjectMatcher.findMatch(descriptors, elementType, name);
+				// 1) сначала по текущему pageUrlPath
+				if (pageUrlPath != null && !pageUrlPath.isBlank()) {
+					List<PageObjectIntrospector.Descriptor> descriptors =
+							pageObjectRegistry.getElementsForPath(pageUrlPath);
+
+					match = PageObjectMatcher.findMatch(descriptors, elementType, name, xpath);
+				}
+
+				// 2) если не нашли — пробуем среди всех PageObject-классов
+				if (match == null) {
+					List<PageObjectIntrospector.Descriptor> allDescriptors =
+							pageObjectRegistry.getAllPageObjectDescriptors();
+					match = PageObjectMatcher.findMatch(allDescriptors, elementType, name, xpath);
+				}
 
 				if (match != null) {
-					// Для d.pageSimpleName() предположим переменную:
-					// AuthorizationPage -> authorizationPage
-					String pageVar = decapitalize(match.pageSimpleName);
-					// и геттер: getEmailField, getAuthButton и т.п.
+					String pageClassSimpleName = match.pageSimpleName;
+					String pageVar = decapitalize(pageClassSimpleName);
 					String getterName = "get" + capitalize(match.fieldName);
-
 					javaWebElement = pageVar + "." + getterName + "()";
+
+					result.usedPageObjectClasses.add(match.pageClass.getName());
 				}
 			}
 
-			// === если матч не найден — старое поведение ===
 			if (javaWebElement == null) {
 				javaWebElement = buildRawJavaWebElement(
 						elementType, selector, xpath, name, indexStr, byXpathStr
 				);
 			}
 
-			// --- action ---
 			StringBuilder sb = new StringBuilder();
-
-			sb.append(javaWebElement);
-			sb.append(".").append(actionCode).append("(");
+			sb.append(javaWebElement).append(".").append(actionCode).append("(");
 
 			if (value != null && !value.isBlank() && isValueAction) {
 				String safeValue = value.replace("\"", "\\\"");
@@ -429,10 +451,10 @@ public class ActionFileService {
 				sb.append(" // ").append(comment);
 			}
 
-			lines.add(sb.toString());
+			result.lines.add(sb.toString());
 		}
 
-		return lines;
+		return result;
 	}
 
 	private String buildRawJavaWebElement(
@@ -873,5 +895,12 @@ public class ActionFileService {
 			System.out.println("==================================================");
 		}
 	}
+
+	private static class JavaBuildResult {
+		List<String> lines = new ArrayList<>();
+		// set имён классов PageObject'ов, которые реально использовались
+		java.util.Set<String> usedPageObjectClasses = new java.util.LinkedHashSet<>();
+	}
+
 }
 

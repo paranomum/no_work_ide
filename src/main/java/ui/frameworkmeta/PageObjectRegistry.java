@@ -1,23 +1,19 @@
 package ui.frameworkmeta;
 
 import ru.rt.iqhr.framework.listeners.PageObjectUrl;
-import ru.rt.iqhr.pageobject.angular.pages.AuthorizationPage;
-import ru.rt.iqhr.pageobject.react.users.User;
-import ru.rt.iqhr.pageobject.react.users.UsersPage;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public class PageObjectRegistry {
 
-	// DRAFT: руками перечисляем, что есть
-	private final List<Class<?>> pageObjectClasses = List.of(
-			AuthorizationPage.class,
-			UsersPage.class,
-			User.class
-	);
+	private final List<Class<?>> pageObjectClasses;
 
 	public PageObjectRegistry() {
+		Set<Class<?>> scanned = PageObjectScanner.scanAllPageObjects();
+		this.pageObjectClasses = new ArrayList<>(scanned);
+
 		System.out.println("[PageObjectRegistry] Detected page objects:");
 		for (Class<?> c : pageObjectClasses) {
 			PageObjectUrl ann = c.getAnnotation(PageObjectUrl.class);
@@ -46,6 +42,14 @@ public class PageObjectRegistry {
 	public List<PageObjectIntrospector.Descriptor> getElementsForPath(String pageUrlPath) {
 		List<PageObjectIntrospector.Descriptor> result = new ArrayList<>();
 		for (Class<?> cls : findPageClassesForPath(pageUrlPath)) {
+			result.addAll(PageObjectIntrospector.scanPageClass(cls));
+		}
+		return result;
+	}
+
+	public List<PageObjectIntrospector.Descriptor> getAllPageObjectDescriptors() {
+		List<PageObjectIntrospector.Descriptor> result = new ArrayList<>();
+		for (Class<?> cls : pageObjectClasses) {
 			result.addAll(PageObjectIntrospector.scanPageClass(cls));
 		}
 		return result;
