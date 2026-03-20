@@ -5,6 +5,7 @@ import dto.ActionRecord;
 import dto.UsersServiceSpec;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.val;
 import model.UserAction;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
@@ -18,6 +19,7 @@ import ui.ActionWindow;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import java.net.URI;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -156,6 +158,7 @@ public class PlayActionService {
 			step.name = val(r, 7);
 			step.index = val(r, 8);
 			step.byXpath = val(r, 9);
+			step.url = val(r, 10);
 
 			// вся магия теперь внутри VariablesService
 			step.value = variablesService.resolveValue(rawValue, nameToValue);
@@ -169,7 +172,8 @@ public class PlayActionService {
 					nullSafe(step.xpath),
 					nullSafe(step.name),
 					nullSafe(step.index),
-					nullSafe(step.byXpath)
+					nullSafe(step.byXpath),
+					nullSafe(step.url)
 			);
 
 			steps.add(step);
@@ -198,6 +202,7 @@ public class PlayActionService {
 		String selector      = step.selector;
 		String value         = step.value;
 		String javaClassName = step.javaClassName;
+		String url = step.url;
 
 		boolean passValue = !action.contains("click")
 				&& !action.contains("fillDate")
@@ -291,6 +296,11 @@ public class PlayActionService {
 						step.rowIndex + 1, javaClassName, selector);
 			}
 		}
+		if (url == null || url.isEmpty() || url.isBlank()) {
+			val urlNow = parseUrl();
+			tableModel.setValueAt(urlNow, currentRow, 10);
+		}
+
 	}
 
 	// ---- спец‑действия ----
@@ -583,6 +593,7 @@ public class PlayActionService {
 		String name;
 		String index;
 		String byXpath;
+		String url;
 	}
 
 	private class Auth {
@@ -595,5 +606,28 @@ public class PlayActionService {
 			passwordField.fill(password);
 			authButton.click();
 		}
+	}
+
+	private String parseUrl() {
+		val cur = WebDriverRunner.getWebDriver().getCurrentUrl();
+		String pageUrlPath = "";
+		try {
+			URI uri = new URI(cur);
+			String path = uri.getPath();      // /auth/login или /cabinet/users-and-groups/users
+			String query = uri.getQuery();    // при желании можно добавить
+			if (path != null && !path.isBlank()) {
+				pageUrlPath = path;
+			}
+		} catch (Exception e) {
+			// fallback без URI
+			int idx = cur.indexOf("://");
+			if (idx >= 0) {
+				int slash = cur.indexOf('/', idx + 3);
+				pageUrlPath = (slash >= 0) ? cur.substring(slash) : "/";
+			} else {
+				pageUrlPath = cur;
+			}
+		}
+		return pageUrlPath;
 	}
 }

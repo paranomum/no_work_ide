@@ -111,6 +111,7 @@ public class ActionRecorder {
 								String xpath   = (String) input.get("xpath");
 								String value   = (String) input.get("value");
 								String name = (String) input.get("name");
+								String pageUrlPath = (String) input.get("pageUrlPath");
 
 								Object indexObj = input.get("index");
 								String index = null;
@@ -125,7 +126,7 @@ public class ActionRecorder {
 								};
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
-								record("fill", xpath, value, "Field", xpath, name, index, byXpath);
+								record("fill", xpath, value, "Field", xpath, name, index, byXpath, pageUrlPath);
 							}
 						}
 					}
@@ -147,6 +148,7 @@ public class ActionRecorder {
 								String selectXpath = (String) click.get("selectXpath");
 								Object rawEvent    = click.get("eventType");
 								String eventType   = rawEvent != null ? rawEvent.toString() : "click";
+								String pageUrlPath = (String) click.get("pageUrlPath");
 
 								Object indexObj = click.get("index");
 								String index = null;
@@ -175,7 +177,7 @@ public class ActionRecorder {
 										+ ", newTab=" + newTab);
 
 								if (newTab) {
-									record("click", xpath, "", elType, xpath, text, index, byXpath);
+									record("click", xpath, "", elType, xpath, text, index, byXpath, pageUrlPath);
 									System.out.println("[CAPTURE] newTab click recorded before any switch");
 									continue;
 								}
@@ -206,7 +208,7 @@ public class ActionRecorder {
 											System.out.println("[CAPTURE] select-option with selectXpath="
 													+ selectXpath + ", text=" + text);
 											record("selectOption", lastSelectOpenXpath, text, "Select",
-													lastSelectOpenXpath, selectName, selectIndex, selectByXpath);
+													lastSelectOpenXpath, selectName, selectIndex, selectByXpath, pageUrlPath);
 										} else {
 											System.out.println("[CAPTURE] select-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -230,7 +232,7 @@ public class ActionRecorder {
 											System.out.println("[CAPTURE] dropdown-option with selectXpath="
 													+ selectXpath + ", text=" + text);
 											record("selectOption", lastDropdownOpenXpath, text, "Dropdown",
-													lastDropdownOpenXpath, dropdownName, dropdownIndex, dropdownByXpath);
+													lastDropdownOpenXpath, dropdownName, dropdownIndex, dropdownByXpath, pageUrlPath);
 										} else {
 											System.out.println("[CAPTURE] dropdown-option WITHOUT selectXpath -> IGNORE");
 										}
@@ -267,7 +269,7 @@ public class ActionRecorder {
 											record("fillDate",
 													lastDatePickerOpenXpath != null ? lastDatePickerOpenXpath : xpath,
 													text, "DatePicker",
-													lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath);
+													lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath, pageUrlPath);
 											break;
 										}
 
@@ -291,7 +293,7 @@ public class ActionRecorder {
 
 												System.out.println("[CAPTURE] datepicker-range -> " + value);
 												record("fillDate", selector, value, "DatePicker",
-														lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath);
+														lastDatePickerOpenXpath, datePickerName, datePickerIndex, datePickerByXpath, pageUrlPath);
 											} else {
 												System.out.println("[CAPTURE] datepicker-range incomplete, skip");
 											}
@@ -307,7 +309,7 @@ public class ActionRecorder {
 									default:
 										System.out.println("[CAPTURE] normal click -> record(click): xpath="
 												+ xpath + ", text=" + text);
-										record("click", xpath, "", elType, xpath, text, index, byXpath);
+										record("click", xpath, "", elType, xpath, text, index, byXpath, pageUrlPath);
 										lastSelectOpenXpath = null;
 								}
 							}
@@ -342,7 +344,7 @@ public class ActionRecorder {
 		recorderThread = null;
 	}
 
-	private void record(String action, String selector, String value, String type, String xpath, String name, String index, String byXpath) {
+	private void record(String action, String selector, String value, String type, String xpath, String name, String index, String byXpath, String pageUrlPath) {
 		if (!isRecording) return;
 		System.out.printf("REC: %s | %s | %s%n", action, selector, value);
 		tableModel.addRow(new Object[]{
@@ -356,6 +358,7 @@ public class ActionRecorder {
 				name != null ? name : "",
 				index != null ? index.toString() : "",
 				byXpath != null ? byXpath : "",
+				pageUrlPath != null ? pageUrlPath : "",
 		});
 	}
 
@@ -435,7 +438,7 @@ public class ActionRecorder {
 			System.out.println("[TAB] SWITCH TAB from " + currentHandle + " (" + currentUrl +
 					") to " + targetHandle + " (" + newUrl + ")");
 
-			record("switchTab", null, newUrl, "", "", "", null, "");
+			record("switchTab", null, newUrl, "", "", "", null, "", "");
 			System.out.println("[TAB] RECORDED switchTab to url=" + newUrl);
 
 			driver.switchTo().window(currentHandle);

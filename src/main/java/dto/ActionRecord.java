@@ -22,5 +22,7 @@ public class ActionRecord {
 	private String name;
 	private String index;
 	private String byXpath;
+
+	private String pageUrlPath;
 }
 

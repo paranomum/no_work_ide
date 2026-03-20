@@ -10,6 +10,25 @@ window.datepickerState = window.datepickerState || {
   clickIndex: 0
 };
 
+window.pageUrlPath = (function() {
+  try {
+    var url = new URL(window.location.href);
+    var path = url.pathname || '/';
+    // если хочешь включать query:
+    // return path + (url.search || '');
+    return path;
+  } catch (e) {
+    // fallback без URL
+    var href = window.location.href || '';
+    var idx = href.indexOf('://');
+    if (idx >= 0) {
+      var slash = href.indexOf('/', idx + 3);
+      return slash >= 0 ? href.substring(slash) : '/';
+    }
+    return href || '/';
+  }
+})();
+
 // === ИНИЦИАЛИЗАЦИЯ СЛУШАТЕЛЕЙ (ОДИН РАЗ) ===
 
 if (!window.__iqhrActionsInitialized) {
@@ -105,7 +124,8 @@ window.__lastClickTime  = window.__lastClickTime  || 0;
         initByXpath: clickable.init_by_xpath,
         selectXpath: info.selectXpath || null,
         selectName: info.selectName || null,
-        newTab: isNewTab
+        newTab: isNewTab,
+        pageUrlPath: window.pageUrlPath || null
       };
 
       if (extra.rangeIndex !== undefined) {
@@ -174,7 +194,8 @@ window.__iqhrFocusHandler = function (e) {
             timestamp: Date.now(),
             javaData: '',
             index: fieldInfo ? fieldInfo.indexIndex : 0,
-            initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false
+            initByXpath: fieldInfo ? fieldInfo.init_by_xpath : false,
+            pageUrlPath: window.pageUrlPath || null
           };
           console.log(clickRecord);
           window.recordedInputs.push(clickRecord);

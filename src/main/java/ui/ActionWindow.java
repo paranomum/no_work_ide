@@ -259,6 +259,7 @@ public class ActionWindow extends JFrame {
 		initRenderersCommon();   // всё, кроме 0 и 1
 		initColumn0Renderer();   // только колонка 0
 		initColumn1Renderer();   // только колонка 1
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(10));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(7));
@@ -268,7 +269,7 @@ public class ActionWindow extends JFrame {
 
 	private void initTableModel() {
 		String[] columns = {"#", "Action", "Selector", "Value", "Comment",
-				"Element Type", "Xpath", "Name", "Index", "By xpath"};
+				"Element Type", "Xpath", "Name", "Index", "By xpath", "pageUrlPath"};
 
 		tableModel = new DefaultTableModel(columns, 0) {
 			@Override
@@ -324,7 +325,7 @@ public class ActionWindow extends JFrame {
 
 		List<String> columnList = Arrays.stream(
 				new String[]{"#", "Action", "Selector", "Value", "Comment",
-						"Element Type", "Xpath", "Name", "Index", "By xpath"}
+						"Element Type", "Xpath", "Name", "Index", "By xpath", "pageUrlPath"}
 		).toList();
 
 		for (String column : columnList) {
@@ -1144,6 +1145,7 @@ public class ActionWindow extends JFrame {
 			String name     = val(r, 7);
 			String index    = val(r, 8);
 			String byXpath  = val(r, 9);
+			String url  = val(r, 10);
 
 			list.add(new dto.ActionRecord(
 					actionCode,
@@ -1154,7 +1156,8 @@ public class ActionWindow extends JFrame {
 					xpath,
 					name,
 					index,
-					byXpath
+					byXpath,
+					url
 			));
 		}
 		return list;

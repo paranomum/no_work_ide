@@ -8,6 +8,9 @@ import dto.Scenario;
 import lombok.val;
 import model.ElementType;
 import model.UserAction;
+import ui.frameworkmeta.PageObjectIntrospector;
+import ui.frameworkmeta.PageObjectMatcher;
+import ui.frameworkmeta.PageObjectRegistry;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -15,7 +18,9 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
@@ -26,6 +31,7 @@ public class ActionFileService {
 	private final JFrame parent;
 	private final CustomMethodsService customMethodsService;
 	private final VariablesService variablesService;
+	private final PageObjectRegistry pageObjectRegistry = new PageObjectRegistry();
 
 	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService, VariablesService variablesService) {
 		this.parent = parent;
@@ -155,6 +161,7 @@ public class ActionFileService {
 			String name = val(r, 7);
 			String index = val(r, 8);
 			String byXpath = val(r, 9);
+			String url = val(r, 10);
 
 			rows.add(new ActionRecord(
 					actionCode,
@@ -165,7 +172,8 @@ public class ActionFileService {
 					xpath,
 					name,
 					index,
-					byXpath
+					byXpath,
+					url
 			));
 		}
 
@@ -175,6 +183,8 @@ public class ActionFileService {
 	// --------- Java test ---------
 
 	private void saveGeneratedJava() {
+		debugAllPageObjectsFromTable();
+
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save generated test");
 		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
@@ -227,21 +237,129 @@ public class ActionFileService {
 		}
 	}
 
+//	private List<String> buildJavaLinesFromTable() {
+//		List<String> lines = new ArrayList<>();
+//		int rowCount = tableModel.getRowCount();
+//
+//		for (int r = 0; r < rowCount; r++) {
+//			// --- исходные значения из таблицы ---
+//			String actionCode = val(r, 1);           // UserAction / строка
+//			String selector   = val(r, 2);
+//			String value      = val(r, 3);           // Value
+//			String comment    = val(r, 4);           // Comment
+//			String javaClass  = val(r, 5);           // ElementType.className
+//			String xpath      = val(r, 6);           // Xpath
+//			String name       = val(r, 7);           // Name
+//			String indexStr   = val(r, 8);           // Index
+//			String byXpathStr = val(r, 9);           // "true"/"false" или null
+//
+//			if (actionCode == null || actionCode.isBlank()) {
+//				continue;
+//			}
+//
+//			String actionLower = actionCode.toLowerCase();
+//			boolean isValueAction = !actionLower.contains("click")
+//					&& !actionLower.contains("filldate");
+//
+//			boolean specialAction = actionLower.contains("pause")
+//					|| actionLower.contains("waitloadingpage")
+//					|| actionLower.contains("filldata")
+//					|| actionLower.contains("auth")
+//					|| actionLower.contains("specialaction")
+//					|| actionLower.contains("switchtab")
+//					|| actionLower.contains("open");
+//
+//			if (specialAction) {
+//				lines.add(appendSpecialAction(actionCode, value, comment));
+//				continue;
+//			}
+//
+//			// --- javaWebElement ---
+//
+//			String javaWebElement = "new " + javaClass + "(\"";
+//
+//			boolean hasName = name != null && !name.isBlank();
+//			boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
+//
+//			if (hasName) {
+//				// есть name
+//				if (!byXpath) {
+//					// byXpath == false
+//					Integer index = null;
+//					if (indexStr != null && !indexStr.isBlank()) {
+//						try {
+//							index = Integer.parseInt(indexStr.trim());
+//						} catch (NumberFormatException ignore) {}
+//					}
+//
+//					if (index != null && index > 1) {
+//						// index > 1
+//						javaWebElement = javaWebElement + name + "\", " + index + ")";
+//					} else {
+//						// index <= 1
+//						javaWebElement = javaWebElement + name + "\")";
+//					}
+//				} else {
+//					// byXpath == true
+//					String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
+//					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
+//				}
+//			} else {
+//				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
+//				if (isProbablyXPath(selector))
+//					javaWebElement = javaWebElement + javaClass + "\", $x(\"" + safeSelector + "\"))";
+//				else {
+//					if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
+//						String[] selectors = selector.trim().split(",");
+//						javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
+//					}
+//					else {
+//						javaWebElement = javaWebElement + selector + "\")";
+//					}
+//				}
+//			}
+//
+//			// --- action ---
+//			StringBuilder sb = new StringBuilder();
+//
+//			sb.append(javaWebElement);
+//			sb.append(".");
+//			sb.append(actionCode);
+//			sb.append("(");
+//
+//			if (value != null && !value.isBlank() && isValueAction) {
+//				String safeValue = value.replace("\"", "\\\"");
+//				sb.append("\"").append(safeValue).append("\"");
+//			}
+//
+//			sb.append(");");
+//
+//			// --- comment ---
+//			if (comment != null && !comment.isBlank()) {
+//				sb.append(" // ").append(comment);
+//			}
+//
+//			lines.add(sb.toString());
+//		}
+//
+//		return lines;
+//	}
+
 	private List<String> buildJavaLinesFromTable() {
 		List<String> lines = new ArrayList<>();
 		int rowCount = tableModel.getRowCount();
 
 		for (int r = 0; r < rowCount; r++) {
-			// --- исходные значения из таблицы ---
-			String actionCode = val(r, 1);           // UserAction / строка
+			String actionCode = val(r, 1);
 			String selector   = val(r, 2);
-			String value      = val(r, 3);           // Value
-			String comment    = val(r, 4);           // Comment
-			String javaClass  = val(r, 5);           // ElementType.className
-			String xpath      = val(r, 6);           // Xpath
-			String name       = val(r, 7);           // Name
-			String indexStr   = val(r, 8);           // Index
-			String byXpathStr = val(r, 9);           // "true"/"false" или null
+			String value      = val(r, 3);
+			String comment    = val(r, 4);
+			String elementType = val(r, 5);
+			String xpath      = val(r, 6);
+			String name       = val(r, 7);
+			String indexStr   = val(r, 8);
+			String byXpathStr = val(r, 9);
+			String pageUrlPath = val(r, 10);   // путь страницы
 
 			if (actionCode == null || actionCode.isBlank()) {
 				continue;
@@ -264,58 +382,41 @@ public class ActionFileService {
 				continue;
 			}
 
-			// --- javaWebElement ---
+			// === НОВОЕ: пробуем найти PageObject‑элемент ===
+			String javaWebElement = null;
 
-			String javaWebElement = "new " + javaClass + "(\"";
+			if (pageUrlPath != null && !pageUrlPath.isBlank()
+					&& elementType != null && name != null && !name.isBlank()) {
 
-			boolean hasName = name != null && !name.isBlank();
-			boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
+				List<PageObjectIntrospector.Descriptor> descriptors =
+						pageObjectRegistry.getElementsForPath(pageUrlPath);
 
-			if (hasName) {
-				// есть name
-				if (!byXpath) {
-					// byXpath == false
-					Integer index = null;
-					if (indexStr != null && !indexStr.isBlank()) {
-						try {
-							index = Integer.parseInt(indexStr.trim());
-						} catch (NumberFormatException ignore) {}
-					}
+				PageObjectIntrospector.Descriptor match =
+						PageObjectMatcher.findMatch(descriptors, elementType, name);
 
-					if (index != null && index > 1) {
-						// index > 1
-						javaWebElement = javaWebElement + name + "\", " + index + ")";
-					} else {
-						// index <= 1
-						javaWebElement = javaWebElement + name + "\")";
-					}
-				} else {
-					// byXpath == true
-					String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
-					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
+				if (match != null) {
+					// Для d.pageSimpleName() предположим переменную:
+					// AuthorizationPage -> authorizationPage
+					String pageVar = decapitalize(match.pageSimpleName);
+					// и геттер: getEmailField, getAuthButton и т.п.
+					String getterName = "get" + capitalize(match.fieldName);
+
+					javaWebElement = pageVar + "." + getterName + "()";
 				}
-			} else {
-				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
-				if (isProbablyXPath(selector))
-					javaWebElement = javaWebElement + javaClass + "\", $x(\"" + safeSelector + "\"))";
-				else {
-					if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
-						String[] selectors = selector.trim().split(",");
-						javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
-					}
-					else {
-						javaWebElement = javaWebElement + selector + "\")";
-					}
-				}
+			}
+
+			// === если матч не найден — старое поведение ===
+			if (javaWebElement == null) {
+				javaWebElement = buildRawJavaWebElement(
+						elementType, selector, xpath, name, indexStr, byXpathStr
+				);
 			}
 
 			// --- action ---
 			StringBuilder sb = new StringBuilder();
 
 			sb.append(javaWebElement);
-			sb.append(".");
-			sb.append(actionCode);
-			sb.append("(");
+			sb.append(".").append(actionCode).append("(");
 
 			if (value != null && !value.isBlank() && isValueAction) {
 				String safeValue = value.replace("\"", "\\\"");
@@ -324,7 +425,6 @@ public class ActionFileService {
 
 			sb.append(");");
 
-			// --- comment ---
 			if (comment != null && !comment.isBlank()) {
 				sb.append(" // ").append(comment);
 			}
@@ -334,6 +434,52 @@ public class ActionFileService {
 
 		return lines;
 	}
+
+	private String buildRawJavaWebElement(
+			String javaClass, String selector, String xpath,
+			String name, String indexStr, String byXpathStr
+	) {
+		String jc = javaClass != null ? javaClass : "Field"; // fallback
+		String javaWebElement = "new " + jc + "(\"";
+
+		boolean hasName = name != null && !name.isBlank();
+		boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
+
+		if (hasName) {
+			if (!byXpath) {
+				Integer index = null;
+				if (indexStr != null && !indexStr.isBlank()) {
+					try {
+						index = Integer.parseInt(indexStr.trim());
+					} catch (NumberFormatException ignore) {}
+				}
+
+				if (index != null && index > 1) {
+					javaWebElement = javaWebElement + name + "\", " + index + ")";
+				} else {
+					javaWebElement = javaWebElement + name + "\")";
+				}
+			} else {
+				String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
+				javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
+			}
+		} else {
+			String safeSelector = selector == null ? "" : selector.replace("\"", "\\\"");
+			if (isProbablyXPath(selector))
+				javaWebElement = javaWebElement + jc + "\", $x(\"" + safeSelector + "\"))";
+			else {
+				if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
+					String[] selectors = selector.trim().split(",");
+					javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
+				} else {
+					javaWebElement = javaWebElement + selector + "\")";
+				}
+			}
+		}
+
+		return javaWebElement;
+	}
+
 
 	// --------- helper ---------
 
@@ -393,6 +539,17 @@ public class ActionFileService {
 
 		return sb.toString();
 	}
+
+	private String decapitalize(String s) {
+		if (s == null || s.isEmpty()) return s;
+		return Character.toLowerCase(s.charAt(0)) + s.substring(1);
+	}
+
+	private String capitalize(String s) {
+		if (s == null || s.isEmpty()) return s;
+		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+	}
+
 
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
@@ -486,7 +643,8 @@ public class ActionFileService {
 						rec.getXpath(),
 						rec.getName(),
 						rec.getIndex(),
-						rec.getByXpath()
+						rec.getByXpath(),
+						rec.getPageUrlPath()
 				});
 			}
 
@@ -654,6 +812,7 @@ public class ActionFileService {
 		String name     = val(r, 7);
 		String index    = val(r, 8);
 		String byXpath  = val(r, 9);
+		String url  = val(r, 10);
 
 		return new ActionRecord(
 				actionCode,
@@ -664,7 +823,8 @@ public class ActionFileService {
 				xpath,
 				name,
 				index,
-				byXpath
+				byXpath,
+				url
 		);
 	}
 
@@ -684,7 +844,34 @@ public class ActionFileService {
 		}
 	}
 
+	private void debugAllPageObjectsFromTable() {
+		int rowCount = tableModel.getRowCount();
+		if (rowCount == 0) {
+			return;
+		}
 
+		// Собираем все уникальные pageUrlPath из таблицы (в порядке появления)
+		Set<String> paths = new LinkedHashSet<>();
+		for (int r = 0; r < rowCount; r++) {
+			String path = val(r, 10); // 10-я колонка с pageUrlPath
+			if (path != null && !path.isBlank()) {
+				paths.add(path);
+			}
+		}
 
+		PageObjectRegistry registry = new PageObjectRegistry();
+
+		for (String path : paths) {
+			System.out.println("=== PAGE OBJECT ELEMENTS FOR PATH: " + path + " ===");
+			List<PageObjectIntrospector.Descriptor> descriptors =
+					registry.getElementsForPath(path);
+			for (PageObjectIntrospector.Descriptor d : descriptors) {
+				System.out.println("  " + d.pageSimpleName + "." + d.fieldName
+						+ " : " + d.fieldType.getSimpleName()
+						+ " [" + d.label + "]");
+			}
+			System.out.println("==================================================");
+		}
+	}
 }
 

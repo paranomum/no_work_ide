@@ -20,7 +20,7 @@
     <dependencies>
         <dependency>
             <groupId>iqhr.auto-test.ui</groupId>
-            <artifactId>framework_core</artifactId>
+            <artifactId>tests-ui</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
@@ -123,6 +123,13 @@
             <version>1.18.30</version>
             <scope>provided</scope>
         </dependency>
+
+        <dependency>
+            <groupId>org.reflections</groupId>
+            <artifactId>reflections</artifactId>
+            <version>0.10.2</version>
+        </dependency>
+
     </dependencies>
     <build>
         <plugins>
