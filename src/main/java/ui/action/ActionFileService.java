@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.LocalVariables;
 import dto.Scenario;
+import lombok.SneakyThrows;
+import lombok.val;
 import model.ElementType;
 import model.UserAction;
 import ui.frameworkmeta.PageObjectIntrospector;
@@ -30,13 +32,22 @@ public class ActionFileService {
 	private final JFrame parent;
 	private final CustomMethodsService customMethodsService;
 	private final VariablesService variablesService;
-	private final PageObjectRegistry pageObjectRegistry = new PageObjectRegistry();
+	private TestGeneratorService testGeneratorService;
 
+	@SneakyThrows
 	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService, VariablesService variablesService) {
 		this.parent = parent;
 		this.tableModel = tableModel;
 		this.customMethodsService = customMethodsService;
 		this.variablesService = variablesService;
+		try {
+			val pageObjectRegistry = new PageObjectRegistry();
+			this.testGeneratorService = new TestGeneratorService(pageObjectRegistry);
+		} catch (Throwable e) {
+			e.printStackTrace(new PrintWriter(new FileWriter("startup-error.log", true)));
+			throw e;
+		}
+
 	}
 
 	// --------- Публичный вход ---------
@@ -200,42 +211,8 @@ public class ActionFileService {
 			file = new File(file.getParentFile(), file.getName() + ".java");
 		}
 
-		JavaBuildResult buildResult = buildJavaLinesFromTableWithPageObjects();
-
-		StringBuilder body = new StringBuilder();
-
-		// --- объявления PageObject-переменных ---
-		for (String fqcn : buildResult.usedPageObjectClasses) {
-			// fqcn вида ru.rt.iqhr.pageobject.angular.pages.AuthorizationPage
-			String simple = fqcn.substring(fqcn.lastIndexOf('.') + 1);
-			String varName = decapitalize(simple);
-			body.append("        ")
-					.append(simple)
-					.append(" ")
-					.append(varName)
-					.append(" = new ")
-					.append(simple)
-					.append("();\n");
-		}
-		if (!buildResult.usedPageObjectClasses.isEmpty()) {
-			body.append("\n");
-		}
-
-		// --- сами шаги ---
-		for (String line : buildResult.lines) {
-			body.append("        ").append(line).append("\n");
-		}
-
-		String content =
-				"@Tag(\"\")\n" +
-						"@TestClassIQHR(name = \"\")\n" +
-						"public class GeneratedTestCase {\n" +
-						"\n" +
-						"    @TestIQHR(name = \"\", tmsLink = \"IQHR-T\")\n" +
-						"    public void generatedTest() {\n" +
-						body.toString() +
-						"    }\n" +
-						"}\n";
+		List<ActionRecord> rows = buildActionRecords(); // уже есть метод
+		String content = testGeneratorService.generateJavaTestClass(rows);
 
 		try {
 			Files.writeString(file.toPath(), content, StandardCharsets.UTF_8);
@@ -259,341 +236,9 @@ public class ActionFileService {
 		}
 	}
 
-
-//	private List<String> buildJavaLinesFromTable() {
-//		List<String> lines = new ArrayList<>();
-//		int rowCount = tableModel.getRowCount();
-//
-//		for (int r = 0; r < rowCount; r++) {
-//			// --- исходные значения из таблицы ---
-//			String actionCode = val(r, 1);           // UserAction / строка
-//			String selector   = val(r, 2);
-//			String value      = val(r, 3);           // Value
-//			String comment    = val(r, 4);           // Comment
-//			String javaClass  = val(r, 5);           // ElementType.className
-//			String xpath      = val(r, 6);           // Xpath
-//			String name       = val(r, 7);           // Name
-//			String indexStr   = val(r, 8);           // Index
-//			String byXpathStr = val(r, 9);           // "true"/"false" или null
-//
-//			if (actionCode == null || actionCode.isBlank()) {
-//				continue;
-//			}
-//
-//			String actionLower = actionCode.toLowerCase();
-//			boolean isValueAction = !actionLower.contains("click")
-//					&& !actionLower.contains("filldate");
-//
-//			boolean specialAction = actionLower.contains("pause")
-//					|| actionLower.contains("waitloadingpage")
-//					|| actionLower.contains("filldata")
-//					|| actionLower.contains("auth")
-//					|| actionLower.contains("specialaction")
-//					|| actionLower.contains("switchtab")
-//					|| actionLower.contains("open");
-//
-//			if (specialAction) {
-//				lines.add(appendSpecialAction(actionCode, value, comment));
-//				continue;
-//			}
-//
-//			// --- javaWebElement ---
-//
-//			String javaWebElement = "new " + javaClass + "(\"";
-//
-//			boolean hasName = name != null && !name.isBlank();
-//			boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
-//
-//			if (hasName) {
-//				// есть name
-//				if (!byXpath) {
-//					// byXpath == false
-//					Integer index = null;
-//					if (indexStr != null && !indexStr.isBlank()) {
-//						try {
-//							index = Integer.parseInt(indexStr.trim());
-//						} catch (NumberFormatException ignore) {}
-//					}
-//
-//					if (index != null && index > 1) {
-//						// index > 1
-//						javaWebElement = javaWebElement + name + "\", " + index + ")";
-//					} else {
-//						// index <= 1
-//						javaWebElement = javaWebElement + name + "\")";
-//					}
-//				} else {
-//					// byXpath == true
-//					String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
-//					javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
-//				}
-//			} else {
-//				String safeSelector =  selector == null ? "" : selector.replace("\"", "\\\"");
-//				if (isProbablyXPath(selector))
-//					javaWebElement = javaWebElement + javaClass + "\", $x(\"" + safeSelector + "\"))";
-//				else {
-//					if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
-//						String[] selectors = selector.trim().split(",");
-//						javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
-//					}
-//					else {
-//						javaWebElement = javaWebElement + selector + "\")";
-//					}
-//				}
-//			}
-//
-//			// --- action ---
-//			StringBuilder sb = new StringBuilder();
-//
-//			sb.append(javaWebElement);
-//			sb.append(".");
-//			sb.append(actionCode);
-//			sb.append("(");
-//
-//			if (value != null && !value.isBlank() && isValueAction) {
-//				String safeValue = value.replace("\"", "\\\"");
-//				sb.append("\"").append(safeValue).append("\"");
-//			}
-//
-//			sb.append(");");
-//
-//			// --- comment ---
-//			if (comment != null && !comment.isBlank()) {
-//				sb.append(" // ").append(comment);
-//			}
-//
-//			lines.add(sb.toString());
-//		}
-//
-//		return lines;
-//	}
-
-	private JavaBuildResult buildJavaLinesFromTableWithPageObjects() {
-		JavaBuildResult result = new JavaBuildResult();
-		int rowCount = tableModel.getRowCount();
-
-		for (int r = 0; r < rowCount; r++) {
-			String actionCode  = val(r, 1);
-			String selector    = val(r, 2);
-			String value       = val(r, 3);
-			String comment     = val(r, 4);
-			String elementType = val(r, 5);
-			String xpath       = val(r, 6);
-			String name        = val(r, 7);
-			String indexStr    = val(r, 8);
-			String byXpathStr  = val(r, 9);
-			String pageUrlPath = val(r, 10);
-
-			if (actionCode == null || actionCode.isBlank()) {
-				continue;
-			}
-
-			String actionLower = actionCode.toLowerCase();
-			boolean isValueAction = !actionLower.contains("click")
-					&& !actionLower.contains("filldate");
-
-			boolean specialAction = actionLower.contains("pause")
-					|| actionLower.contains("waitloadingpage")
-					|| actionLower.contains("filldata")
-					|| actionLower.contains("auth")
-					|| actionLower.contains("specialaction")
-					|| actionLower.contains("switchtab")
-					|| actionLower.contains("open");
-
-			if (specialAction) {
-				result.lines.add(appendSpecialAction(actionCode, value, comment));
-				continue;
-			}
-
-			String javaWebElement = null;
-
-			// --- пробуем матчить на PageObject ---
-			if (elementType != null && name != null && !name.isBlank()) {
-
-				PageObjectIntrospector.Descriptor match = null;
-
-				// 1) сначала по текущему pageUrlPath
-				if (pageUrlPath != null && !pageUrlPath.isBlank()) {
-					List<PageObjectIntrospector.Descriptor> descriptors =
-							pageObjectRegistry.getElementsForPath(pageUrlPath);
-
-					match = PageObjectMatcher.findMatch(descriptors, elementType, name, xpath);
-				}
-
-				// 2) если не нашли — пробуем среди всех PageObject-классов
-				if (match == null) {
-					List<PageObjectIntrospector.Descriptor> allDescriptors =
-							pageObjectRegistry.getAllPageObjectDescriptors();
-					match = PageObjectMatcher.findMatch(allDescriptors, elementType, name, xpath);
-				}
-
-				if (match != null) {
-					String pageClassSimpleName = match.pageSimpleName;
-					String pageVar = decapitalize(pageClassSimpleName);
-					String getterName = "get" + capitalize(match.fieldName);
-					javaWebElement = pageVar + "." + getterName + "()";
-
-					result.usedPageObjectClasses.add(match.pageClass.getName());
-				}
-			}
-
-			if (javaWebElement == null) {
-				javaWebElement = buildRawJavaWebElement(
-						elementType, selector, xpath, name, indexStr, byXpathStr
-				);
-			}
-
-			StringBuilder sb = new StringBuilder();
-			sb.append(javaWebElement).append(".").append(actionCode).append("(");
-
-			if (value != null && !value.isBlank() && isValueAction) {
-				String safeValue = value.replace("\"", "\\\"");
-				sb.append("\"").append(safeValue).append("\"");
-			}
-
-			sb.append(");");
-
-			if (comment != null && !comment.isBlank()) {
-				sb.append(" // ").append(comment);
-			}
-
-			result.lines.add(sb.toString());
-		}
-
-		return result;
-	}
-
-	private String buildRawJavaWebElement(
-			String javaClass, String selector, String xpath,
-			String name, String indexStr, String byXpathStr
-	) {
-		String jc = javaClass != null ? javaClass : "Field"; // fallback
-		String javaWebElement = "new " + jc + "(\"";
-
-		boolean hasName = name != null && !name.isBlank();
-		boolean byXpath = "true".equalsIgnoreCase(byXpathStr);
-
-		if (hasName) {
-			if (!byXpath) {
-				Integer index = null;
-				if (indexStr != null && !indexStr.isBlank()) {
-					try {
-						index = Integer.parseInt(indexStr.trim());
-					} catch (NumberFormatException ignore) {}
-				}
-
-				if (index != null && index > 1) {
-					javaWebElement = javaWebElement + name + "\", " + index + ")";
-				} else {
-					javaWebElement = javaWebElement + name + "\")";
-				}
-			} else {
-				String safeXpath = xpath == null ? "" : xpath.replace("\"", "\\\"");
-				javaWebElement = javaWebElement + name + "\", $x(\"" + safeXpath + "\"))";
-			}
-		} else {
-			String safeSelector = selector == null ? "" : selector.replace("\"", "\\\"");
-			if (isProbablyXPath(selector))
-				javaWebElement = javaWebElement + jc + "\", $x(\"" + safeSelector + "\"))";
-			else {
-				if (hasCommaSpacesDigitAndNoLettersAfter(selector)) {
-					String[] selectors = selector.trim().split(",");
-					javaWebElement = javaWebElement + selectors[0] + "\", " + selectors[1] + ")";
-				} else {
-					javaWebElement = javaWebElement + selector + "\")";
-				}
-			}
-		}
-
-		return javaWebElement;
-	}
-
-
-	// --------- helper ---------
-
-	private String appendSpecialAction(String actionCode, String value, String comment) {
-		String actionLower = actionCode == null ? "" : actionCode.toLowerCase();
-
-		boolean isParamAction =
-				"open".equals(actionLower)
-						|| "auth".equals(actionLower)
-						|| "waitloadingpage".equals(actionLower)
-						|| "pause".equals(actionLower);
-
-		StringBuilder sb = new StringBuilder();
-
-		// --- action ---
-		sb.append(actionCode);
-		sb.append("(");
-
-		if (isParamAction && value != null && !value.isBlank()) {
-			if ("waitloadingpage".equals(actionLower) || "pause".equals(actionLower)) {
-				// value.replaceAll("[\\D]", "");
-				sb.append("\"")
-						.append(value.replaceAll("[\\D]", ""))
-						.append("\"");
-			} else {
-				// open/auth: просто "value"
-				sb.append("\"")
-						.append(value.replace("\"", "\\\""))
-						.append("\"");
-			}
-		}
-
-		sb.append(");");
-
-		// --- comment ---
-		if (comment != null && !comment.isBlank() || (value != null && !value.isBlank() && !isParamAction)) {
-			sb.append(" // ");
-			if (isParamAction) {
-				// open, auth, waitloadingpage, pause -> только comment
-				if (comment != null && !comment.isBlank()) {
-					sb.append(comment);
-				}
-			} else {
-				// всё остальное -> "comment, value"
-				boolean hasComment = comment != null && !comment.isBlank();
-				if (hasComment) {
-					sb.append(comment);
-				}
-				if (value != null && !value.isBlank()) {
-					if (hasComment) {
-						sb.append(", ");
-					}
-					sb.append(value);
-				}
-			}
-		}
-
-		return sb.toString();
-	}
-
-	private String decapitalize(String s) {
-		if (s == null || s.isEmpty()) return s;
-		return Character.toLowerCase(s.charAt(0)) + s.substring(1);
-	}
-
-	private String capitalize(String s) {
-		if (s == null || s.isEmpty()) return s;
-		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
-	}
-
-
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
 		return v == null ? null : v.toString();
-	}
-
-	private String extractAction(int row) {
-		Object actionObj = tableModel.getValueAt(row, 1);
-		if (actionObj instanceof UserAction) {
-			return ((UserAction) actionObj).getCode();
-		}
-		return actionObj != null ? actionObj.toString() : null;
-	}
-
-	private boolean hasText(String s) {
-		return s != null && !s.isBlank();
 	}
 
 	// --------- JSON load ---------
@@ -881,41 +526,6 @@ public class ActionFileService {
 		}
 	}
 
-	private void debugAllPageObjectsFromTable() {
-		int rowCount = tableModel.getRowCount();
-		if (rowCount == 0) {
-			return;
-		}
-
-		// Собираем все уникальные pageUrlPath из таблицы (в порядке появления)
-		Set<String> paths = new LinkedHashSet<>();
-		for (int r = 0; r < rowCount; r++) {
-			String path = val(r, 10); // 10-я колонка с pageUrlPath
-			if (path != null && !path.isBlank()) {
-				paths.add(path);
-			}
-		}
-
-		PageObjectRegistry registry = new PageObjectRegistry();
-
-		for (String path : paths) {
-			System.out.println("=== PAGE OBJECT ELEMENTS FOR PATH: " + path + " ===");
-			List<PageObjectIntrospector.Descriptor> descriptors =
-					registry.getElementsForPath(path);
-			for (PageObjectIntrospector.Descriptor d : descriptors) {
-				System.out.println("  " + d.pageSimpleName + "." + d.fieldName
-						+ " : " + d.fieldType.getSimpleName()
-						+ " [" + d.label + "]");
-			}
-			System.out.println("==================================================");
-		}
-	}
-
-	private static class JavaBuildResult {
-		List<String> lines = new ArrayList<>();
-		// set имён классов PageObject'ов, которые реально использовались
-		java.util.Set<String> usedPageObjectClasses = new java.util.LinkedHashSet<>();
-	}
 
 }
 

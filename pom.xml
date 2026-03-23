@@ -20,6 +20,20 @@
     <dependencies>
         <dependency>
             <groupId>iqhr.auto-test.ui</groupId>
+            <artifactId>framework_core</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>iqhr.auto-test.ui</groupId>
+            <artifactId>lib-ui</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>iqhr.auto-test.ui</groupId>
             <artifactId>tests-ui</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>compile</scope>
@@ -51,6 +65,12 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>3.25.10</version> <!-- или актуальную с Maven Central -->
+        </dependency>
+
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
             <artifactId>selenium-java</artifactId>

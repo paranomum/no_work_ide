@@ -54,4 +54,8 @@ public class PageObjectRegistry {
 		}
 		return result;
 	}
+
+	public List<Class<?>> getAllPageObjectClasses() {
+		return pageObjectClasses;
+	}
 }

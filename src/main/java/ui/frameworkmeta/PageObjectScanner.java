@@ -6,28 +6,31 @@ import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 import ru.rt.iqhr.framework.listeners.PageObjectUrl;
 
-import java.net.URL;
 import java.util.Set;
+
+import static org.reflections.scanners.Scanners.TypesAnnotated;
 
 public class PageObjectScanner {
 
 	private static final String BASE_PACKAGE = "ru.rt.iqhr.pageobject";
 
 	public static Set<Class<?>> scanAllPageObjects() {
-		// Берём URL'ы ровно для этого пакета и всех подпакетов
 		var urls = ClasspathHelper.forPackage(BASE_PACKAGE);
 
 		var config = new ConfigurationBuilder()
 				.setUrls(urls)
-				.setScanners(Scanners.TypesAnnotated)
-				.filterInputsBy(path -> path != null && path.replace('/', '.').startsWith(BASE_PACKAGE));
+				.setScanners(TypesAnnotated)
+				.filterInputsBy(path ->
+						path != null && path.replace('/', '.').startsWith(BASE_PACKAGE));
 
 		Reflections reflections = new Reflections(config);
 
-		Set<Class<?>> types = reflections.getTypesAnnotatedWith(PageObjectUrl.class);
+		// ВАЖНО: используем новый API, но результат тот же Set<Class<?>>
+		Set<Class<?>> types = reflections
+				.get(TypesAnnotated.with(PageObjectUrl.class).asClass());
 
 		System.out.println("[PageObjectScanner] Found @" + PageObjectUrl.class.getSimpleName()
-				+ " in ru.rt.iqhr.pageobject*: " + types.size());
+				+ " in " + BASE_PACKAGE + "*: " + types.size());
 
 		for (Class<?> c : types) {
 			PageObjectUrl ann = c.getAnnotation(PageObjectUrl.class);
