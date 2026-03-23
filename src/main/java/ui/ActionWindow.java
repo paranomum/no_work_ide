@@ -3,7 +3,9 @@ package ui;
 import com.codeborne.selenide.WebDriverRunner;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import dto.ActionRecord;
 import dto.AppConfig;
+import dto.LocalVariables;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
@@ -63,6 +65,9 @@ public class ActionWindow extends JFrame {
 	private final BrowserService browserService;
 	private final CustomMethodsService customMethodsService;
 	private final VariablesService variablesService;
+
+	private boolean methodEditMode = false;
+	private String currentEditedMethodName = null;
 
 	public ActionWindow() {
 		config = configService.load();
@@ -259,6 +264,7 @@ public class ActionWindow extends JFrame {
 		initRenderersCommon();   // всё, кроме 0 и 1
 		initColumn0Renderer();   // только колонка 0
 		initColumn1Renderer();   // только колонка 1
+		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(11));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(10));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(9));
 		actionTable.getColumnModel().removeColumn(actionTable.getColumnModel().getColumn(8));
@@ -269,14 +275,11 @@ public class ActionWindow extends JFrame {
 
 	private void initTableModel() {
 		String[] columns = {"#", "Action", "Selector", "Value", "Comment",
-				"Element Type", "Xpath", "Name", "Index", "By xpath", "pageUrlPath"};
-
-		tableModel = new DefaultTableModel(columns, 0) {
-			@Override
-			public boolean isCellEditable(int row, int column) {
-				return column != 0;
-			}
+				"Element Type", "Xpath", "Name", "Index", "By xpath", "pageUrlPath",
+				"CustomMethodRef" // NEW, служебная колонка
 		};
+
+		tableModel = new ActionTableModel(columns);
 	}
 
 	private void initTableComponent() {
@@ -440,10 +443,18 @@ public class ActionWindow extends JFrame {
 			int rowCount = tableModel.getRowCount();
 			for (int i = 0; i < rowCount; i++) {
 				Object cur = tableModel.getValueAt(i, 0);
-				if (!(cur instanceof Integer) || ((Integer) cur) != i) {
-					tableModel.setValueAt(i, i, 0);
+				String curStr = cur == null ? null : cur.toString();
+
+				if (curStr != null && curStr.contains(".")) {
+					continue;
+				}
+
+				String expected = String.valueOf(i);
+				if (!expected.equals(curStr)) {
+					tableModel.setValueAt(expected, i, 0);
 				}
 			}
+
 
 			tableModel.addTableModelListener(holder[0]);
 		};
@@ -488,16 +499,25 @@ public class ActionWindow extends JFrame {
 					int row, int column) {
 
 				Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
 				int modelRow = table.convertRowIndexToModel(row);
 				int current = playActionService.getCurrentRow();
 
+				boolean rowEditable = ((ActionTableModel) table.getModel()).isRowEditable(modelRow);
+
 				if (modelRow == current) {
 					c.setBackground(new Color(255, 250, 180));
+				} else if (!rowEditable) {
+					// дизейбленная строка
+					c.setBackground(new Color(230, 230, 230)); // светло‑серый
+					c.setForeground(Color.DARK_GRAY);
 				} else {
 					if (isSelected) {
 						c.setBackground(table.getSelectionBackground());
+						c.setForeground(table.getSelectionForeground());
 					} else {
 						c.setBackground(table.getBackground());
+						c.setForeground(table.getForeground());
 					}
 				}
 				return c;
@@ -712,8 +732,105 @@ public class ActionWindow extends JFrame {
 						JOptionPane.INFORMATION_MESSAGE
 				);
 			}
+
+			@Override
+			public void editCustomMethod() {
+				int viewRow = actionTable.getSelectedRow();
+				if (viewRow < 0) return;
+
+				int modelRow = actionTable.convertRowIndexToModel(viewRow);
+
+				Object actionVal = tableModel.getValueAt(modelRow, 1); // "Action"
+				if (!(actionVal instanceof UserAction ua) || ua != UserAction.CUSTOM_METHOD) {
+					return;
+				}
+
+				String methodName = Objects.toString(tableModel.getValueAt(modelRow, 3), "").trim(); // "Value"
+				if (methodName.isEmpty()) return;
+
+				// грузим шаги
+				java.util.List<ActionRecord> steps = customMethodsService.loadMethodSteps(methodName);
+				// грузим variables из файла метода
+				java.util.List<LocalVariables> methodVars = customMethodsService.loadMethodVariables(methodName);
+				// -> прокидываем в VariablesService
+				for (LocalVariables v : methodVars) {
+					variablesService.addVariable(v);
+				}
+
+				// вставляем строки-steps под этой строкой
+				expandCustomMethodRow(modelRow, methodName, steps);
+
+				// блокируем редактирование остальных строк
+				lockEditingOutsideMethodBlock(methodName);
+			}
+
+			@Override
+			public void saveAndCollapseCustomMethod() {
+				if (!methodEditMode || currentEditedMethodName == null) return;
+
+				// 1. собрать шаги из таблицы для текущего метода
+				java.util.List<ActionRecord> steps = collectStepsForCurrentMethod();
+
+				// 2. собрать variables из VariablesService
+				java.util.List<LocalVariables> vars = variablesService.getVariables();
+
+				// 3. записать в JSON-файл через CustomMethodsService
+				customMethodsService.saveMethod(currentEditedMethodName, steps, vars);
+
+				// 4. удалить строки-steps из таблицы
+				collapseCurrentMethodRows();
+
+				// 5. выключить режим редактирования метода
+				methodEditMode = false;
+				currentEditedMethodName = null;
+				actionTable.repaint();
+			}
+
+
 		});
 
+	}
+
+	private void lockEditingOutsideMethodBlock(String methodName) {
+		methodEditMode = true;
+		currentEditedMethodName = methodName;
+		actionTable.repaint();
+	}
+
+	private java.util.List<ActionRecord> collectStepsForCurrentMethod() {
+		java.util.List<ActionRecord> result = new java.util.ArrayList<>();
+
+		for (int row = 0; row < tableModel.getRowCount(); row++) {
+			Object ref = tableModel.getValueAt(row, 11);
+			if (!Objects.equals(ref, currentEditedMethodName)) {
+				continue;
+			}
+
+			ActionRecord rec = new ActionRecord();
+			rec.setAction(((UserAction) tableModel.getValueAt(row, 1)).getCode());
+			rec.setSelector((String) tableModel.getValueAt(row, 2));
+			rec.setValue((String) tableModel.getValueAt(row, 3));
+			rec.setComment((String) tableModel.getValueAt(row, 4));
+			rec.setElementType(((ElementType) tableModel.getValueAt(row, 5)).getClassName());
+			rec.setXpath((String) tableModel.getValueAt(row, 6));
+			rec.setName((String) tableModel.getValueAt(row, 7));
+			rec.setIndex((String) tableModel.getValueAt(row, 8));
+			rec.setByXpath((String) tableModel.getValueAt(row, 9));
+			rec.setPageUrlPath((String) tableModel.getValueAt(row, 10));
+
+			result.add(rec);
+		}
+		return result;
+	}
+
+	private void collapseCurrentMethodRows() {
+		// идём снизу вверх, чтобы корректно удалять
+		for (int row = tableModel.getRowCount() - 1; row >= 0; row--) {
+			Object ref = tableModel.getValueAt(row, 11);
+			if (Objects.equals(ref, currentEditedMethodName)) {
+				tableModel.removeRow(row);
+			}
+		}
 	}
 
 	private void initBottomPanel() {
@@ -1231,6 +1348,90 @@ public class ActionWindow extends JFrame {
 			}
 		}.execute();
 	}
+
+	private void expandCustomMethodRow(int methodModelRow,
+									   String methodName,
+									   java.util.List<ActionRecord> steps) {
+
+		int insertPos = methodModelRow + 1;
+
+		Object idxObj = tableModel.getValueAt(methodModelRow, 0); // "#"
+		String idxStr = idxObj == null ? "0" : idxObj.toString();
+
+		int methodIndex;
+		try {
+			// если там уже "1.2" (вдруг), берём только часть до точки
+			String mainPart = idxStr.contains(".")
+					? idxStr.substring(0, idxStr.indexOf('.'))
+					: idxStr;
+			methodIndex = Integer.parseInt(mainPart);
+		} catch (NumberFormatException e) {
+			methodIndex = methodModelRow; // fallback
+		}
+
+		for (int i = 0; i < steps.size(); i++) {
+			ActionRecord s = steps.get(i);
+			Object[] row = new Object[tableModel.getColumnCount()];
+			String indexStr = methodIndex + "." + (i + 1);
+
+			row[0]  = indexStr;                       // "#": "1.1", "1.2"
+			row[1]  = UserAction.fromCode(s.getAction());
+			row[2]  = s.getSelector();
+			row[3]  = s.getValue();
+			row[4]  = s.getComment();
+			row[5]  = ElementType.fromClassName(s.getElementType());
+			row[6]  = s.getXpath();
+			row[7]  = s.getName();
+			row[8]  = s.getIndex();
+			row[9]  = s.getByXpath();
+			row[10] = s.getPageUrlPath();
+			row[11] = methodName; // CustomMethodRef
+
+			tableModel.insertRow(insertPos++, row);
+		}
+	}
+
+	private class ActionTableModel extends DefaultTableModel {
+		public ActionTableModel(String[] cols) {
+			super(cols, 0);
+		}
+
+		public boolean isRowEditable(int row) {
+			// колонка 0 никогда не редактируется
+			for (int col = 1; col < getColumnCount(); col++) {
+				if (isCellEditable(row, col)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		@Override
+		public boolean isCellEditable(int row, int column) {
+			if (column == 0) return false; // индекс никогда не редактируется
+
+			if (!methodEditMode) {
+				return true;
+			}
+
+			// если в режиме редактирования метода, разрешаем только строки этого метода
+			Object ref = getValueAt(row, 11); // CustomMethodRef
+			if (ref != null && ref.equals(currentEditedMethodName)) {
+				return true;
+			}
+
+			// также разрешаем редактировать саму строку CUSTOM_METHOD, если нужно
+			Object actionVal = getValueAt(row, 1);
+			if (actionVal instanceof UserAction ua &&
+					ua == UserAction.CUSTOM_METHOD &&
+					Objects.equals(getValueAt(row, 3), currentEditedMethodName)) {
+				return true;
+			}
+
+			return false;
+		}
+	}
+
 
 }
 

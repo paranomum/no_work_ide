@@ -4,16 +4,14 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
+import dto.LocalVariables;
 import ui.AbstractTableSettingsPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,7 +60,8 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		JPanel panel = buildTablePanel(
 				"Custom methods",
 				new String[] {"Method", "Path"},
-				() -> saveCustomMethods(parentDialog)
+				() -> saveCustomMethods(parentDialog),
+				() -> openPathFileChooser(parentDialog)
 		);
 
 		this.customMethodsTable = this.table;
@@ -294,13 +293,78 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		}
 	}
 
+	public void saveMethod(String methodName,
+						   List<ActionRecord> actions,
+						   List<LocalVariables> variables) {
+
+		MethodDef def = findByName(methodName);
+		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
+			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
+		}
+
+		File file = new File(def.getPath());
+
+		MethodFile mf = new MethodFile();
+		mf.actions = actions;
+		mf.variables = variables;
+
+		try (Writer writer = new OutputStreamWriter(
+				new FileOutputStream(file), StandardCharsets.UTF_8)) {
+
+			gson.toJson(mf, writer);
+			writer.flush();
+		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save custom method '" + methodName + "'", ex
+			);
+			throw new RuntimeException(
+					"Failed to save custom method '" + methodName + "': " + ex.getMessage(), ex);
+		}
+	}
+
+	public List<LocalVariables> loadMethodVariables(String methodName) {
+		MethodDef def = findByName(methodName);
+		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
+			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
+		}
+
+		File file = new File(def.getPath());
+		if (!file.exists()) {
+			throw new IllegalArgumentException("Custom method file not found: " + file.getAbsolutePath());
+		}
+
+		try (Reader reader = new InputStreamReader(
+				new FileInputStream(file), StandardCharsets.UTF_8)) {
+
+			com.google.gson.JsonElement root = com.google.gson.JsonParser.parseReader(reader);
+
+			if (root.isJsonArray()) {
+				// старый формат без variables
+				return List.of();
+			}
+
+			if (root.isJsonObject()) {
+				MethodFile methodFile = gson.fromJson(root, MethodFile.class);
+				return methodFile != null && methodFile.getVariables() != null
+						? methodFile.getVariables()
+						: List.of();
+			}
+
+			return List.of();
+		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to load variables for custom method '" + methodName + "'", ex
+			);
+			return List.of();
+		}
+	}
+
 	public static class MethodFile {
 		private List<ActionRecord> actions;
-		// если потом захочешь variables — добавишь поле
+		private List<LocalVariables> variables;
 
-		public List<ActionRecord> getActions() {
-			return actions;
-		}
+		public List<ActionRecord> getActions() { return actions; }
+		public List<LocalVariables> getVariables() { return variables; }
 	}
 
 }

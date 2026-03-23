@@ -86,7 +86,8 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		JPanel panel = buildTablePanel(
 				"Variables",
 				new String[] {"Variable Name", "Value"},
-				() -> saveVariables(parentDialog)
+				() -> saveVariables(parentDialog),
+				null
 		);
 
 		// связываем наследуемые поля с нашими
@@ -110,6 +111,22 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			}
 			variablesTableModel.addRow(new Object[]{v.getName(), display});
 		}
+	}
+
+	public Map<String, String> buildAllVariableValuesMap() {
+		Map<String, String> result = new HashMap<>();
+
+		for (LocalVariables v : getVariables()) {
+			String name = v.getName();
+			if (name == null || name.isBlank()) {
+				continue;
+			}
+			// используем уже существующую логику форматирования
+			String formatted = getVariableValueByNameFormatted(name);
+			result.put(name, formatted);
+		}
+
+		return result;
 	}
 
 	private void saveVariables(JDialog parentDialog) {

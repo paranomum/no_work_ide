@@ -27,7 +27,6 @@ import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
 import static com.codeborne.selenide.Selenide.$x;
 import static com.codeborne.selenide.Selenide.open;
-import static ru.rt.iqhr.framework.util.StringUtils.*;
 import static ru.rt.iqhr.framework.util.WebElementUtil.*;
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
@@ -86,7 +85,8 @@ public class PlayActionService {
 			return;
 		}
 
-		List<PlayStep> steps = buildStepsFromTable();
+		Map<String, String> nameToValue = new HashMap<>();
+		List<PlayStep> steps = buildStepsFromTable(nameToValue);
 		steps.removeIf(step ->
 				step.rowIndex < startRowIndex
 						|| (onlyOne && step.rowIndex > startRowIndex)
@@ -108,7 +108,7 @@ public class PlayActionService {
 		playThread = new Thread(() -> {
 			try {
 				WebDriverRunner.setWebDriver(driver);
-				runScenario(actionWindow, steps);
+				runScenario(actionWindow, steps, nameToValue);
 				if (!stopRequested) {
 					showInfoOnUi(actionWindow, "Scenario finished successfully");
 				}
@@ -137,9 +137,11 @@ public class PlayActionService {
 		}
 	}
 
-	private List<PlayStep> buildStepsFromTable() {
+	private List<PlayStep> buildStepsFromTable(Map<String, String> nameToValue) {
 		List<PlayStep> steps = new ArrayList<>();
-		Map<String, String> nameToValue = new HashMap<>();
+
+		// 1. предрасчёт значений переменных (включая те, что пришли из кастомных методов)
+		nameToValue = variablesService.buildAllVariableValuesMap();
 
 		int rowCount = tableModel.getRowCount();
 		log.debug("buildStepsFromTable: rowCount={}", rowCount);
@@ -163,21 +165,9 @@ public class PlayActionService {
 			step.byXpath = val(r, 9);
 			step.url = val(r, 10);
 
-			// вся магия теперь внутри VariablesService
-			step.value = variablesService.resolveValue(rawValue, nameToValue);
-
-			log.debug(
-					"rowData={\"rowIndex\":{},\"actionCode\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
-					r + 1,
-					nullSafe(actionCode),
-					nullSafe(step.javaClassName),
-					nullSafe(step.selector),
-					nullSafe(step.xpath),
-					nullSafe(step.name),
-					nullSafe(step.index),
-					nullSafe(step.byXpath),
-					nullSafe(step.url)
-			);
+			if (rawValue != null && !rawValue.isBlank()) {
+				step.value = variablesService.resolveValue(rawValue, nameToValue);
+			}
 
 			steps.add(step);
 		}
@@ -185,7 +175,7 @@ public class PlayActionService {
 		return steps;
 	}
 
-	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps) {
+	private void runScenario(ActionWindow actionWindow, List<PlayStep> steps, Map<String, String> nameToValue) {
 		for (PlayStep step : steps) {
 			if (stopRequested) {
 				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
@@ -195,12 +185,12 @@ public class PlayActionService {
 
 			currentRow = step.rowIndex;
 			SwingUtilities.invokeLater(actionWindow::repaintActionTable);
-			playOneStep(step);
+			playOneStep(step, nameToValue);
 		}
 	}
 
 
-	private void playOneStep(PlayStep step) throws RuntimeException {
+	private void playOneStep(PlayStep step, Map<String, String> nameToValue) throws RuntimeException {
 		String action        = step.actionCode;
 		String selector      = step.selector;
 		String value         = step.value;
@@ -223,11 +213,12 @@ public class PlayActionService {
 				|| action.contains("open")
 				|| action.contains("customMethod")
 				|| action.contains("assertExists")
-				|| action.contains("assertNotExists");
+				|| action.contains("assertNotExists")
+				|| action.contains("refreshPage");
 
 		if (isSpecial) {
 			log.info("Row {}: special action '{}'", step.rowIndex + 1, action);
-			playSpecialAction(action, selector, value);
+			playSpecialAction(action, selector, value, nameToValue);
 			return;
 		}
 
@@ -308,7 +299,7 @@ public class PlayActionService {
 
 	// ---- спец‑действия ----
 
-	private void playSpecialAction(String action, String selector, String value){
+	private void playSpecialAction(String action, String selector, String value, Map<String, String> nameToValue){
 		boolean hasValue = value != null && !value.isEmpty() && !value.isBlank();
 		log.info("playSpecialAction: action='{}', value='{}'", action, value);
 
@@ -334,7 +325,7 @@ public class PlayActionService {
 			if (!hasValue) {
 				throw new IllegalArgumentException("value for action 'customMethod' must be a method name");
 			}
-			playCustomMethod(value);
+			playCustomMethod(value, nameToValue);
 		} else if (action.contains("waitLoadingPage")) {
 			if (hasValue) {
 				int timeout = Integer.parseInt(value.replaceAll("[\\D]", ""));
@@ -384,7 +375,7 @@ public class PlayActionService {
 		}
 	}
 
-	private void playCustomMethod(String methodName) {
+	private void playCustomMethod(String methodName, Map<String, String> nameToValue) {
 		log.info("playCustomMethod: '{}'", methodName);
 
 		java.util.List<ActionRecord> methodSteps =
@@ -405,7 +396,7 @@ public class PlayActionService {
 			step.rowIndex      = -1; // внешней строки нет, это внутренний шаг
 			step.actionCode    = dto.getAction();
 			step.selector      = dto.getSelector();
-			step.value         = dto.getValue();
+			String rawValue         = dto.getValue();
 			step.javaClassName = dto.getElementType();
 			step.xpath         = dto.getXpath();
 			step.name          = dto.getName();
@@ -424,8 +415,11 @@ public class PlayActionService {
 					nullSafe(step.byXpath)
 			);
 
-			// здесь важно: playOneStep уже умеет обработать и спец‑действия, и обычные
-			playOneStep(step);
+			if (rawValue != null && !rawValue.isBlank()) {
+				step.value = variablesService.resolveValue(rawValue, nameToValue);
+			}
+
+			playOneStep(step, nameToValue);
 		}
 	}
 

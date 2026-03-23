@@ -13,7 +13,8 @@ public abstract class AbstractTableSettingsPanel {
 	protected JPanel buildTablePanel(
 			String title,
 			String[] columns,
-			Runnable onSave
+			Runnable onSave,
+			Runnable onBrowse // новый параметр
 	) {
 		JPanel panel = new JPanel(new BorderLayout(5, 5));
 		panel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -62,6 +63,18 @@ public abstract class AbstractTableSettingsPanel {
 		panel.add(top, BorderLayout.NORTH);
 
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+
+		if (onBrowse != null) {              // кнопка только если передан колбэк
+			JButton browseBtn = new JButton("Browse");
+			browseBtn.addActionListener(e -> {
+				if (table.isEditing()) {
+					table.getCellEditor().stopCellEditing();
+				}
+				onBrowse.run();
+			});
+			bottom.add(browseBtn);
+		}
+
 		JButton saveBtn = new JButton("Save");
 		saveBtn.addActionListener(e -> {
 			if (table.isEditing()) {
@@ -69,6 +82,7 @@ public abstract class AbstractTableSettingsPanel {
 			}
 			onSave.run();
 		});
+
 		bottom.add(saveBtn);
 		panel.add(bottom, BorderLayout.SOUTH);
 

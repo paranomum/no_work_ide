@@ -1,5 +1,7 @@
 package ui;
 
+import model.UserAction;
+
 import javax.swing.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -12,6 +14,9 @@ public class ActionTableContextMenu {
 		void startScenarioFromSelectedRow();
 		void createMethodFromSelectedSteps();
 		void playOnlyStep();
+
+		void editCustomMethod();          // NEW
+		void saveAndCollapseCustomMethod(); // NEW
 	}
 
 	private final JTable table;
@@ -46,6 +51,15 @@ public class ActionTableContextMenu {
 		createMethodItem.addActionListener(e -> callback.createMethodFromSelectedSteps());
 		popup.add(createMethodItem);
 
+		JMenuItem editCustomMethodItem = new JMenuItem("Edit custom method");
+		editCustomMethodItem.addActionListener(e -> callback.editCustomMethod());
+		popup.add(editCustomMethodItem);
+
+		JMenuItem saveCollapseItem = new JMenuItem("Save & collapse custom method");
+		saveCollapseItem.addActionListener(e -> callback.saveAndCollapseCustomMethod());
+		popup.add(saveCollapseItem);
+
+
 		table.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
@@ -78,6 +92,17 @@ public class ActionTableContextMenu {
 				}
 
 				int selectedCount = table.getSelectedRowCount();
+				int viewRow = table.getSelectedRow();
+				int actionColIndex = 1; // "Action"
+
+				boolean isSingleCustomMethodRow = false;
+				if (selectedCount == 1 && viewRow >= 0) {
+					Object v = table.getValueAt(viewRow, actionColIndex);
+					isSingleCustomMethodRow = (v instanceof UserAction ua) && ua == UserAction.CUSTOM_METHOD;
+				}
+
+				editCustomMethodItem.setEnabled(isSingleCustomMethodRow);
+				saveCollapseItem.setEnabled(isSingleCustomMethodRow);
 
 				// Start scenario: только при одной выбранной строке
 				if (selectedCount == 1) {
@@ -85,6 +110,7 @@ public class ActionTableContextMenu {
 					startFromHereItem.setToolTipText(null);
 					playOnlyThisStep.setEnabled(true);
 					playOnlyThisStep.setToolTipText(null);
+
 				} else {
 					startFromHereItem.setEnabled(false);
 					startFromHereItem.setToolTipText("Doesn't work for multi selected rows");

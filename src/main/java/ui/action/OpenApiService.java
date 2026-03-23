@@ -34,7 +34,8 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 		JPanel panel = buildTablePanel(
 				"Services",
 				new String[] {"Service", "OpenAPI URL / file"},
-				() -> saveOpenApiSpecs(parentDialog)
+				() -> saveOpenApiSpecs(parentDialog),
+				null
 		);
 
 		this.openApiTable = this.table;
