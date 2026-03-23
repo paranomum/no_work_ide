@@ -122,6 +122,9 @@ public class ActionFileService {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save table\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					parent,
@@ -243,6 +246,9 @@ public class ActionFileService {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save generated test\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					parent,
@@ -677,6 +683,9 @@ public class ActionFileService {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to load table\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					parent,
@@ -746,6 +755,9 @@ public class ActionFileService {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save full test plan\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					parent,
@@ -798,6 +810,9 @@ public class ActionFileService {
 				}
 			} catch (Exception ex) {
 				ex.printStackTrace();
+				TestRecorderErrorLogger.logError(
+						"buildActionRecordsWithInlinedCustomMethods\n", ex
+				);
 				// в случае ошибки лучше сохранить исходный шаг, чтобы сценарий не «терялся»
 				result.add(buildActionRecordForRow(r, actionCode));
 			}

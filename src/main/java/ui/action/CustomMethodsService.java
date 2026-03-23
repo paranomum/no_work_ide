@@ -219,24 +219,48 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		}
 	}
 
-	public java.util.List<ActionRecord> loadMethodSteps(String methodName) {
+	public List<ActionRecord> loadMethodSteps(String methodName) {
 		MethodDef def = findByName(methodName);
 		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
 			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
 		}
 
-		java.io.File file = new java.io.File(def.getPath());
+		File file = new File(def.getPath());
 		if (!file.exists()) {
 			throw new IllegalArgumentException("Custom method file not found: " + file.getAbsolutePath());
 		}
 
-		try (java.io.Reader reader = new java.io.FileReader(file, java.nio.charset.StandardCharsets.UTF_8)) {
-			java.lang.reflect.Type listType =
-					new com.google.gson.reflect.TypeToken<java.util.List<ActionRecord>>() {}.getType();
-			java.util.List<ActionRecord> steps = gson.fromJson(reader, listType);
-			return steps != null ? steps : java.util.List.of();
+		try (Reader reader = new InputStreamReader(
+				new FileInputStream(file), StandardCharsets.UTF_8)) {
+
+			com.google.gson.JsonElement root = com.google.gson.JsonParser.parseReader(reader);
+
+			// формат 1: в корне массив шагов
+			if (root.isJsonArray()) {
+				java.lang.reflect.Type listType =
+						new com.google.gson.reflect.TypeToken<List<ActionRecord>>(){}.getType();
+				List<ActionRecord> steps = gson.fromJson(root, listType);
+				return steps != null ? steps : List.of();
+			}
+
+			// формат 2: в корне объект с полем actions
+			if (root.isJsonObject()) {
+				MethodFile methodFile = gson.fromJson(root, MethodFile.class);
+				List<ActionRecord> steps =
+						methodFile != null && methodFile.getActions() != null
+								? methodFile.getActions()
+								: List.of();
+				return steps;
+			}
+
+			// на всякий случай
+			return List.of();
 		} catch (Exception ex) {
-			throw new RuntimeException("Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
+			TestRecorderErrorLogger.logError(
+					"Failed to load custom method '" + methodName, ex
+			);
+			throw new RuntimeException(
+					"Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
 		}
 	}
 
@@ -262,8 +286,20 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 			}
 			return java.util.Arrays.asList(records);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to load custom method '" + methodName, ex
+			);
 			throw new RuntimeException(
 					"Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
+		}
+	}
+
+	public static class MethodFile {
+		private List<ActionRecord> actions;
+		// если потом захочешь variables — добавишь поле
+
+		public List<ActionRecord> getActions() {
+			return actions;
 		}
 	}
 

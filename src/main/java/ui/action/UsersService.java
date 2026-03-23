@@ -142,6 +142,9 @@ public class UsersService {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save users", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					dialog,
@@ -162,6 +165,9 @@ public class UsersService {
 			Gson gson = new GsonBuilder().create();
 			return gson.fromJson(json, dto.UsersServiceSpec[].class);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to load users", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					null,

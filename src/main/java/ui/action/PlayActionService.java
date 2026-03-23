@@ -113,6 +113,9 @@ public class PlayActionService {
 					showInfoOnUi(actionWindow, "Scenario finished successfully");
 				}
 			} catch (Throwable e) {
+				TestRecorderErrorLogger.logError(
+						"Unexpected error in PlayScenarioThread", e
+				);
 				showErrorOnUi(actionWindow, "Stopped on step " + currentRow + ".\n" + e.getMessage());
 				log.error("Unexpected error in PlayScenarioThread", e);
 			} finally {
@@ -393,7 +396,7 @@ public class PlayActionService {
 
 		// конвертируем CustomMethodStepDto -> PlayStep и прогоняем той же логикой
 		for (ActionRecord dto : methodSteps) {
-			if (!stopRequested) {
+			if (stopRequested) {
 				log.info("Playback stopped inside custom method '{}'", methodName);
 				break;
 			}

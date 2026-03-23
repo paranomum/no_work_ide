@@ -322,6 +322,9 @@ public class ActionRecorder {
 					Thread.currentThread().interrupt();
 					break;
 				} catch (Exception e) {
+					TestRecorderErrorLogger.logError(
+							"Error in capture loop\n", e
+					);
 					System.err.println("Error in capture loop: " + e.getMessage());
 					e.printStackTrace();
 				}
@@ -393,6 +396,9 @@ public class ActionRecorder {
 					Thread.sleep(150);
 				}
 			} catch (Exception e) {
+				TestRecorderErrorLogger.logError(
+						"Error in locator pick\n", e
+				);
 				System.err.println("Error in locator pick: " + e.getMessage());
 				callback.accept("");
 				try { injectScriptsIntoCurrentTab(); } catch (Exception ignored) {}
@@ -450,6 +456,9 @@ public class ActionRecorder {
 			injectScriptsIntoCurrentTab();
 
 		} catch (Exception e) {
+			TestRecorderErrorLogger.logError(
+					"[TAB] Error during handleTabInactive\n", e
+			);
 			System.err.println("[TAB] Error during handleTabInactive: " + e.getMessage());
 			e.printStackTrace();
 		}
@@ -503,6 +512,9 @@ public class ActionRecorder {
 		try {
 			js.executeScript(script, xpath);
 		} catch (Exception e) {
+			TestRecorderErrorLogger.logError(
+					"Error highlighting by xpath\n", e
+			);
 			System.err.println("Error highlighting by xpath: " + e.getMessage());
 		}
 	}

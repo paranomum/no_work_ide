@@ -64,6 +64,9 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 				}
 			}
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to load openApiSpec\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					null,
@@ -102,6 +105,9 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to save openApiSpec\n", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					dialog,
@@ -131,6 +137,9 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 				}
 			}
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"loadOpenApiSpecsMap", ex
+			);
 			ex.printStackTrace();
 		}
 		return map;
@@ -235,6 +244,9 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 						}
 					});
 				} catch (Exception ex) {
+					TestRecorderErrorLogger.logError(
+							"Failed to run generator", ex
+					);
 					ex.printStackTrace();
 					SwingUtilities.invokeLater(() -> {
 						waitDialog.dispose();
@@ -249,6 +261,9 @@ public class OpenApiService extends AbstractTableSettingsPanel {
 			}, "openapi-generator-thread").start();
 
 		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Unexpected error", ex
+			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					actionWindow,
