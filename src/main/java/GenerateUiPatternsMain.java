@@ -14,13 +14,9 @@ import java.util.Map;
 public class GenerateUiPatternsMain {
 
 	public static void main(String[] args) throws Exception {
-		// 1. где лежат исходники
-		Path srcRoot = Path.of("src/main/java");
+		Path srcRoot = Path.of("/Users/admin/Desktop/ui_tests/tests-ui/src/main/java");
+		PageObjectRegistry registry = new PageObjectRegistry(); // этот в твоём приложении
 
-		// 2. реестр PageObject'ов
-		PageObjectRegistry registry = new PageObjectRegistry();
-
-		// 3. генератор паттернов
 		UiMethodPatternGenerator generator =
 				new UiMethodPatternGenerator(srcRoot, registry);
 

@@ -1,0 +1,424 @@
+{
+  "ru.rt.iqhr.pageobject.react.candidate.CandidateCreation": {
+    "fillGeneralInfo": [
+      "generalInfoTab.click",
+      "secondNameField.fill",
+      "nameField.fill",
+      "surnameField.fill",
+      "regionSelect.selectOption",
+      "genderRadioGroup.selectOption",
+      "yearOfBirthSelect.selectOption",
+      "monthOfBirthSelect.selectOption",
+      "dayOfBirthSelect.selectOption",
+      "candidateSourceSelect.selectOption",
+      "contactTypeField.fill",
+      "recommenderField.fill",
+      "recommenderEmailField.fill",
+      "proposedPositionField.fill",
+      "employmentTypeSelect.selectOption",
+      "workScheduleSelect.selectOption",
+      "salaryField.fill",
+      "currencySelect.selectOption",
+      "relocationRadioGroup.selectOption",
+      "businessTripRadioGroup.selectOption",
+      "travelTimeRadioGroup.selectOption",
+      "citizenshipSelect.selectOption",
+      "workPermitSelect.selectOption"
+    ],
+    "fillContacts": [
+      "contactsTab.click",
+      "contact.getName",
+      "contact.fill",
+      "contact.getName",
+      "contact.clickUnNecessaryFalse",
+      "contact.fill",
+      "contact.fill"
+    ],
+    "initContactRows": [
+      "contacts.isEmpty",
+      "contacts.clear",
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "contact.findElement",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "label.getAttribute",
+      "contacts.add"
+    ],
+    "fillExperience": [
+      "experienceTab.click",
+      "addExperience.click",
+      "experience.fillInfo"
+    ],
+    "initExperience": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "experiences.add"
+    ],
+    "fillEducation": [
+      "educationTab.click",
+      "addEducation.click",
+      "educationLevel.selectOption",
+      "education.fillInfo"
+    ],
+    "initEducation": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "educations.add"
+    ],
+    "fillProfDevelopment": [
+      "profDevelopmentTab.click",
+      "addProfEducation.click",
+      "profEducation.fillInfo"
+    ],
+    "initProfEducation": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "profEducations.add"
+    ],
+    "fillKeySkills": [
+      "keySkillsTab.click",
+      "keySkillsSelect.fillOption"
+    ],
+    "fillSpecialization": [
+      "specializationTab.click",
+      "specializationsSelect.fillOption"
+    ],
+    "fillLanguageSkills": [
+      "languageSkillsTab.click",
+      "addLanguage.click",
+      "addLanguage.click",
+      "language.fillInfo"
+    ],
+    "initLanguages": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "MILLISECONDS.sleep",
+      "languages.add"
+    ],
+    "fillAdditionalInfo": [
+      "additionalInfoTab.click",
+      "licenceKind.selectOption",
+      "hasCar.selectOption"
+    ],
+    "fillCandidateSmall": [
+      "generalInfoTab.click",
+      "secondNameField.fill",
+      "nameField.fill",
+      "surnameField.fill",
+      "genderRadioGroup.selectOption",
+      "candidateSourceSelect.selectOption",
+      "contactsTab.click",
+      "contact.getName",
+      "contact.fill",
+      "contact.clickUnNecessaryFalse",
+      "contact.fill"
+    ],
+    "editCandidateContacts": [
+      "contact.getName",
+      "contact.fill",
+      "contact.getName",
+      "contact.fill",
+      "contact.fill"
+    ],
+    "assertInfo": [
+      "candidateInfo.getFullname",
+      "nameField.getValue",
+      "candidateInfo.getFullname",
+      "surnameField.getValue",
+      "candidateInfo.getFullname",
+      "secondNameField.getValue",
+      "contact.getName",
+      "value.substring",
+      "candidateInfo.getContacts",
+      "e.getName",
+      "contact.getName",
+      "e.getValue",
+      "candidateInfo.getTabsToResume",
+      "proposedPositionField.getValue",
+      "resume.getEducations",
+      "e.getYear",
+      "Integer.parseInt",
+      "education.getEndYearField",
+      "e.getFaculty",
+      "education.getFacultyField",
+      "e.getUni",
+      "education.getUniversityField",
+      "resume.getExperiences",
+      "e.getCompany",
+      "experience.getCompanyField",
+      "e.getPosition",
+      "experience.getPositionField",
+      "e.getSite",
+      "experience.getSiteField",
+      "resume.getProdEducations",
+      "e.getCompany",
+      "profEducation.getUniversityField",
+      "e.getOrg",
+      "profEducation.getProviderField",
+      "e.getYear",
+      "Integer.parseInt",
+      "profEducation.getEndYearField"
+    ],
+    "assertInfoSmall": [
+      "candidateInfo.getFullname",
+      "nameField.getValue",
+      "candidateInfo.getFullname",
+      "surnameField.getValue",
+      "candidateInfo.getFullname",
+      "secondNameField.getValue",
+      "contact.getName",
+      "value.substring",
+      "candidateInfo.getContacts",
+      "e.getName",
+      "contact.getName",
+      "e.getValue"
+    ],
+    "addEmail": [
+      "addContact.selectOption",
+      "contact.getName",
+      "Objects.equals",
+      "contact.getContact",
+      "contact.clickUnNecessaryFalse",
+      "contact.fill"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.angular.pages.AuthorizationPage": {
+    "fillLogData": [
+      "emailField.fill",
+      "passwordField.fill"
+    ],
+    "checkUsernameAndPassword": [
+      "checkPassword.click",
+      "emailField.assertValue",
+      "passwordField.assertValue",
+      "System.getenv"
+    ],
+    "authorizeWith2FA": [
+      "usernameToSecret.get",
+      "code.length",
+      "totp.now",
+      "codeField.fill",
+      "signIn.click"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.angular.pages.CandidatePage": {
+    "openPage": [
+      "candidateTabButton.click",
+      "searchField.getEl"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.react.users.UsersPage": {
+    "openPage": [
+      "systemSettingsListButton.getEl",
+      "systemSettingsListButton.getEl",
+      "systemSettingsListButton.click",
+      "usersPageLinkButton.click",
+      "userTabButton.click",
+      "searchField.getEl"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.react.candidate.Candidate": {
+    "initInfo": [
+      "tab.getTextOfEl",
+      "textInTab.isBlank",
+      "textInTab.isEmpty",
+      "tab.click"
+    ],
+    "initGeneralInfo": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "contact.getText",
+      "text.split",
+      "contact.findElements",
+      "By.xpath",
+      "ifMain.isEmpty",
+      "contacts.add",
+      "contacts.add",
+      "contact.findElements",
+      "By.xpath",
+      "ifMain.size",
+      "contacts.add",
+      "contacts.add",
+      "contacts.add",
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "candidateComments.add"
+    ],
+    "initTabs": [
+      "listOfTabs.findElements",
+      "By.xpath",
+      "tab.findElement",
+      "By.xpath",
+      "tabName.isEmpty",
+      "tabName.isBlank",
+      "positionTabs.add"
+    ],
+    "getComments": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "comms.add"
+    ],
+    "parseTabInfo": [
+      "WebDriverRunner.getWebDriver",
+      "By.xpath",
+      "resume.setPosition",
+      "resumeHead.findElement",
+      "By.xpath",
+      "resume.setSalary",
+      "Integer.valueOf",
+      "resumeHead.findElement",
+      "By.xpath",
+      "experienceEls.findElements",
+      "By.xpath",
+      "experience.isEmpty",
+      "el.getAttribute",
+      "classEl.contains",
+      "el.findElement",
+      "By.xpath",
+      "List.of",
+      "timing.split",
+      "experienceData.setStartDate",
+      "dates.get",
+      "experienceData.setEndDate",
+      "dates.get",
+      "el.findElement",
+      "By.xpath",
+      "el.findElement",
+      "By.xpath",
+      "el.findElement",
+      "By.xpath",
+      "position.trim",
+      "company.trim",
+      "site.trim",
+      "experienceList.add",
+      "educationEls.findElements",
+      "By.xpath",
+      "experience.isEmpty",
+      "el.getAttribute",
+      "classEl.contains",
+      "el.findElement",
+      "By.xpath",
+      "educationData.setYear",
+      "Integer.parseInt",
+      "timing.trim",
+      "el.findElement",
+      "By.xpath",
+      "el.findElement",
+      "By.xpath",
+      "uni.trim",
+      "faculty.trim",
+      "educationList.add",
+      "keySkillListEl.findElements",
+      "By.xpath",
+      "keySkills.add",
+      "keySkill.getText",
+      "profEducationEls.findElements",
+      "By.xpath",
+      "experience.isEmpty",
+      "el.getAttribute",
+      "classEl.contains",
+      "el.findElement",
+      "By.xpath",
+      "profEducationData.setYear",
+      "Integer.parseInt",
+      "timing.trim",
+      "el.findElement",
+      "By.xpath",
+      "el.findElement",
+      "By.xpath",
+      "company.trim",
+      "org.trim",
+      "profEducationList.add",
+      "resume.setExperiences",
+      "resume.setEducations",
+      "resume.setProdEducations",
+      "resume.setKeySkills",
+      "tabsToResume.put",
+      "resume.getPosition"
+    ],
+    "assertCandidateEditedInfo": [
+      "candidateInfoOld.getContacts",
+      "contacts.stream",
+      "contact.getValue",
+      "info.getValue"
+    ],
+    "selectColor": [
+      "WebDriverRunner.getWebDriver",
+      "selectMarkColor.getInput",
+      "action.sendKeys",
+      "MILLISECONDS.sleep",
+      "action.sendKeys",
+      "WebDriverRunner.getWebDriver",
+      "action.sendKeys",
+      "WebDriverRunner.getWebDriver",
+      "WebDriverRunner.getWebDriver",
+      "action.sendKeys",
+      "MILLISECONDS.sleep",
+      "selectMarkColor.getSelectedOptionsFromField",
+      "submitAction.click",
+      "submitAction.getEl",
+      "Jsoup.parse",
+      "doc.selectXpath"
+    ],
+    "getColorFromClass": [
+      "colorClass.contains",
+      "colorClass.trim",
+      "colorWithSymb.substring",
+      "colorWithSymb.length",
+      "colorClass.trim",
+      "colorCode.substring",
+      "colorCode.length"
+    ],
+    "getLKStatus": [
+      "editButton.getEl"
+    ],
+    "sendFormToFill": [
+      "sendDocuments.click",
+      "form.click",
+      "formSelect.selectOption",
+      "submitAction.click",
+      "submitAction.getEl"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.react.roles.RolesPage": {
+    "openPage": [
+      "systemSettingsListButton.getEl",
+      "systemSettingsListButton.getEl",
+      "systemSettingsListButton.click",
+      "rolePageLinkButton.click",
+      "roleTabButton.click",
+      "searchField.getEl"
+    ]
+  },
+  "ru.rt.iqhr.pageobject.react.users.User": {
+    "fillFields": [
+      "emailField.fill",
+      "nameField.fill",
+      "departmentField.fill",
+      "passwordField.fill",
+      "confirmPasswordField.fill"
+    ],
+    "fillRoles": [
+      "By.xpath",
+      "By.xpath",
+      "checkedRole.click",
+      "MILLISECONDS.sleep",
+      "By.xpath"
+    ],
+    "assertUserData": [
+      "emailField.assertValue",
+      "nameField.assertValue",
+      "departmentField.getValue",
+      "departmentField.assertValue"
+    ],
+    "assertRowData": [
+      "nameField.getValue",
+      "emailField.getValue"
+    ]
+  }
+}
