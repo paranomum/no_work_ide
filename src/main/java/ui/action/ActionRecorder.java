@@ -131,7 +131,6 @@ public class ActionRecorder {
 						}
 					}
 
-					// ===== КЛИКИ =====
 					Object clicks = js.executeScript("return window.recordedClicks;");
 					if (clicks instanceof List) {
 						@SuppressWarnings("unchecked")

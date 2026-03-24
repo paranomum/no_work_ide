@@ -59,7 +59,7 @@ public class ActionWindow extends JFrame {
 	private final ConfigService configService = new ConfigService();
 	private final AppConfig config;
 
-	private final OpenApiService openApiService;
+//	private final OpenApiService openApiService;
 	private final UsersService usersService;
 	private final PlayActionService playActionService;
 	private final BrowserService browserService;
@@ -72,7 +72,7 @@ public class ActionWindow extends JFrame {
 	public ActionWindow() {
 		config = configService.load();
 		variablesService = new VariablesService();
-		openApiService = new OpenApiService(configService, config);
+//		openApiService = new OpenApiService(configService, config);
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
@@ -125,7 +125,7 @@ public class ActionWindow extends JFrame {
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 
 		// --- Menu button ---
-		menuButton = new JButton("☰");
+		menuButton = new JButton("Menu");
 		menuButton.setFocusable(false);
 		menuButton.setToolTipText("Menu");
 
@@ -139,11 +139,11 @@ public class ActionWindow extends JFrame {
 		});
 		menuPopup.add(openItem);
 
-		JMenuItem generateApiClientItem = new JMenuItem("Generate ApiClient");
-		generateApiClientItem.addActionListener(
-				e -> openApiService.openGenerateApiClientDialog(this)
-		);
-		menuPopup.add(generateApiClientItem);
+//		JMenuItem generateApiClientItem = new JMenuItem("Generate ApiClient");
+//		generateApiClientItem.addActionListener(
+//				e -> openApiService.openGenerateApiClientDialog(this)
+//		);
+//		menuPopup.add(generateApiClientItem);
 
 		JMenuItem settingsItem = new JMenuItem("Settings");
 		settingsItem.addActionListener(e -> openSettingsDialog());
@@ -994,8 +994,8 @@ public class ActionWindow extends JFrame {
 		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
 		tabs.addTab("Users", usersPanel);
 
-		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
-		tabs.addTab("OpenApi", openApiPanel);
+//		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
+//		tabs.addTab("OpenApi", openApiPanel);
 
 		dialog.add(tabs, BorderLayout.CENTER);
 
