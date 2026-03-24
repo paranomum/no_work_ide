@@ -75,7 +75,7 @@ public class ValueCellEditor extends AbstractCellEditor implements TableCellEdit
 			// 1. имя переменной
 			String name = JOptionPane.showInputDialog(
 					panel,
-					"Имя переменной:",
+					"Variable name:",
 					"Create variable",
 					JOptionPane.PLAIN_MESSAGE
 			);

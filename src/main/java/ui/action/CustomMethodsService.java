@@ -263,7 +263,6 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		}
 	}
 
-	// ВНУТРИ CustomMethodsService
 	public List<ActionRecord> loadMethodStepsAsActionRecords(String methodName) {
 		MethodDef def = findByName(methodName); // тут тип виден без полного имени
 		if (def == null || def.getPath() == null || def.getPath().isBlank()) {

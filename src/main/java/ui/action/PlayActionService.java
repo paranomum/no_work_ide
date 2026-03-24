@@ -554,7 +554,6 @@ public class PlayActionService {
 			}
 		}
 
-		// 2.3. Иначе считаем, что selector — это просто name
 		String nameFromSelector = trimmed;
 
 		return switch (type) {
