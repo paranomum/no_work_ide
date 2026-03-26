@@ -41,6 +41,7 @@ public class ActionWindow extends JFrame {
 	private final java.util.Deque<Runnable> undoStack = new java.util.ArrayDeque<>();
 	private final java.util.Deque<Runnable> redoStack = new java.util.ArrayDeque<>();
 	private final Map<Integer, Color> rowMarks = new HashMap<>();
+	private final Set<String> expandedMethods = new HashSet<>();
 
 
 	private JTable actionTable;
@@ -125,7 +126,7 @@ public class ActionWindow extends JFrame {
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 
 		// --- Menu button ---
-		menuButton = new JButton("Menu");
+		menuButton = new JButton("☰");
 		menuButton.setFocusable(false);
 		menuButton.setToolTipText("Menu");
 
@@ -135,6 +136,8 @@ public class ActionWindow extends JFrame {
 		openItem.addActionListener(e -> {
 			if (fileService != null) {
 				fileService.loadFromJsonFile();
+				loadCustomMethodVariablesFromTable();
+				resetMethodEditMode();
 			}
 		});
 		menuPopup.add(openItem);
@@ -683,6 +686,7 @@ public class ActionWindow extends JFrame {
 				playButton.setText("■");
 				playButton.setToolTipText("Stop scenario");
 				playActionService.playActionsFromTable(ActionWindow.this, modelRow, true);
+
 			}
 
 			@Override
@@ -748,6 +752,11 @@ public class ActionWindow extends JFrame {
 				String methodName = Objects.toString(tableModel.getValueAt(modelRow, 3), "").trim(); // "Value"
 				if (methodName.isEmpty()) return;
 
+				// уже разворачивали этот кастомный метод — сразу выходим
+				if (expandedMethods.contains(methodName)) {
+					return;
+				}
+
 				// грузим шаги
 				java.util.List<ActionRecord> steps = customMethodsService.loadMethodSteps(methodName);
 				// грузим variables из файла метода
@@ -762,6 +771,9 @@ public class ActionWindow extends JFrame {
 
 				// блокируем редактирование остальных строк
 				lockEditingOutsideMethodBlock(methodName);
+
+				// помечаем метод как уже обработанный
+				expandedMethods.add(methodName);
 			}
 
 			@Override
@@ -784,6 +796,7 @@ public class ActionWindow extends JFrame {
 				methodEditMode = false;
 				currentEditedMethodName = null;
 				actionTable.repaint();
+				expandedMethods.remove(currentEditedMethodName);
 			}
 
 
@@ -1432,6 +1445,40 @@ public class ActionWindow extends JFrame {
 		}
 	}
 
+	private void loadCustomMethodVariablesFromTable() {
+		// очищать или нет — по ситуации; если глобальные переменные должны жить, убери clear()
+		 variablesService.clear();
+
+		int rowCount = tableModel.getRowCount();
+		Set<String> methodNames = new HashSet<>();
+
+		// 1. Собираем все имена кастомных методов, которые есть в таблице
+		for (int r = 0; r < rowCount; r++) {
+			Object actionObj = tableModel.getValueAt(r, 1); // "Action"
+			if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
+				Object valObj = tableModel.getValueAt(r, 3); // "Value" — там имя метода
+				String methodName = Objects.toString(valObj, "").trim();
+				if (!methodName.isEmpty()) {
+					methodNames.add(methodName);
+				}
+			}
+		}
+
+		// 2. Для каждого метода грузим его переменные и добавляем в VariablesService
+		for (String methodName : methodNames) {
+			java.util.List<LocalVariables> vars = customMethodsService.loadMethodVariables(methodName);
+			for (LocalVariables v : vars) {
+				variablesService.addVariable(v);
+			}
+		}
+	}
+
+	public void resetMethodEditMode() {
+		methodEditMode = false;
+		currentEditedMethodName = null;
+		expandedMethods.clear();
+		actionTable.repaint();
+	}
 
 }
 

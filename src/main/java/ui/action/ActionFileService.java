@@ -150,6 +150,56 @@ public class ActionFileService {
 		List<ActionRecord> rows = new ArrayList<>();
 		int rowCount = tableModel.getRowCount();
 
+		// --- 0. Предрасчёт: какие customMethod раскрыты и какие строки являются их "детьми" ---
+
+		// map: modelRow строки CUSTOM_METHOD -> true, если у него есть дочерние шаги
+		java.util.Map<Integer, Boolean> customMethodExpanded = new java.util.HashMap<>();
+		// set: строки, которые являются дочерними шагами любых раскрытых customMethod
+		java.util.Set<Integer> childRowsOfExpandedMethods = new java.util.HashSet<>();
+
+		// индексы из колонки "#"
+		java.util.List<String> indices = new java.util.ArrayList<>(rowCount);
+		for (int r = 0; r < rowCount; r++) {
+			indices.add(val(r, 0) == null ? "" : val(r, 0).trim());
+		}
+
+		// проходим по всем строкам, ищем CUSTOM_METHOD верхнего уровня
+		for (int r = 0; r < rowCount; r++) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			if (!(actionObj instanceof UserAction ua) || ua != UserAction.CUSTOM_METHOD) {
+				continue;
+			}
+
+			String idx = indices.get(r); // например "1"
+			if (idx.isEmpty()) continue;
+
+			String methodName = val(r, 3); // Value = имя метода
+			if (methodName == null || methodName.isBlank()) continue;
+
+			String prefix = idx + ".";     // "1."
+
+			boolean hasChildren = false;
+
+			for (int rr = r + 1; rr < rowCount; rr++) {
+				String childIdx = indices.get(rr); // "1.1", "1.2", "2", ...
+				if (!childIdx.startsWith(prefix)) {
+					// как только префикс перестал совпадать — дочерние шаги этого метода закончились
+					break;
+				}
+
+				// проверяем, что это действительно шаг этого метода, а не какая-то чужая строка
+				Object refObj = tableModel.getValueAt(rr, 11); // CustomMethodRef
+				if (refObj != null && refObj.equals(methodName)) {
+					hasChildren = true;
+					childRowsOfExpandedMethods.add(rr);
+				}
+			}
+
+			customMethodExpanded.put(r, hasChildren);
+		}
+
+		// --- 1. Основной проход: формируем ActionRecord для нужных строк ---
+
 		for (int r = 0; r < rowCount; r++) {
 			Object actionObj = tableModel.getValueAt(r, 1);
 			String actionCode = null;
@@ -157,6 +207,19 @@ public class ActionFileService {
 				actionCode = ((UserAction) actionObj).getCode();
 			} else if (actionObj != null) {
 				actionCode = actionObj.toString();
+			}
+
+			// 1) если это дочерний шаг раскрытого customMethod — НЕ сохраняем его в обычный план
+			if (childRowsOfExpandedMethods.contains(r)) {
+				continue;
+			}
+
+			// 2) если это верхний customMethod и он раскрыт — сохраняем ТОЛЬКО его, а не детей
+			if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
+				Boolean expanded = customMethodExpanded.get(r);
+				// expanded == true → дети уже проигнорированы выше, эту строку сохраняем как одну
+				// expanded == false → обычный, нераскрытый customMethod, тоже сохраняем как есть
+				// ничего дополнительно делать не нужно
 			}
 
 			Object elementTypeObj = tableModel.getValueAt(r, 5);
@@ -168,13 +231,13 @@ public class ActionFileService {
 			}
 
 			String selector = val(r, 2);
-			String value = val(r, 3);
-			String comment = val(r, 4);
-			String xpath = val(r, 6);
-			String name = val(r, 7);
-			String index = val(r, 8);
-			String byXpath = val(r, 9);
-			String url = val(r, 10);
+			String value    = val(r, 3);
+			String comment  = val(r, 4);
+			String xpath    = val(r, 6);
+			String name     = val(r, 7);
+			String index    = val(r, 8);
+			String byXpath  = val(r, 9);
+			String url      = val(r, 10);
 
 			rows.add(new ActionRecord(
 					actionCode,

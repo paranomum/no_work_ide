@@ -85,6 +85,49 @@ public class PlayActionService {
 			return;
 		}
 
+		// --- спец‑кейс: клик по строке CUSTOM_METHOD ---
+		Object actionObj = tableModel.getValueAt(startRowIndex, 1);
+		if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
+
+			String methodName = Objects.toString(tableModel.getValueAt(startRowIndex, 3), "").trim();
+
+			// режим "проиграть только этот шаг" → играем только внутренность метода
+			if (onlyOne) {
+				Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
+				stopRequested = false;
+				currentRow = startRowIndex;
+
+				playThread = new Thread(() -> {
+					try {
+						WebDriverRunner.setWebDriver(driver);
+						SwingUtilities.invokeLater(actionWindow::repaintActionTable);
+						playCustomMethod(methodName, nameToValue);
+						if (!stopRequested) {
+							showInfoOnUi(actionWindow, "Custom method '" + methodName + "' finished");
+						}
+					} catch (Throwable e) {
+						TestRecorderErrorLogger.logError(
+								"Unexpected error in PlayScenarioThread (customMethod only)", e
+						);
+						showErrorOnUi(actionWindow,
+								"Stopped in custom method '" + methodName + "'.\n" + e.getMessage());
+						log.error("Unexpected error in PlayScenarioThread (customMethod only)", e);
+					} finally {
+						stopPlayback();
+						currentRow = -1;
+						SwingUtilities.invokeLater(actionWindow::repaintActionTable);
+						actionWindow.onScenarioFinished();
+					}
+				}, "PlayScenarioThread");
+
+				playThread.start();
+				return;
+			}
+			// если onlyOne == false — пойдём обычным путём, но с учётом
+			// логики в buildStepsFromTable (там верхняя строка метода
+			// будет выкинута, если метод раскрыт, и будут сыграны шаги)
+		}
+
 		Map<String, String> nameToValue = new HashMap<>();
 		List<PlayStep> steps = buildStepsFromTable(nameToValue);
 		steps.removeIf(step ->
@@ -127,6 +170,7 @@ public class PlayActionService {
 		}, "PlayScenarioThread");
 
 		playThread.start();
+		stopRequested = false;
 	}
 
 	public synchronized void stopPlayback() {
@@ -135,6 +179,7 @@ public class PlayActionService {
 			log.info("Stopping playback, interrupting PlayScenarioThread");
 			playThread.interrupt();
 		}
+		stopRequested = false;
 	}
 
 	private List<PlayStep> buildStepsFromTable(Map<String, String> nameToValue) {
@@ -146,7 +191,62 @@ public class PlayActionService {
 		int rowCount = tableModel.getRowCount();
 		log.debug("buildStepsFromTable: rowCount={}", rowCount);
 
+		// 0. Предрасчёт: какие customMethod реально раскрыты
+		// key: modelRow строки CUSTOM_METHOD, value: true если есть дочерние шаги
+		Map<Integer, Boolean> customMethodExpanded = new HashMap<>();
+
+		// соберём индексы из колонки "#"
+		List<String> indices = new ArrayList<>(rowCount);
 		for (int r = 0; r < rowCount; r++) {
+			indices.add(Objects.toString(tableModel.getValueAt(r, 0), "").trim());
+		}
+
+		for (int r = 0; r < rowCount; r++) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			if (!(actionObj instanceof UserAction ua) || ua != UserAction.CUSTOM_METHOD) {
+				continue;
+			}
+
+			String idx = indices.get(r); // например "1"
+			if (idx.isEmpty()) continue;
+
+			String prefix = idx + ".";   // "1."
+
+			boolean hasChildren = false;
+			for (int rr = r + 1; rr < rowCount; rr++) {
+				String childIdx = indices.get(rr); // "1.1", "1.2", ...
+				if (!childIdx.startsWith(prefix)) {
+					// как только префикс перестал совпадать — дочерние шаги закончились
+					break;
+				}
+				// дополнительно можно проверить CustomMethodRef, чтобы не поймать чужое 1.x
+				Object refObj = tableModel.getValueAt(rr, 11); // CustomMethodRef
+				Object valObj = tableModel.getValueAt(r, 3);   // Value у строки метода — имя
+				String methodName = Objects.toString(valObj, "").trim();
+
+				if (refObj != null && refObj.equals(methodName)) {
+					hasChildren = true;
+					break;
+				}
+			}
+
+			customMethodExpanded.put(r, hasChildren);
+		}
+
+		// 1. Основной проход — строим PlayStep
+		for (int r = 0; r < rowCount; r++) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+
+			// Если это верхняя строка CUSTOM_METHOD и он раскрыт — игнорируем её,
+			// будем играть только дочерние шаги
+			if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
+				Boolean expanded = customMethodExpanded.get(r);
+				if (expanded != null && expanded) {
+					log.trace("Row {}: CUSTOM_METHOD with expanded steps, skip top-level", r + 1);
+					continue;
+				}
+			}
+
 			String actionCode = extractAction(r);
 			if (actionCode == null || actionCode.isBlank()) {
 				log.trace("Row {}: empty actionCode, skip", r + 1);
@@ -154,16 +254,16 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex = r;
-			step.actionCode = actionCode;
-			step.selector = val(r, 2);
-			String rawValue = val(r, 3);
+			step.rowIndex      = r;
+			step.actionCode    = actionCode;
+			step.selector      = val(r, 2);
+			String rawValue    = val(r, 3);
 			step.javaClassName = val(r, 5);
-			step.xpath = val(r, 6);
-			step.name = val(r, 7);
-			step.index = val(r, 8);
-			step.byXpath = val(r, 9);
-			step.url = val(r, 10);
+			step.xpath         = val(r, 6);
+			step.name          = val(r, 7);
+			step.index         = val(r, 8);
+			step.byXpath       = val(r, 9);
+			step.url           = val(r, 10);
 
 			if (rawValue != null && !rawValue.isBlank()) {
 				step.value = variablesService.resolveValue(rawValue, nameToValue);

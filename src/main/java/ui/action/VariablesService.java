@@ -121,9 +121,18 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			if (name == null || name.isBlank()) {
 				continue;
 			}
-			// используем уже существующую логику форматирования
-			String formatted = getVariableValueByNameFormatted(name);
-			result.put(name, formatted);
+
+			String base;
+			if (v.getMethod() != null && !"addUuid".equals(v.getMethod())) {
+				base = v.getMethod() + "()";
+			} else if ("addUuid".equals(v.getMethod())) {
+				base = "addUuid(" + v.getValue() + ")";
+			} else {
+				base = v.getValue();
+			}
+
+			String resolved = resolveValue(base, result);
+			result.put(name, resolved);
 		}
 
 		return result;
