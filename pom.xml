@@ -92,6 +92,12 @@
             <version>${selenium.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>net.lightbody.bmp</groupId>
+            <artifactId>browsermob-core</artifactId>
+            <version>2.1.5</version>
+        </dependency>
+
 
         <!--  JUnit 5  -->
         <dependency>

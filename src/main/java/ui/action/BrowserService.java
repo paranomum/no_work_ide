@@ -3,6 +3,7 @@ package ui.action;
 import com.codeborne.selenide.WebDriverRunner;
 import dto.AppConfig;
 import lombok.val;
+import org.openqa.selenium.Proxy;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
@@ -27,9 +28,11 @@ public class BrowserService {
 		this.config = config;
 	}
 
-	public ChromeDriver openBrowser(ActionWindow parent, JTextField driverPathField, WebDriver driver) {
+	public ChromeDriver openBrowser(ActionWindow parent,
+									JTextField driverPathField,
+									WebDriver driver,
+									Proxy seleniumProxy) {
 
-		ChromeDriver driverToInit = null;
 		String driverPath = driverPathField.getText().trim();
 
 		if (driverPath.isEmpty()) {
@@ -45,7 +48,6 @@ public class BrowserService {
 
 		if (driver != null) {
 			val nowDriver = isBrowserClosed(driver);
-
 			if (!nowDriver) {
 				JOptionPane.showMessageDialog(
 						parent,
@@ -60,6 +62,8 @@ public class BrowserService {
 		ArrayList<String> browserArgs = new ArrayList<>();
 		browserArgs.add("no-sandbox");
 		browserArgs.add("allow-running-insecure-content");
+		browserArgs.add("--ignore-certificate-errors");
+		browserArgs.add("--ignore-urlfetcher-cert-requests");
 
 		Map<String, Object> prefs = new HashMap<>();
 		prefs.put("intl.accept_languages", "ru");
@@ -68,17 +72,18 @@ public class BrowserService {
 		ChromeOptions chromeOptions = new ChromeOptions();
 		chromeOptions.setExperimentalOption("prefs", prefs);
 		chromeOptions.addArguments(browserArgs);
-		chromeOptions.addArguments("--unsafely-treat-insecure-origin-as-secure=test-iqhr.rt.ru");
-		chromeOptions.addArguments("--block-insecure-private-network-requests=Disabled");
-		chromeOptions.addArguments("--ignore-certificate-errors");
-		chromeOptions.addArguments("--ignore-urlfetcher-cert-requests");
+		chromeOptions.addArguments("--incognito");
 		chromeOptions.setAcceptInsecureCerts(true);
+
+		// NEW: прокидываем proxy в браузер
+		if (seleniumProxy != null) {
+			chromeOptions.setProxy(seleniumProxy);
+		}
 
 		String osName = System.getProperty("os.name");
 		if (osName.startsWith("Windows")) {
 			System.setProperty("webdriver.chrome.driverToInit", driverPath);
 			System.setProperty("webdriver.chrome.driver", driverPath);
-			chromeOptions.addArguments("--incognito");
 		} else {
 			chromeOptions.setBinary(driverPath);
 		}

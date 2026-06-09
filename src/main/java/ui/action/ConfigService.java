@@ -17,6 +17,8 @@ public class ConfigService {
 	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
 	private static final String CUSTOM_METHODS_FILE_NAME = "customMethods.json";
 	private static final String USERS_FILE_NAME = "users.json";
+	private static final String BACKEND_REQUESTS_FILE_NAME = "backendRequests.json";
+	private static final String DEFAULT_TRUSTSTORE_FILE_NAME = "custom-cacerts.jks";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
 	private Path getConfigDir() throws IOException {
@@ -35,6 +37,29 @@ public class ConfigService {
 			base = System.getProperty("user.home");
 			return Paths.get(base, "." + appName.toLowerCase());
 		}
+	}
+
+	public Path getBackendRequestsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+		Path file;
+		if (cfg != null && cfg.backendRequestsPath != null && !cfg.backendRequestsPath.isBlank()) {
+			file = Paths.get(cfg.backendRequestsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.backendRequestsPath);
+			}
+		} else {
+			file = dir.resolve(BACKEND_REQUESTS_FILE_NAME);
+		}
+
+		if (!Files.exists(file)) {
+			try (Writer w = Files.newBufferedWriter(file)) {
+				w.write("[]");
+			}
+		}
+		return file;
 	}
 
 	private Path getConfigFile() throws IOException {

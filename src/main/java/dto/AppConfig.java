@@ -9,6 +9,11 @@ public class AppConfig {
 	public String openApiSpecsPath = "";
 	public String customMethodsPath = "";
 	public String usersSpecsPath = "";
+	public String backendRequestsPath = "";
+
+	public String trustStorePath = "";
+	public String trustStorePassword = "changeit";
+	public String trustStoreType = "JKS";
 
 	public Map<String, Integer> actionTableColumnWidths = new HashMap<>();
 }

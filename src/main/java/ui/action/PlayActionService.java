@@ -2,12 +2,14 @@ package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
 import dto.ActionRecord;
+import dto.BackendRequestDef;
 import dto.UsersServiceSpec;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.val;
 import model.UserAction;
 import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import ru.rt.iqhr.framework.config.FrameworkConfig;
@@ -43,6 +45,7 @@ public class PlayActionService {
 	private final FormFiller formFiller;
 	private final UsersService usersService;
 	private final CustomMethodsService customMethodsService;
+	private final BackendRequestsService backendRequestsService;
 	private final VariablesService variablesService;
 
 	private Thread playThread;
@@ -52,12 +55,17 @@ public class PlayActionService {
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
-	public PlayActionService(DefaultTableModel tableModel, UsersService usersService, CustomMethodsService customMethodsService, VariablesService variablesService) {
+	public PlayActionService(DefaultTableModel tableModel,
+							 UsersService usersService,
+							 CustomMethodsService customMethodsService,
+							 BackendRequestsService backendRequestsService,  // ← ДОБАВИТЬ
+							 VariablesService variablesService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
 		this.usersService = usersService;
 		this.customMethodsService = customMethodsService;
+		this.backendRequestsService = backendRequestsService;  // ← ДОБАВИТЬ
 		this.variablesService = variablesService;
 		log.info("PlayActionService created, speedMode=FAST");
 	}
@@ -312,6 +320,7 @@ public class PlayActionService {
 				|| action.contains("auth")
 				|| action.contains("open")
 				|| action.contains("customMethod")
+				|| action.contains("useBackendMethod")
 				|| action.contains("assertExists")
 				|| action.contains("assertNotExists")
 				|| action.contains("refreshPage");
@@ -426,6 +435,9 @@ public class PlayActionService {
 				throw new IllegalArgumentException("value for action 'customMethod' must be a method name");
 			}
 			playCustomMethod(value, nameToValue);
+		} else if (action.contains("useBackendMethod")) {
+			String requestName = value; // значение из колонки Value
+			playBackendRequest(requestName);
 		} else if (action.contains("waitLoadingPage")) {
 			if (hasValue) {
 				int timeout = Integer.parseInt(value.replaceAll("[\\D]", ""));
@@ -725,5 +737,51 @@ public class PlayActionService {
 			}
 		}
 		return pageUrlPath;
+	}
+
+	/**
+	 * Выполняет сохранённый backend-запрос через JavascriptExecutor / fetch.
+	 * Запрос инжектируется в страницу браузера через JS fetch() с нужными параметрами.
+	 */
+	private void playBackendRequest(String requestName) {
+		BackendRequestDef def = backendRequestsService.findByName(requestName);
+		if (def == null) {
+			throw new IllegalArgumentException("Backend request not found: " + requestName);
+		}
+
+		String url = def.getUrl();
+		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
+		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
+		String headers = def.getRequestHeaders() != null && !def.getRequestHeaders().isBlank()
+				? def.getRequestHeaders()
+				: "{}";
+
+		try {
+			Object result = ((JavascriptExecutor) driver).executeAsyncScript(
+					"var callback = arguments[arguments.length - 1];" +
+							"fetch(" + toJsString(url) + ", {" +
+							"method: '" + method + "'," +
+							"headers: " + headers + "," +
+							(body.isBlank() ? "" : "body: " + toJsString(body) + ",") +
+							"credentials: 'include'" +
+							"})" +
+							".then(r => r.text())" +
+							".then(t => callback(t))" +
+							".catch(e => callback('ERROR: ' + e));"
+			);
+
+			log.info("Backend request '{}' executed. Result={}", requestName, result);
+		} catch (Exception ex) {
+			throw new RuntimeException("Failed to execute backend request '" + requestName + "': " + ex.getMessage(), ex);
+		}
+	}
+
+	private String toJsString(String s) {
+		if (s == null) return "''";
+		return "'" + s
+				.replace("\\", "\\\\")
+				.replace("'", "\\'")
+				.replace("\n", "\\n")
+				.replace("\r", "\\r") + "'";
 	}
 }

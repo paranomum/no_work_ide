@@ -5,6 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
+import dto.BackendRequestDef;
 import dto.LocalVariables;
 import model.ElementType;
 import model.UserAction;
@@ -65,10 +66,18 @@ public class ActionWindow extends JFrame {
 	private final PlayActionService playActionService;
 	private final BrowserService browserService;
 	private final CustomMethodsService customMethodsService;
+	private final BackendRequestsService backendRequestsService;
+	private final ProxyCaptureService proxyCaptureService;
+	private JButton captureButton;
+	private volatile boolean captureAllModeActive = false;
 	private final VariablesService variablesService;
 
 	private boolean methodEditMode = false;
 	private String currentEditedMethodName = null;
+
+	private JTextField trustStorePathField;
+	private JTextField trustStorePasswordField;
+	private JTextField trustStoreTypeField;
 
 	public ActionWindow() {
 		config = configService.load();
@@ -77,7 +86,10 @@ public class ActionWindow extends JFrame {
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
+		backendRequestsService = new BackendRequestsService(configService, config);
+		backendRequestsService.load();
 		this.customMethodsService.load();
+		proxyCaptureService = new ProxyCaptureService(config, configService);
 		driver = null;
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
@@ -97,7 +109,13 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
-		playActionService =  new PlayActionService(tableModel, usersService, customMethodsService, variablesService);
+		playActionService = new PlayActionService(
+				tableModel,
+				usersService,
+				customMethodsService,
+				backendRequestsService,
+				variablesService
+		);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 
@@ -222,6 +240,27 @@ public class ActionWindow extends JFrame {
 		recordingButton = new JButton("⏺ Start Recording");
 		recordingButton.setToolTipText("Start/Stop recording");
 		recordingButton.addActionListener(e -> toggleRecording());
+		// Кнопка "Захватить"
+		captureButton = new JButton("📡 Захватить");
+		captureButton.setToolTipText("Захватить backend-запрос из сети");
+
+		JPopupMenu capturePopup = new JPopupMenu();
+
+		JMenuItem captureByUrlItem = new JMenuItem("Захватить по URL...");
+		captureByUrlItem.addActionListener(e -> startCaptureByUrl());
+		capturePopup.add(captureByUrlItem);
+
+		JMenuItem captureAllItem = new JMenuItem("Захватить все запросы");
+		captureAllItem.addActionListener(e -> startCaptureAll());
+		capturePopup.add(captureAllItem);
+
+		JMenuItem stopCaptureItem = new JMenuItem("Остановить захват");
+		stopCaptureItem.addActionListener(e -> stopCapture());
+		capturePopup.add(stopCaptureItem);
+
+		captureButton.addActionListener(e ->
+				capturePopup.show(captureButton, 0, captureButton.getHeight())
+		);
 	}
 
 	private JPanel createTopBarPanel() {
@@ -246,6 +285,7 @@ public class ActionWindow extends JFrame {
 		JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 		rightButtons.add(playButton);
 		rightButtons.add(recordingButton);
+		rightButtons.add(captureButton);
 
 		topBar.add(leftButtons, BorderLayout.WEST);
 		topBar.add(openBrowserButton, BorderLayout.CENTER);
@@ -353,26 +393,40 @@ public class ActionWindow extends JFrame {
 			if (e.getStateChange() != ItemEvent.SELECTED) return;
 
 			UserAction selected = (UserAction) e.getItem();
-			if (selected != UserAction.CUSTOM_METHOD) return;
-
-			CustomMethodsService.MethodDef method = showCustomMethodChooser();
-			if (method == null) {
-				// Ничего не делаем, просто выходим, выбор останется как есть
-				return;
-			}
 
 			int editingRow = actionTable.getEditingRow();
 			if (editingRow < 0) {
 				return;
 			}
 			int modelRow = actionTable.convertRowIndexToModel(editingRow);
-			int valueColIndex = 3; // "Value"
+			int valueColIndex = 3;
 
-			if (actionTable.isEditing()) {
-				actionTable.getCellEditor().stopCellEditing(); // критично важно[web:2]
+			if (selected == UserAction.CUSTOM_METHOD) {
+				CustomMethodsService.MethodDef method = showCustomMethodChooser();
+				if (method == null) {
+					return;
+				}
+
+				if (actionTable.isEditing()) {
+					actionTable.getCellEditor().stopCellEditing();
+				}
+
+				tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
+				return;
 			}
 
-			tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
+			if (selected == UserAction.USE_BACKEND_METHOD) {
+				BackendRequestDef request = showBackendRequestChooser();
+				if (request == null) {
+					return;
+				}
+
+				if (actionTable.isEditing()) {
+					actionTable.getCellEditor().stopCellEditing();
+				}
+
+				tableModel.setValueAt(request.getName(), modelRow, valueColIndex);
+			}
 		};
 
 		actionComboBox.addItemListener(listener);
@@ -874,6 +928,13 @@ public class ActionWindow extends JFrame {
 						? config.chromeDriverPath
 						: ""
 		);
+
+		trustStorePathField = new JTextField(20);
+		trustStorePasswordField = new JTextField(20);
+		trustStoreTypeField = new JTextField(10);
+		trustStorePathField.setText(config.trustStorePath != null ? config.trustStorePath : "");
+		trustStorePasswordField.setText(config.trustStorePassword != null ? config.trustStorePassword : "changeit");
+		trustStoreTypeField.setText(config.trustStoreType != null ? config.trustStoreType : "JKS");
 	}
 
 	private void toggleRecording() {
@@ -908,21 +969,46 @@ public class ActionWindow extends JFrame {
 	private JPanel createBottomPanel() {
 		JPanel bottomPanel = new JPanel(new BorderLayout());
 
-		JPanel settingsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		settingsPanel.setBorder(BorderFactory.createTitledBorder("Settings"));
-		settingsPanel.add(new JLabel("Theme:"));
-		settingsPanel.add(themeSelect);
-		settingsPanel.add(Box.createHorizontalStrut(20));
-		settingsPanel.add(new JLabel("ChromeDriver Path:"));
-		settingsPanel.add(driverPathField);
+		JPanel rowsPanel = new JPanel();
+		rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
+
+		JPanel settingsPanelTop = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		settingsPanelTop.setBorder(BorderFactory.createTitledBorder("Settings"));
+		settingsPanelTop.add(new JLabel("Theme:"));
+		settingsPanelTop.add(themeSelect);
+		settingsPanelTop.add(Box.createHorizontalStrut(20));
+		settingsPanelTop.add(new JLabel("ChromeDriver Path:"));
+		settingsPanelTop.add(driverPathField);
 
 		JButton browseButton = new JButton("Browse...");
 		browseButton.setToolTipText("Select ChromeDriver executable");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		browseButton.addActionListener(e -> browserService.selectChromeDriver(this, driverPathField));
-		settingsPanel.add(browseButton);
+		settingsPanelTop.add(browseButton);
 
-		bottomPanel.add(settingsPanel, BorderLayout.SOUTH);
+		JPanel settingsPanelBot = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		settingsPanelBot.add(new JLabel("TrustStore:"));
+		settingsPanelBot.add(trustStorePathField);
+
+		JButton trustStoreBrowseButton = new JButton("Browse...");
+		trustStoreBrowseButton.addActionListener(e ->
+				proxyCaptureService.selectTrustStore(
+						this,
+						trustStorePathField,
+						trustStorePasswordField,
+						trustStoreTypeField
+				)
+		);
+		settingsPanelBot.add(trustStoreBrowseButton);
+		settingsPanelBot.add(new JLabel("Pass:"));
+		settingsPanelBot.add(trustStorePasswordField);
+		settingsPanelBot.add(new JLabel("Type:"));
+		settingsPanelBot.add(trustStoreTypeField);
+
+		rowsPanel.add(settingsPanelTop);
+		rowsPanel.add(settingsPanelBot);
+
+		bottomPanel.add(rowsPanel, BorderLayout.SOUTH);
 		return bottomPanel;
 	}
 
@@ -1006,6 +1092,9 @@ public class ActionWindow extends JFrame {
 
 		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
 		tabs.addTab("Users", usersPanel);
+
+		JPanel backendPanel = backendRequestsService.createBackendRequestsSettingsPanel(dialog);
+		tabs.addTab("BackendRequests", backendPanel);
 
 //		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
 //		tabs.addTab("OpenApi", openApiPanel);
@@ -1299,31 +1388,46 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void openBrowserAsync() {
-		// чтобы пользователь не тыкал по 10 раз
 		openBrowserButton.setEnabled(false);
 
 		new SwingWorker<ChromeDriver, Void>() {
 			@Override
 			protected ChromeDriver doInBackground() {
-				// тяжёлая часть — в фоне
-				return browserService.openBrowser(
-						ActionWindow.this,
-						driverPathField,
-						driver
-				);
+				try {
+					// 1. стартуем proxy
+					proxyCaptureService.startProxy();
+
+					// 2. делаем selenium proxy
+					org.openqa.selenium.Proxy seleniumProxy = proxyCaptureService.createSeleniumProxy();
+
+					// 3. открываем браузер уже через proxy
+					return browserService.openBrowser(
+							ActionWindow.this,
+							driverPathField,
+							driver,
+							seleniumProxy
+					);
+				} catch (Throwable ex) {
+					ex.printStackTrace();
+					throw new RuntimeException(ex);
+				}
 			}
 
 			@Override
 			protected void done() {
 				try {
-					ChromeDriver newDriver = get(); // может быть null
+					ChromeDriver newDriver = get();
 					if (newDriver != null) {
 						driver = newDriver;
 						driver.manage().window().maximize();
 						WebDriverRunner.setWebDriver(driver);
-						open("https://test-iqhr.rt.ru/"); // как у тебя
+						open("https://test-iqhr.rt.ru/");
 						actionRecorder.setDriver(driver);
 						playActionService.setDriver(driver);
+
+						// 4. после успешного открытия браузера запускаем захват
+						proxyCaptureService.startCapture("startup-capture");
+
 						System.out.println(
 								"ChromeDriver initialized successfully with: "
 										+ driverPathField.getText().trim()
@@ -1352,6 +1456,12 @@ public class ActionWindow extends JFrame {
 								"Error",
 								JOptionPane.ERROR_MESSAGE
 						);
+					}
+
+					// если открытие браузера упало — proxy тоже тушим
+					try {
+						proxyCaptureService.stopProxy();
+					} catch (Exception ignored) {
 					}
 
 					ex.printStackTrace();
@@ -1480,5 +1590,176 @@ public class ActionWindow extends JFrame {
 		actionTable.repaint();
 	}
 
+	/**
+	 * ВАРИАНТ 1: пользователь вводит конкретный URL.
+	 * Запуск захвата, ожидание совпадения, показ уведомления.
+	 */
+	private void startCaptureByUrl() {
+		if (driver == null) {
+			JOptionPane.showMessageDialog(this,
+					"Сначала откройте браузер.",
+					"Браузер не открыт",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+
+		if (!proxyCaptureService.isCaptureActive()) {
+			JOptionPane.showMessageDialog(this,
+					"Proxy capture не активен. Открой браузер заново через встроенный proxy.",
+					"Capture unavailable",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+
+		CaptureUrlDialog urlDialog = new CaptureUrlDialog(this);
+		urlDialog.setVisible(true);
+		String urlPart = urlDialog.getUrl();
+		if (urlPart == null || urlPart.isBlank()) {
+			return;
+		}
+
+		JOptionPane.showMessageDialog(this,
+				"Захват уже идёт.\nСделай нужные действия в браузере, затем нажми ОК.",
+				"Захват по URL",
+				JOptionPane.INFORMATION_MESSAGE);
+
+		List<BackendRequestDef> matches = proxyCaptureService.findCapturedRequestsByUrlPart(urlPart);
+		if (matches.isEmpty()) {
+			JOptionPane.showMessageDialog(this,
+					"Запрос по указанному URL не найден.",
+					"Ничего не найдено",
+					JOptionPane.INFORMATION_MESSAGE);
+			return;
+		}
+
+		if (matches.size() == 1) {
+			CaptureResultDialog resultDialog = new CaptureResultDialog(this, matches.get(0), backendRequestsService);
+			resultDialog.setVisible(true);
+			proxyCaptureService.startCapture("capture-by-url-next");
+			return;
+		}
+
+		CaptureListDialog listDialog = new CaptureListDialog(this, matches, backendRequestsService);
+		listDialog.setVisible(true);
+		proxyCaptureService.startCapture("capture-by-url-next");
+	}
+
+	/**
+	 * ВАРИАНТ 2: захват всех запросов без фильтра.
+	 * Пользователь нажимает "Остановить" — получает список.
+	 */
+	private void startCaptureAll() {
+		if (driver == null) {
+			JOptionPane.showMessageDialog(this,
+					"Сначала откройте браузер.",
+					"Браузер не открыт",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+
+		if (!proxyCaptureService.isCaptureActive()) {
+			proxyCaptureService.startCapture("capture-all");
+		}
+
+		captureAllModeActive = true;
+		captureButton.setText("📡 Идёт захват...");
+
+		JOptionPane.showMessageDialog(this,
+				"Захват всех запросов запущен.\n" +
+						"Сделай нужные действия в браузере,\n" +
+						"потом выбери «Остановить захват».",
+				"Захват активен",
+				JOptionPane.INFORMATION_MESSAGE);
+	}
+
+	/**
+	 * Остановить вариант 2 и показать список захваченных запросов.
+	 */
+	private void stopCapture() {
+		if (!proxyCaptureService.isCaptureActive()) {
+			JOptionPane.showMessageDialog(this,
+					"Захват не активен.",
+					"Нет активного захвата",
+					JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+
+		List<BackendRequestDef> all = proxyCaptureService.stopCaptureAndReadRequests();
+		captureAllModeActive = false;
+		captureButton.setText("📡 Захватить");
+
+		if (all.isEmpty()) {
+			JOptionPane.showMessageDialog(this,
+					"Ни одного запроса не захвачено.",
+					"Пусто",
+					JOptionPane.INFORMATION_MESSAGE);
+			proxyCaptureService.startCapture("capture-next");
+			return;
+		}
+
+		CaptureListDialog listDialog = new CaptureListDialog(this, all, backendRequestsService);
+		listDialog.setVisible(true);
+
+		// чтобы следующий захват можно было начать без переоткрытия браузера
+		proxyCaptureService.startCapture("capture-next");
+	}
+
+	/**
+	 * Диалог выбора сохранённого backend-запроса.
+	 * Аналог showCustomMethodChooser().
+	 */
+	private BackendRequestDef showBackendRequestChooser() {
+		backendRequestsService.load();
+		java.util.List<BackendRequestDef> methods = backendRequestsService.getRequests();
+		if (methods == null || methods.isEmpty()) {
+			JOptionPane.showMessageDialog(
+					this,
+					"Список backend-запросов пуст",
+					"Backend request",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return null;
+		}
+
+		JComboBox<BackendRequestDef> combo =
+				new JComboBox<>(methods.toArray(new BackendRequestDef[0]));
+		combo.setSelectedIndex(0);
+
+		int result = JOptionPane.showConfirmDialog(
+				this,
+				combo,
+				"Выберите backend-запрос",
+				JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.PLAIN_MESSAGE
+		);
+
+		if (result != JOptionPane.OK_OPTION) {
+			return null;
+		}
+
+		Object selected = combo.getSelectedItem();
+		return (selected instanceof BackendRequestDef)
+				? (BackendRequestDef) selected
+				: null;
+	}
+
+	private void selectTrustStoreFile() {
+		JFileChooser chooser = new JFileChooser();
+		chooser.setDialogTitle("Select TrustStore file");
+		chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+
+		int result = chooser.showOpenDialog(this);
+		if (result == JFileChooser.APPROVE_OPTION) {
+			java.io.File selected = chooser.getSelectedFile();
+			trustStorePathField.setText(selected.getAbsolutePath());
+
+			String name = selected.getName().toLowerCase();
+			if (name.endsWith(".p12") || name.endsWith(".pfx")) {
+				trustStoreTypeField.setText("PKCS12");
+			} else if (name.endsWith(".jks") || name.endsWith(".cacerts")) {
+				trustStoreTypeField.setText("JKS");
+			}
+		}
+	}
 }
 

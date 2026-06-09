@@ -25,7 +25,8 @@ public enum UserAction {
 	SPEC_ACTION("specialAction", "Action before test"),
 	SWITCH_TAB("switchTab", "Switch to tab"),
 	OPEN("open", "Open URL"),
-	CUSTOM_METHOD("customMethod", "Use ur custom method");
+	CUSTOM_METHOD("customMethod", "Use ur custom method"),
+	USE_BACKEND_METHOD("useBackendMethod", "Use saved backend request");
 
 	private final String code;
 	private final String description;
