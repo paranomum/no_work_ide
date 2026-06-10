@@ -18,6 +18,8 @@ import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
 import ui.ActionWindow;
+import java.awt.*;
+import java.util.List;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -52,6 +54,9 @@ public class PlayActionService {
 	@Getter @Setter
 	private volatile boolean stopRequested = false;
 	private volatile int currentRow = -1;
+
+	private final List<BackendExecutionResult> backendExecutionResults =
+			Collections.synchronizedList(new ArrayList<>());
 
 	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
@@ -104,27 +109,37 @@ public class PlayActionService {
 				Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
 				stopRequested = false;
 				currentRow = startRowIndex;
+				backendExecutionResults.clear();
 
 				playThread = new Thread(() -> {
+					String finalMessage = "Playback finished.";
+					int finalMessageType = JOptionPane.INFORMATION_MESSAGE;
+
 					try {
 						WebDriverRunner.setWebDriver(driver);
 						SwingUtilities.invokeLater(actionWindow::repaintActionTable);
 						playCustomMethod(methodName, nameToValue);
-						if (!stopRequested) {
-							showInfoOnUi(actionWindow, "Custom method '" + methodName + "' finished");
+
+						if (stopRequested) {
+							finalMessage = "Custom method '" + methodName + "' was stopped.";
+							finalMessageType = JOptionPane.WARNING_MESSAGE;
+						} else {
+							finalMessage = "Custom method '" + methodName + "' finished.";
+							finalMessageType = JOptionPane.INFORMATION_MESSAGE;
 						}
 					} catch (Throwable e) {
 						TestRecorderErrorLogger.logError(
 								"Unexpected error in PlayScenarioThread (customMethod only)", e
 						);
-						showErrorOnUi(actionWindow,
-								"Stopped in custom method '" + methodName + "'.\n" + e.getMessage());
 						log.error("Unexpected error in PlayScenarioThread (customMethod only)", e);
+
+						finalMessage = "Stopped in custom method '" + methodName + "'.\n" + e.getMessage();
+						finalMessageType = JOptionPane.ERROR_MESSAGE;
 					} finally {
 						stopPlayback();
 						currentRow = -1;
 						SwingUtilities.invokeLater(actionWindow::repaintActionTable);
-						actionWindow.onScenarioFinished();
+						onScenarioFinishedWithBackendAnswers(actionWindow, finalMessage, finalMessageType);
 					}
 				}, "PlayScenarioThread");
 
@@ -155,25 +170,36 @@ public class PlayActionService {
 
 		stopRequested = false;
 		currentRow = startRowIndex > 0 ? startRowIndex : -1;
+		backendExecutionResults.clear();
 
 		playThread = new Thread(() -> {
+			String finalMessage = "Playback finished.";
+			int finalMessageType = JOptionPane.INFORMATION_MESSAGE;
+
 			try {
 				WebDriverRunner.setWebDriver(driver);
 				runScenario(actionWindow, steps, nameToValue);
-				if (!stopRequested) {
-					showInfoOnUi(actionWindow, "Scenario finished successfully");
+
+				if (stopRequested) {
+					finalMessage = "Scenario was stopped.";
+					finalMessageType = JOptionPane.WARNING_MESSAGE;
+				} else {
+					finalMessage = "Scenario finished successfully.";
+					finalMessageType = JOptionPane.INFORMATION_MESSAGE;
 				}
 			} catch (Throwable e) {
 				TestRecorderErrorLogger.logError(
 						"Unexpected error in PlayScenarioThread", e
 				);
-				showErrorOnUi(actionWindow, "Stopped on step " + currentRow + ".\n" + e.getMessage());
 				log.error("Unexpected error in PlayScenarioThread", e);
+
+				finalMessage = "Stopped on step " + currentRow + ".\n" + e.getMessage();
+				finalMessageType = JOptionPane.ERROR_MESSAGE;
 			} finally {
 				stopPlayback();
 				currentRow = -1;
 				SwingUtilities.invokeLater(actionWindow::repaintActionTable);
-				actionWindow.onScenarioFinished();
+				onScenarioFinishedWithBackendAnswers(actionWindow, finalMessage, finalMessageType);
 			}
 		}, "PlayScenarioThread");
 
@@ -287,7 +313,6 @@ public class PlayActionService {
 		for (PlayStep step : steps) {
 			if (stopRequested) {
 				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
-				showInfoOnUi(actionWindow, "Playback stopped on step " + (step.rowIndex - 1));
 				break;
 			}
 
@@ -436,7 +461,10 @@ public class PlayActionService {
 			}
 			playCustomMethod(value, nameToValue);
 		} else if (action.contains("useBackendMethod")) {
-			String requestName = value; // значение из колонки Value
+			if (!hasValue) {
+				throw new IllegalArgumentException("value for action 'useBackendMethod' must be a backend request name");
+			}
+			String requestName = value.trim();
 			playBackendRequest(requestName);
 		} else if (action.contains("waitLoadingPage")) {
 			if (hasValue) {
@@ -757,23 +785,189 @@ public class PlayActionService {
 				: "{}";
 
 		try {
-			Object result = ((JavascriptExecutor) driver).executeAsyncScript(
+			Object raw = ((JavascriptExecutor) driver).executeAsyncScript(
 					"var callback = arguments[arguments.length - 1];" +
 							"fetch(" + toJsString(url) + ", {" +
-							"method: '" + method + "'," +
-							"headers: " + headers + "," +
-							(body.isBlank() ? "" : "body: " + toJsString(body) + ",") +
-							"credentials: 'include'" +
+							"  method: '" + method + "'," +
+							"  headers: " + headers + "," +
+							(body.isBlank() ? "" : "  body: " + toJsString(body) + ",") +
+							"  credentials: 'include'" +
 							"})" +
-							".then(r => r.text())" +
-							".then(t => callback(t))" +
-							".catch(e => callback('ERROR: ' + e));"
+							".then(async function(response) {" +
+							"  var text;" +
+							"  try {" +
+							"    var cloned = response.clone();" +
+							"    var json = await cloned.json();" +
+							"    text = JSON.stringify(json, null, 2);" +
+							"  } catch (e) {" +
+							"    text = await response.text();" +
+							"  }" +
+							"  callback({" +
+							"    ok: response.ok," +
+							"    status: response.status," +
+							"    url: response.url || " + toJsString(url) + "," +
+							"    method: " + toJsString(method) + "," +
+							"    body: text" +
+							"  });" +
+							"})" +
+							".catch(function(error) {" +
+							"  callback({" +
+							"    ok: false," +
+							"    status: 0," +
+							"    url: " + toJsString(url) + "," +
+							"    method: " + toJsString(method) + "," +
+							"    body: 'ERROR: ' + String(error)" +
+							"  });" +
+							"});"
 			);
 
-			log.info("Backend request '{}' executed. Result={}", requestName, result);
+			BackendExecutionResult result = new BackendExecutionResult();
+			result.requestName = requestName;
+			result.method = method;
+			result.url = url;
+			result.success = true;
+			result.responseBody = "";
+
+			if (raw instanceof Map<?, ?> map) {
+				Object methodObj = map.get("method");
+				Object urlObj = map.get("url");
+				Object bodyObj = map.get("body");
+				Object okObj = map.get("ok");
+				Object statusObj = map.get("status");
+
+				result.method = methodObj != null ? String.valueOf(methodObj) : method;
+				result.url = urlObj != null ? String.valueOf(urlObj) : url;
+				result.responseBody = bodyObj != null
+						? String.valueOf(bodyObj)
+						: "";
+				result.success = okObj instanceof Boolean ? (Boolean) okObj : true;
+
+				log.info(
+						"Backend request '{}' executed. method={}, url={}, status={}, ok={}",
+						requestName,
+						result.method,
+						result.url,
+						statusObj,
+						result.success
+				);
+			} else {
+				result.responseBody = raw != null ? String.valueOf(raw) : "";
+				log.info("Backend request '{}' executed. Raw result={}", requestName, raw);
+			}
+
+			backendExecutionResults.add(result);
+
 		} catch (Exception ex) {
-			throw new RuntimeException("Failed to execute backend request '" + requestName + "': " + ex.getMessage(), ex);
+			BackendExecutionResult result = new BackendExecutionResult();
+			result.requestName = requestName;
+			result.method = method;
+			result.url = url;
+			result.success = false;
+			result.responseBody = "ERROR: " + ex.getMessage();
+			backendExecutionResults.add(result);
+
+			throw new RuntimeException(
+					"Failed to execute backend request '" + requestName + "': " + ex.getMessage(),
+					ex
+			);
 		}
+	}
+
+	private void onScenarioFinishedWithBackendAnswers(ActionWindow actionWindow, String message, int messageType) {
+		SwingUtilities.invokeLater(() -> {
+			actionWindow.onScenarioFinished();
+
+			if (backendExecutionResults.isEmpty()) {
+				JOptionPane.showMessageDialog(
+						actionWindow,
+						message,
+						"Playback finished",
+						messageType
+				);
+				return;
+			}
+
+			Object[] options = {"OK", "View backend answers"};
+			int choice = JOptionPane.showOptionDialog(
+					actionWindow,
+					message,
+					"Playback finished",
+					JOptionPane.YES_NO_OPTION,
+					messageType,
+					null,
+					options,
+					options[0]
+			);
+
+			if (choice == 1) {
+				showBackendAnswersDialog(actionWindow);
+			}
+		});
+	}
+
+	private void showBackendAnswersDialog(ActionWindow parent) {
+		StringBuilder sb = new StringBuilder();
+
+		synchronized (backendExecutionResults) {
+			for (int i = 0; i < backendExecutionResults.size(); i++) {
+				BackendExecutionResult r = backendExecutionResults.get(i);
+
+				if (i > 0) {
+					sb.append("\n\n");
+				}
+
+				sb.append("==================================================\n");
+				sb.append(r.method != null ? r.method : "UNKNOWN");
+				sb.append(" ");
+				sb.append(r.url != null ? r.url : "");
+				sb.append("\n");
+				sb.append("==================================================\n");
+
+				String responseBody = r.responseBody == null ? "" : r.responseBody.trim();
+				if (responseBody.isEmpty()) {
+					sb.append("<empty response>");
+				} else {
+					sb.append(responseBody);
+				}
+			}
+		}
+
+		JTextArea textArea = new JTextArea(sb.toString(), 28, 110);
+		textArea.setEditable(false);
+		textArea.setCaretPosition(0);
+		textArea.setLineWrap(false);
+		textArea.setWrapStyleWord(false);
+		textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+
+		JScrollPane scrollPane = new JScrollPane(textArea);
+		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+
+		JDialog dialog = new JDialog(
+				SwingUtilities.getWindowAncestor(parent),
+				"Backend answers log",
+				Dialog.ModalityType.APPLICATION_MODAL
+		);
+		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+		dialog.setLayout(new BorderLayout());
+
+		JLabel title = new JLabel("Executed backend methods responses");
+		title.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		title.setFont(title.getFont().deriveFont(Font.BOLD, 14f));
+
+		JButton closeButton = new JButton("Close");
+		closeButton.addActionListener(e -> dialog.dispose());
+
+		JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		bottomPanel.add(closeButton);
+
+		dialog.add(title, BorderLayout.NORTH);
+		dialog.add(scrollPane, BorderLayout.CENTER);
+		dialog.add(bottomPanel, BorderLayout.SOUTH);
+
+		dialog.setSize(1000, 700);
+		dialog.setLocationRelativeTo(parent);
+		dialog.setVisible(true);
 	}
 
 	private String toJsString(String s) {
@@ -783,5 +977,13 @@ public class PlayActionService {
 				.replace("'", "\\'")
 				.replace("\n", "\\n")
 				.replace("\r", "\\r") + "'";
+	}
+
+	private static class BackendExecutionResult {
+		String requestName;
+		String method;
+		String url;
+		String responseBody;
+		boolean success;
 	}
 }
