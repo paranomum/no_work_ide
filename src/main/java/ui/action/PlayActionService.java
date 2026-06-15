@@ -18,14 +18,17 @@ import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
 import ui.ActionWindow;
+
 import java.awt.*;
+import java.net.URI;
 import java.util.List;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import java.net.URI;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
 
@@ -34,6 +37,7 @@ import static com.codeborne.selenide.Selenide.open;
 import static ru.rt.iqhr.framework.util.WebElementUtil.*;
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,14 +67,14 @@ public class PlayActionService {
 	public PlayActionService(DefaultTableModel tableModel,
 							 UsersService usersService,
 							 CustomMethodsService customMethodsService,
-							 BackendRequestsService backendRequestsService,  // ← ДОБАВИТЬ
+							 BackendRequestsService backendRequestsService,
 							 VariablesService variablesService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
 		this.usersService = usersService;
 		this.customMethodsService = customMethodsService;
-		this.backendRequestsService = backendRequestsService;  // ← ДОБАВИТЬ
+		this.backendRequestsService = backendRequestsService;
 		this.variablesService = variablesService;
 		log.info("PlayActionService created, speedMode=FAST");
 	}
@@ -98,13 +102,11 @@ public class PlayActionService {
 			return;
 		}
 
-		// --- спец‑кейс: клик по строке CUSTOM_METHOD ---
 		Object actionObj = tableModel.getValueAt(startRowIndex, 1);
 		if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
 
 			String methodName = Objects.toString(tableModel.getValueAt(startRowIndex, 3), "").trim();
 
-			// режим "проиграть только этот шаг" → играем только внутренность метода
 			if (onlyOne) {
 				Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
 				stopRequested = false;
@@ -146,12 +148,9 @@ public class PlayActionService {
 				playThread.start();
 				return;
 			}
-			// если onlyOne == false — пойдём обычным путём, но с учётом
-			// логики в buildStepsFromTable (там верхняя строка метода
-			// будет выкинута, если метод раскрыт, и будут сыграны шаги)
 		}
 
-		Map<String, String> nameToValue = new HashMap<>();
+		Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
 		List<PlayStep> steps = buildStepsFromTable(nameToValue);
 		steps.removeIf(step ->
 				step.rowIndex < startRowIndex
@@ -219,17 +218,11 @@ public class PlayActionService {
 	private List<PlayStep> buildStepsFromTable(Map<String, String> nameToValue) {
 		List<PlayStep> steps = new ArrayList<>();
 
-		// 1. предрасчёт значений переменных (включая те, что пришли из кастомных методов)
-		nameToValue = variablesService.buildAllVariableValuesMap();
-
 		int rowCount = tableModel.getRowCount();
 		log.debug("buildStepsFromTable: rowCount={}", rowCount);
 
-		// 0. Предрасчёт: какие customMethod реально раскрыты
-		// key: modelRow строки CUSTOM_METHOD, value: true если есть дочерние шаги
 		Map<Integer, Boolean> customMethodExpanded = new HashMap<>();
 
-		// соберём индексы из колонки "#"
 		List<String> indices = new ArrayList<>(rowCount);
 		for (int r = 0; r < rowCount; r++) {
 			indices.add(Objects.toString(tableModel.getValueAt(r, 0), "").trim());
@@ -241,21 +234,19 @@ public class PlayActionService {
 				continue;
 			}
 
-			String idx = indices.get(r); // например "1"
+			String idx = indices.get(r);
 			if (idx.isEmpty()) continue;
 
-			String prefix = idx + ".";   // "1."
+			String prefix = idx + ".";
 
 			boolean hasChildren = false;
 			for (int rr = r + 1; rr < rowCount; rr++) {
-				String childIdx = indices.get(rr); // "1.1", "1.2", ...
+				String childIdx = indices.get(rr);
 				if (!childIdx.startsWith(prefix)) {
-					// как только префикс перестал совпадать — дочерние шаги закончились
 					break;
 				}
-				// дополнительно можно проверить CustomMethodRef, чтобы не поймать чужое 1.x
-				Object refObj = tableModel.getValueAt(rr, 11); // CustomMethodRef
-				Object valObj = tableModel.getValueAt(r, 3);   // Value у строки метода — имя
+				Object refObj = tableModel.getValueAt(rr, 11);
+				Object valObj = tableModel.getValueAt(r, 3);
 				String methodName = Objects.toString(valObj, "").trim();
 
 				if (refObj != null && refObj.equals(methodName)) {
@@ -267,12 +258,9 @@ public class PlayActionService {
 			customMethodExpanded.put(r, hasChildren);
 		}
 
-		// 1. Основной проход — строим PlayStep
 		for (int r = 0; r < rowCount; r++) {
 			Object actionObj = tableModel.getValueAt(r, 1);
 
-			// Если это верхняя строка CUSTOM_METHOD и он раскрыт — игнорируем её,
-			// будем играть только дочерние шаги
 			if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
 				Boolean expanded = customMethodExpanded.get(r);
 				if (expanded != null && expanded) {
@@ -288,16 +276,16 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex      = r;
-			step.actionCode    = actionCode;
-			step.selector      = val(r, 2);
-			String rawValue    = val(r, 3);
+			step.rowIndex = r;
+			step.actionCode = actionCode;
+			step.selector = val(r, 2);
+			String rawValue = val(r, 3);
 			step.javaClassName = val(r, 5);
-			step.xpath         = val(r, 6);
-			step.name          = val(r, 7);
-			step.index         = val(r, 8);
-			step.byXpath       = val(r, 9);
-			step.url           = val(r, 10);
+			step.xpath = val(r, 6);
+			step.name = val(r, 7);
+			step.index = val(r, 8);
+			step.byXpath = val(r, 9);
+			step.url = val(r, 10);
 
 			if (rawValue != null && !rawValue.isBlank()) {
 				step.value = variablesService.resolveValue(rawValue, nameToValue);
@@ -322,11 +310,10 @@ public class PlayActionService {
 		}
 	}
 
-
 	private void playOneStep(PlayStep step, Map<String, String> nameToValue) throws RuntimeException {
-		String action        = step.actionCode;
-		String selector      = step.selector;
-		String value         = step.value;
+		String action = step.actionCode;
+		String selector = step.selector;
+		String value = step.value;
 		String javaClassName = step.javaClassName;
 		String url = step.url;
 
@@ -394,7 +381,7 @@ public class PlayActionService {
 				String valueToSelect = passValue && hasText(value) ? value : "";
 				if (action.contains("selectOptions")) {
 					List<String> parts = Arrays.stream(value.split(", "))
-							.map(String::trim)   // на случай лишних пробелов
+							.map(String::trim)
 							.filter(p -> !p.isEmpty())
 							.toList();
 					field.selectOptions(parts);
@@ -428,12 +415,9 @@ public class PlayActionService {
 			val urlNow = parseUrl();
 			tableModel.setValueAt(urlNow, currentRow, 10);
 		}
-
 	}
 
-	// ---- спец‑действия ----
-
-	private void playSpecialAction(String action, String selector, String value, Map<String, String> nameToValue){
+	private void playSpecialAction(String action, String selector, String value, Map<String, String> nameToValue) {
 		boolean hasValue = value != null && !value.isEmpty() && !value.isBlank();
 		log.info("playSpecialAction: action='{}', value='{}'", action, value);
 
@@ -465,7 +449,7 @@ public class PlayActionService {
 				throw new IllegalArgumentException("value for action 'useBackendMethod' must be a backend request name");
 			}
 			String requestName = value.trim();
-			playBackendRequest(requestName);
+			playBackendRequest(requestName, nameToValue);
 		} else if (action.contains("waitLoadingPage")) {
 			if (hasValue) {
 				int timeout = Integer.parseInt(value.replaceAll("[\\D]", ""));
@@ -492,8 +476,7 @@ public class PlayActionService {
 				log.info("auth with user '{}'", value);
 				UsersServiceSpec user = usersService.getUser(value);
 				new Auth().logIN(user.username, user.password);
-			}
-			else {
+			} else {
 				throw new IllegalArgumentException("value for action 'auth' must not be null");
 			}
 		} else if (action.contains("pause")) {
@@ -525,7 +508,6 @@ public class PlayActionService {
 			return;
 		}
 
-		// конвертируем CustomMethodStepDto -> PlayStep и прогоняем той же логикой
 		for (ActionRecord dto : methodSteps) {
 			if (stopRequested) {
 				log.info("Playback stopped inside custom method '{}'", methodName);
@@ -533,15 +515,15 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex      = -1; // внешней строки нет, это внутренний шаг
-			step.actionCode    = dto.getAction();
-			step.selector      = dto.getSelector();
-			String rawValue         = dto.getValue();
+			step.rowIndex = -1;
+			step.actionCode = dto.getAction();
+			step.selector = dto.getSelector();
+			String rawValue = dto.getValue();
 			step.javaClassName = dto.getElementType();
-			step.xpath         = dto.getXpath();
-			step.name          = dto.getName();
-			step.index         = dto.getIndex();
-			step.byXpath       = dto.getByXpath();
+			step.xpath = dto.getXpath();
+			step.name = dto.getName();
+			step.index = dto.getIndex();
+			step.byXpath = dto.getByXpath();
 
 			log.debug(
 					"customStep={\"method\":\"{}\",\"action\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
@@ -563,13 +545,9 @@ public class PlayActionService {
 		}
 	}
 
-
 	private WebElement findByXpath(String xpath) {
-		// Здесь можно навесить ожидания (WebDriverWait) и обработку ошибок.
-		return driver.findElement(By.xpath(xpath)); // [web:51][web:60]
+		return driver.findElement(By.xpath(xpath));
 	}
-
-	// ---- helpers ----
 
 	private String val(int row, int col) {
 		Object v = tableModel.getValueAt(row, col);
@@ -611,13 +589,12 @@ public class PlayActionService {
 	}
 
 	private Object createElementFromStep(PlayStep step) {
-		String type     = step.javaClassName;
-		String name     = step.name;      // col 7
-		String xpath    = step.xpath;     // col 6
-		String indexStr = step.index;  // col 8
-		String selector = step.selector;  // col 2
+		String type = step.javaClassName;
+		String name = step.name;
+		String xpath = step.xpath;
+		String indexStr = step.index;
+		String selector = step.selector;
 
-		// --- 1. Вариант с name + xpath + index (как ты хочешь) ---
 		if (hasText(name) && hasText(xpath) && hasText(indexStr)) {
 			int index;
 			try {
@@ -628,20 +605,16 @@ public class PlayActionService {
 			String indexedXpath = "(" + xpath + ")[" + index + "]";
 
 			return switch (type) {
-				case "Field"      -> new Field("", $x(indexedXpath));
-				case "RichField"      -> new RichField("", $x(indexedXpath));
-				case "Select"     -> new Select("", $x(indexedXpath));
-				case "Dropdown"   -> new Dropdown("", $x(indexedXpath));
+				case "Field" -> new Field("", $x(indexedXpath));
+				case "RichField" -> new RichField("", $x(indexedXpath));
+				case "Select" -> new Select("", $x(indexedXpath));
+				case "Dropdown" -> new Dropdown("", $x(indexedXpath));
 				case "DatePicker" -> new DatePicker("", $x(indexedXpath));
-
 				case "Button", "TabButton", "LinkButton",
 					 "CheckBoxButton", "RadioButton" -> new Button("", $x(indexedXpath));
-
-				default -> null; // неизвестный тип — пусть разберётся вызывающий код
+				default -> null;
 			};
 		}
-
-		// --- 2. Fallback: логика по selector, как в ветке !hasName ---
 
 		if (!hasText(selector)) {
 			return null;
@@ -649,27 +622,23 @@ public class PlayActionService {
 
 		String trimmed = selector.trim();
 
-		// 2.1. Selector похож на xpath → $x(selector)
 		if (isProbablyXPath(trimmed)) {
 			return switch (type) {
-				case "Field"      -> new Field("", $x(trimmed));
-				case "RichField"  -> new RichField("", $x(trimmed));
-				case "Select"     -> new Select("", $x(trimmed));
-				case "Dropdown"   -> new Dropdown("", $x(trimmed));
+				case "Field" -> new Field("", $x(trimmed));
+				case "RichField" -> new RichField("", $x(trimmed));
+				case "Select" -> new Select("", $x(trimmed));
+				case "Dropdown" -> new Dropdown("", $x(trimmed));
 				case "DatePicker" -> new DatePicker("", $x(trimmed));
-
 				case "Button", "TabButton", "LinkButton",
 					 "CheckBoxButton", "RadioButton" -> new Button("", $x(trimmed));
-
 				default -> null;
 			};
 		}
 
-		// 2.2. Формат "name, index"
 		if (hasCommaSpacesDigitAndNoLettersAfter(trimmed)) {
 			String[] parts = trimmed.split(",");
 			if (parts.length >= 2) {
-				String namePart  = parts[0].trim();
+				String namePart = parts[0].trim();
 				String indexPart = parts[1].trim();
 
 				int index;
@@ -680,15 +649,13 @@ public class PlayActionService {
 				}
 
 				return switch (type) {
-					case "Field"      -> new Field(namePart, index);
-					case "RichField"  -> new RichField(namePart, index);
-					case "Select"     -> new Select(namePart, index);
-					case "Dropdown"   -> new Dropdown(namePart, index);
+					case "Field" -> new Field(namePart, index);
+					case "RichField" -> new RichField(namePart, index);
+					case "Select" -> new Select(namePart, index);
+					case "Dropdown" -> new Dropdown(namePart, index);
 					case "DatePicker" -> new DatePicker(namePart, index);
-
 					case "Button", "TabButton", "LinkButton",
 						 "CheckBoxButton", "RadioButton" -> new Button(namePart, index);
-
 					default -> null;
 				};
 			}
@@ -697,15 +664,13 @@ public class PlayActionService {
 		String nameFromSelector = trimmed;
 
 		return switch (type) {
-			case "Field"      -> new Field(nameFromSelector);
-			case "RichField"  -> new RichField(nameFromSelector);
-			case "Select"     -> new Select(nameFromSelector);
-			case "Dropdown"   -> new Dropdown(nameFromSelector);
+			case "Field" -> new Field(nameFromSelector);
+			case "RichField" -> new RichField(nameFromSelector);
+			case "Select" -> new Select(nameFromSelector);
+			case "Dropdown" -> new Dropdown(nameFromSelector);
 			case "DatePicker" -> new DatePicker(nameFromSelector);
-
 			case "Button", "TabButton", "LinkButton",
 				 "CheckBoxButton", "RadioButton" -> new Button(nameFromSelector);
-
 			default -> null;
 		};
 	}
@@ -749,13 +714,11 @@ public class PlayActionService {
 		String pageUrlPath = "";
 		try {
 			URI uri = new URI(cur);
-			String path = uri.getPath();      // /auth/login или /cabinet/users-and-groups/users
-			String query = uri.getQuery();    // при желании можно добавить
+			String path = uri.getPath();
 			if (path != null && !path.isBlank()) {
 				pageUrlPath = path;
 			}
 		} catch (Exception e) {
-			// fallback без URI
 			int idx = cur.indexOf("://");
 			if (idx >= 0) {
 				int slash = cur.indexOf('/', idx + 3);
@@ -767,22 +730,22 @@ public class PlayActionService {
 		return pageUrlPath;
 	}
 
-	/**
-	 * Выполняет сохранённый backend-запрос через JavascriptExecutor / fetch.
-	 * Запрос инжектируется в страницу браузера через JS fetch() с нужными параметрами.
-	 */
-	private void playBackendRequest(String requestName) {
+	private void playBackendRequest(String requestName, Map<String, String> nameToValue) {
 		BackendRequestDef def = backendRequestsService.findByName(requestName);
 		if (def == null) {
 			throw new IllegalArgumentException("Backend request not found: " + requestName);
 		}
 
-		String url = def.getUrl();
+		String url = resolveBackendTemplate(def.getUrl(), nameToValue);
 		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
 		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
 		String headers = def.getRequestHeaders() != null && !def.getRequestHeaders().isBlank()
 				? def.getRequestHeaders()
 				: "{}";
+
+		body = applyUniqueFieldMethods(body, def, nameToValue);
+		body = resolveBackendTemplate(body, nameToValue);
+		headers = resolveBackendTemplate(headers, nameToValue);
 
 		try {
 			Object raw = ((JavascriptExecutor) driver).executeAsyncScript(
@@ -837,9 +800,7 @@ public class PlayActionService {
 
 				result.method = methodObj != null ? String.valueOf(methodObj) : method;
 				result.url = urlObj != null ? String.valueOf(urlObj) : url;
-				result.responseBody = bodyObj != null
-						? String.valueOf(bodyObj)
-						: "";
+				result.responseBody = bodyObj != null ? String.valueOf(bodyObj) : "";
 				result.success = okObj instanceof Boolean ? (Boolean) okObj : true;
 
 				log.info(
@@ -871,6 +832,179 @@ public class PlayActionService {
 					ex
 			);
 		}
+	}
+
+	private String applyUniqueFieldMethods(String body, BackendRequestDef def, Map<String, String> nameToValue) {
+		if (body == null || body.isBlank() || def == null) {
+			return body;
+		}
+
+		try {
+			Object fieldOverridesObj = def.getClass().getMethod("getFieldOverrides").invoke(def);
+			if (!(fieldOverridesObj instanceof List<?> overrides) || overrides.isEmpty()) {
+				return body;
+			}
+
+			String result = body;
+			for (Object override : overrides) {
+				if (override == null) {
+					continue;
+				}
+
+				Boolean unique = invokeBooleanGetter(override, "isUnique", "getUnique");
+				if (!Boolean.TRUE.equals(unique)) {
+					continue;
+				}
+
+				String fieldPath = invokeStringGetter(override, "getFieldPath", "getName", "getFieldName", "getJsonPath");
+				if (fieldPath == null || fieldPath.isBlank()) {
+					continue;
+				}
+
+				String methodExpr = resolveOverrideMethodExpression(override);
+				if (methodExpr == null || methodExpr.isBlank()) {
+					continue;
+				}
+
+				String generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
+				result = replaceJsonFieldValue(result, fieldPath, generatedValue);
+			}
+			return result;
+		} catch (NoSuchMethodException ignored) {
+			return body;
+		} catch (Exception ex) {
+			log.warn("Failed to apply unique field methods for backend DTO '{}': {}", def.getName(), ex.getMessage(), ex);
+			return body;
+		}
+	}
+
+	private String resolveOverrideMethodExpression(Object override) {
+		String raw = invokeStringGetter(override,
+				"getValue",
+				"getMethodExpression",
+				"getMethodValue",
+				"getExpression");
+		if (raw != null && !raw.isBlank()) {
+			return raw.trim();
+		}
+
+		String method = invokeStringGetter(override, "getMethod", "getGeneratorMethod", "getAction");
+		if (method == null || method.isBlank()) {
+			return null;
+		}
+		method = method.trim();
+
+		String arg = invokeStringGetter(override, "getMethodArg", "getArgument", "getArg");
+		if ("addUuid".equals(method)) {
+			return "addUuid(" + (arg == null ? "" : arg) + ")";
+		}
+		if (method.endsWith("()") || method.contains("(")) {
+			return method;
+		}
+		return method + "()";
+	}
+
+	private String replaceJsonFieldValue(String json, String fieldPath, String newValue) {
+		if (json == null || json.isBlank() || fieldPath == null || fieldPath.isBlank()) {
+			return json;
+		}
+
+		String fieldName = fieldPath;
+		int dotIndex = fieldPath.lastIndexOf('.');
+		if (dotIndex >= 0 && dotIndex + 1 < fieldPath.length()) {
+			fieldName = fieldPath.substring(dotIndex + 1);
+		}
+
+		String escapedFieldName = Pattern.quote(fieldName);
+		String escapedValue = Matcher.quoteReplacement(escapeJsonValue(newValue));
+
+		String stringPattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*\\\")([^\\\"]*)(\\\")";
+		String replaced = json.replaceAll(stringPattern, "$1" + escapedValue + "$3");
+		if (!replaced.equals(json)) {
+			return replaced;
+		}
+
+		String nullPattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*)null";
+		replaced = json.replaceAll(nullPattern, "$1\"" + escapedValue + "\"");
+		if (!replaced.equals(json)) {
+			return replaced;
+		}
+
+		String primitivePattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*)(true|false|-?\\d+(?:\\.\\d+)?)";
+		return json.replaceAll(primitivePattern, "$1\"" + escapedValue + "\"");
+	}
+
+	private String resolveBackendTemplate(String raw, Map<String, String> nameToValue) {
+		if (raw == null || raw.isBlank()) {
+			return raw;
+		}
+
+		String resolved = raw;
+		Pattern p = Pattern.compile("\\$\\{([^}]+)}");
+		Matcher matcher = p.matcher(resolved);
+		StringBuffer sb = new StringBuffer();
+		boolean changed = false;
+
+		while (matcher.find()) {
+			String varName = matcher.group(1);
+			String varValue = nameToValue.get(varName);
+			if (varValue == null) {
+				try {
+					String formatted = variablesService.getVariableValueByNameFormatted(varName);
+					varValue = variablesService.resolveValue(formatted, nameToValue);
+					nameToValue.put(varName, varValue);
+				} catch (Exception ignored) {
+					varValue = matcher.group(0);
+				}
+			}
+			matcher.appendReplacement(sb, Matcher.quoteReplacement(varValue));
+			changed = true;
+		}
+		matcher.appendTail(sb);
+
+		if (!changed) {
+			return variablesService.resolveValue(resolved, nameToValue);
+		}
+		return sb.toString();
+	}
+
+	private String invokeStringGetter(Object target, String... methodNames) {
+		for (String methodName : methodNames) {
+			try {
+				Object value = target.getClass().getMethod(methodName).invoke(target);
+				return value == null ? null : String.valueOf(value);
+			} catch (Exception ignored) {
+			}
+		}
+		return null;
+	}
+
+	private Boolean invokeBooleanGetter(Object target, String... methodNames) {
+		for (String methodName : methodNames) {
+			try {
+				Object value = target.getClass().getMethod(methodName).invoke(target);
+				if (value instanceof Boolean b) {
+					return b;
+				}
+				if (value != null) {
+					return Boolean.parseBoolean(String.valueOf(value));
+				}
+			} catch (Exception ignored) {
+			}
+		}
+		return null;
+	}
+
+	private String escapeJsonValue(String s) {
+		if (s == null) {
+			return "";
+		}
+		return s
+				.replace("\\", "\\\\")
+				.replace("\"", "\\\"")
+				.replace("\n", "\\n")
+				.replace("\r", "\\r")
+				.replace("\t", "\\t");
 	}
 
 	private void onScenarioFinishedWithBackendAnswers(ActionWindow actionWindow, String message, int messageType) {

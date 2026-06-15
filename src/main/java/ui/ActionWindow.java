@@ -87,6 +87,7 @@ public class ActionWindow extends JFrame {
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
 		backendRequestsService = new BackendRequestsService(configService, config);
+		backendRequestsService.setVariablesService(variablesService);
 		backendRequestsService.load();
 		this.customMethodsService.load();
 		proxyCaptureService = new ProxyCaptureService(config, configService);
