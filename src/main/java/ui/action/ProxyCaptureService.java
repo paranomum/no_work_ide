@@ -11,6 +11,8 @@ import net.lightbody.bmp.core.har.HarEntry;
 import net.lightbody.bmp.core.har.HarRequest;
 import net.lightbody.bmp.proxy.CaptureType;
 import org.openqa.selenium.Proxy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ui.ActionWindow;
 
 import javax.swing.*;
@@ -35,6 +37,8 @@ public class ProxyCaptureService {
 	private final AppConfig config;
 	private final ConfigService configService;
 
+	private static final Logger log = LoggerFactory.getLogger(ProxyCaptureService.class);
+
 	public ProxyCaptureService(AppConfig config, ConfigService configService) {
 		this.config = config;
 		this.configService = configService;
@@ -47,10 +51,9 @@ public class ProxyCaptureService {
 
 		applyTrustStoreSettings();
 
-		System.out.println("== TLS DEBUG ==");
-		System.out.println("trustStore     = " + System.getProperty("javax.net.ssl.trustStore"));
-		System.out.println("trustStorePass = " + System.getProperty("javax.net.ssl.trustStorePassword"));
-		System.out.println("trustStoreType = " + System.getProperty("javax.net.ssl.trustStoreType"));
+		log.info("TLS settings: trustStore={}, trustStoreType={}",
+				System.getProperty("javax.net.ssl.trustStore"),
+				System.getProperty("javax.net.ssl.trustStoreType"));
 
 		proxy = new BrowserMobProxyServer();
 		proxy.enableHarCaptureTypes(
@@ -60,13 +63,30 @@ public class ProxyCaptureService {
 				CaptureType.RESPONSE_CONTENT
 		);
 		proxy.start(0);
+
+		log.info("BrowserMob started: started={}, port={}",
+				proxy.isStarted(),
+				proxy.getPort());
 	}
 
 	public Proxy createSeleniumProxy() {
 		if (proxy == null || !proxy.isStarted()) {
 			throw new IllegalStateException("Proxy is not started");
 		}
-		return ClientUtil.createSeleniumProxy(proxy);
+
+		int port = proxy.getPort();
+		String hostPort = "127.0.0.1:" + port;
+
+		Proxy seleniumProxy = new Proxy();
+		seleniumProxy.setProxyType(Proxy.ProxyType.MANUAL);
+		seleniumProxy.setHttpProxy(hostPort);
+		seleniumProxy.setSslProxy(hostPort);
+		seleniumProxy.setNoProxy("");
+
+		System.out.println("== SELENIUM PROXY DEBUG ==");
+		System.out.println("proxy host:port = " + hostPort);
+
+		return seleniumProxy;
 	}
 
 	public void startCapture(String harLabel) {
