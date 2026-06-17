@@ -2,9 +2,7 @@ package ui.action;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import dto.ActionRecord;
-import dto.LocalVariables;
-import dto.Scenario;
+import dto.*;
 import lombok.SneakyThrows;
 import lombok.val;
 import model.ElementType;
@@ -18,10 +16,7 @@ import javax.swing.table.DefaultTableModel;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
@@ -33,6 +28,7 @@ public class ActionFileService {
 	private final CustomMethodsService customMethodsService;
 	private final VariablesService variablesService;
 	private TestGeneratorService testGeneratorService;
+	private BackendRequestsService backendRequestsService;
 
 	@SneakyThrows
 	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService, VariablesService variablesService) {
@@ -48,6 +44,10 @@ public class ActionFileService {
 			throw e;
 		}
 
+	}
+
+	public void setBackendRequestsService(BackendRequestsService backendRequestsService) {
+		this.backendRequestsService = backendRequestsService;
 	}
 
 	// --------- Публичный вход ---------
@@ -99,53 +99,44 @@ public class ActionFileService {
 	private void saveJsonPlan() {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save actions");
-		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-				"JSON files", "json"));
+		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files", "json"));
 
 		int result = chooser.showSaveDialog(parent);
-		if (result != JFileChooser.APPROVE_OPTION) {
-			return;
-		}
+		if (result != JFileChooser.APPROVE_OPTION) return;
 
 		File file = chooser.getSelectedFile();
 		if (!file.getName().toLowerCase().endsWith(".json")) {
 			file = new File(file.getParentFile(), file.getName() + ".json");
 		}
 
-		// ВАЖНО: сначала забираем актуальные значения из таблицы Variables
-		variablesService.syncVariablesFromTable();
-
 		List<ActionRecord> rows = buildActionRecords();
 		List<LocalVariables> vars = variablesService.getVariables();
 
-		Scenario scenario = new Scenario(rows, vars);
+		// Собираем backend-запросы, используемые в сценарии
+		List<BackendRequestDef> usedBackendRequests = new ArrayList<>();
+		if (backendRequestsService != null) {
+			for (String name : collectUsedBackendRequestNames()) {
+				BackendRequestDef def = backendRequestsService.findByName(name);
+				if (def != null) usedBackendRequests.add(def);
+			}
+		}
 
-		try (Writer writer = new OutputStreamWriter(
-				new FileOutputStream(file), StandardCharsets.UTF_8)) {
+		List<String> usedNames = collectUsedBackendRequestNames();
+		Map<String, ScenarioBackendConfig> scenarioOverrides = buildScenarioOverrides(usedNames);
+		Scenario scenario = new Scenario(rows, vars, usedBackendRequests, scenarioOverrides);
 
-			Gson gson = new GsonBuilder()
-					.setPrettyPrinting()
-					.create();
+		try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+			Gson gson = new GsonBuilder().setPrettyPrinting().create();
 			gson.toJson(scenario, writer);
 			writer.flush();
-
-			JOptionPane.showMessageDialog(
-					parent,
-					"Table saved to:\n" + file.getAbsolutePath(),
-					"Save Successful",
-					JOptionPane.INFORMATION_MESSAGE
-			);
+			JOptionPane.showMessageDialog(parent,
+					"Table saved to:\n" + file.getAbsolutePath(), "Save Successful",
+					JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception ex) {
-			TestRecorderErrorLogger.logError(
-					"Failed to save table\n", ex
-			);
-			ex.printStackTrace();
-			JOptionPane.showMessageDialog(
-					parent,
-					"Failed to save table: " + ex.getMessage(),
-					"Error",
-					JOptionPane.ERROR_MESSAGE
-			);
+			TestRecorderErrorLogger.logError("Failed to save table\n", ex);
+			JOptionPane.showMessageDialog(parent,
+					"Failed to save table: " + ex.getMessage(), "Error",
+					JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
@@ -357,6 +348,7 @@ public class ActionFileService {
 				records = scenario.getActions();
 				// грузим переменные в variablesService
 				loadVariablesIntoService(scenario.getVariables());
+				importBackendRequestsFromScenario(scenario.getBackendRequests());
 			} else if (recordsArray != null) {
 				records = List.of(recordsArray);
 				// переменных нет (старый формат) — можно очистить или оставить как есть
@@ -430,56 +422,64 @@ public class ActionFileService {
 	private void saveJsonPlanWithInlinedCustomMethods() {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save full test plan (inline custom methods)");
-		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-				"JSON files", "json"));
+		chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JSON files", "json"));
 
 		int result = chooser.showSaveDialog(parent);
-		if (result != JFileChooser.APPROVE_OPTION) {
-			return;
-		}
+		if (result != JFileChooser.APPROVE_OPTION) return;
 
 		File file = chooser.getSelectedFile();
 		if (!file.getName().toLowerCase().endsWith(".json")) {
 			file = new File(file.getParentFile(), file.getName() + ".json");
 		}
 
-		// ВАЖНО: сначала забираем актуальные значения из таблицы Variables
-		variablesService.syncVariablesFromTable();
-
 		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
 		List<LocalVariables> vars = variablesService.getVariables();
 
-		Scenario scenario = new Scenario(rows, vars);
+		// Собираем backend-запросы, используемые в сценарии
+		List<BackendRequestDef> usedBackendRequests = new ArrayList<>();
+		if (backendRequestsService != null) {
+			for (String name : collectUsedBackendRequestNames()) {
+				BackendRequestDef def = backendRequestsService.findByName(name);
+				if (def != null) usedBackendRequests.add(def);
+			}
+		}
 
-		try (Writer writer = new OutputStreamWriter(
-				new FileOutputStream(file), StandardCharsets.UTF_8)) {
+		List<String> usedNames = collectUsedBackendRequestNames();
+		Map<String, ScenarioBackendConfig> scenarioOverrides = buildScenarioOverrides(usedNames);
+		Scenario scenario = new Scenario(rows, vars, usedBackendRequests, scenarioOverrides);
 
-			Gson gson = new GsonBuilder()
-					.setPrettyPrinting()
-					.create();
+		try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+			Gson gson = new GsonBuilder().setPrettyPrinting().create();
 			gson.toJson(scenario, writer);
 			writer.flush();
-
-			JOptionPane.showMessageDialog(
-					parent,
+			JOptionPane.showMessageDialog(parent,
 					"Full test plan (inline) saved to:\n" + file.getAbsolutePath(),
-					"Save Successful",
-					JOptionPane.INFORMATION_MESSAGE
-			);
+					"Save Successful", JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception ex) {
-			TestRecorderErrorLogger.logError(
-					"Failed to save full test plan\n", ex
-			);
-			ex.printStackTrace();
-			JOptionPane.showMessageDialog(
-					parent,
-					"Failed to save full test plan: " + ex.getMessage(),
-					"Error",
-					JOptionPane.ERROR_MESSAGE
-			);
+			TestRecorderErrorLogger.logError("Failed to save full test plan\n", ex);
+			JOptionPane.showMessageDialog(parent,
+					"Failed to save full test plan: " + ex.getMessage(), "Error",
+					JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
+	private void importBackendRequestsFromScenario(List<BackendRequestDef> backendRequests) {
+		if (backendRequests == null || backendRequests.isEmpty() || backendRequestsService == null) return;
+		int imported = 0;
+		for (BackendRequestDef def : backendRequests) {
+			if (def == null || def.getName() == null || def.getName().isBlank()) continue;
+			if (backendRequestsService.findByName(def.getName()) == null) {
+				backendRequestsService.addRequest(def);
+				imported++;
+			}
+		}
+		if (imported > 0) {
+			backendRequestsService.save();
+			JOptionPane.showMessageDialog(parent,
+					"Импортировано " + imported + " backend-запрос(ов) из сценария.",
+					"Импорт backend-запросов", JOptionPane.INFORMATION_MESSAGE);
+		}
+	}
 
 	private List<ActionRecord> buildActionRecordsWithInlinedCustomMethods() {
 		List<ActionRecord> result = new ArrayList<>();
@@ -600,6 +600,39 @@ public class ActionFileService {
 
 		System.out.println("after refreshTableFromVariables variablesService.getVariables() = " + variablesService.getVariables());
 		System.out.println("=== loadVariablesIntoService END ===");
+	}
+
+	private List<String> collectUsedBackendRequestNames() {
+		List<String> names = new ArrayList<>();
+		Set<String> seen = new LinkedHashSet<>();
+		for (int r = 0; r < tableModel.getRowCount(); r++) {
+			Object actionObj = tableModel.getValueAt(r, 1);
+			String actionCode = actionObj instanceof model.UserAction
+					? ((model.UserAction) actionObj).getCode()
+					: (actionObj != null ? actionObj.toString() : null);
+			if ("useBackendMethod".equals(actionCode)) {
+				String name = String.valueOf(tableModel.getValueAt(r, 3)).trim();
+				if (!name.isEmpty() && seen.add(name)) {
+					names.add(name);
+				}
+			}
+		}
+		return names;
+	}
+
+	private Map<String, ScenarioBackendConfig> buildScenarioOverrides(List<String> usedRequestNames) {
+		if (backendRequestsService == null || usedRequestNames.isEmpty()) return null;
+		Map<String, ScenarioBackendConfig> overrides = new java.util.LinkedHashMap<>();
+		for (String name : usedRequestNames) {
+			BackendRequestDef def = backendRequestsService.findByName(name);
+			if (def == null) continue;
+			List<DtoFieldOverride> fo = def.getFieldOverrides();
+			List<ResponseFieldExtractor> re = def.getResponseExtractors();
+			if ((fo != null && !fo.isEmpty()) || (re != null && !re.isEmpty())) {
+				overrides.put(name, new ScenarioBackendConfig(fo, re));
+			}
+		}
+		return overrides.isEmpty() ? null : overrides;
 	}
 }
 

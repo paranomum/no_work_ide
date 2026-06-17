@@ -3,6 +3,7 @@ package ui.action;
 import com.codeborne.selenide.WebDriverRunner;
 import dto.ActionRecord;
 import dto.BackendRequestDef;
+import dto.ScenarioBackendConfig;
 import dto.UsersServiceSpec;
 import lombok.Getter;
 import lombok.Setter;
@@ -53,6 +54,7 @@ public class PlayActionService {
 	private final CustomMethodsService customMethodsService;
 	private final BackendRequestsService backendRequestsService;
 	private final VariablesService variablesService;
+	private Map<String, ScenarioBackendConfig> currentScenarioOverrides;
 
 	private Thread playThread;
 	@Getter @Setter
@@ -77,6 +79,10 @@ public class PlayActionService {
 		this.backendRequestsService = backendRequestsService;
 		this.variablesService = variablesService;
 		log.info("PlayActionService created, speedMode=FAST");
+	}
+
+	public void setCurrentScenarioOverrides(Map<String, ScenarioBackendConfig> overrides) {
+		this.currentScenarioOverrides = overrides;
 	}
 
 	public void playActionsFromTable(ActionWindow actionWindow, int startRowIndex, boolean onlyOne) {

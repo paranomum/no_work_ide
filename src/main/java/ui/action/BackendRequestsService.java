@@ -105,6 +105,15 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				}
 			}
 		}
+		Set<String> names = new java.util.HashSet<>();
+		for (BackendRequestDef r : updated) {
+			if (!names.add(r.getName())) {
+				JOptionPane.showMessageDialog(parentDialog,
+						"Дублирующееся имя: '" + r.getName() + "'. Все имена должны быть уникальны.",
+						"Ошибка валидации", JOptionPane.ERROR_MESSAGE);
+				return;
+			}
+		}
 		setRequests(updated);
 		save();
 		JOptionPane.showMessageDialog(parentDialog, "Backend requests saved", "Saved",
@@ -448,9 +457,71 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		});
 		cancelBtn.addActionListener(e -> dlg.dispose());
 
+		JButton mergeBtn = new JButton("🔄 Обновить DTO (сохранить настройки)");
+		mergeBtn.setToolTipText(
+				"Заменяет тело запроса и заголовки новым значением, НЕ затирая fieldOverrides и responseExtractors");
+		mergeBtn.addActionListener(e -> {
+			if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+
+			// Запоминаем текущие fieldOverrides и extractors из таблиц UI
+			List<DtoFieldOverride> existingOverrides = new ArrayList<>();
+			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
+				boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
+				String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
+				String method    = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+				String arg       = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
+				if (!fieldPath.isEmpty()) existingOverrides.add(new DtoFieldOverride(fieldPath, method, arg, isUnique));
+			}
+			List<ResponseFieldExtractor> existingExtractors = new ArrayList<>();
+			for (int r = 0; r < extractorModel.getRowCount(); r++) {
+				String fp = String.valueOf(extractorModel.getValueAt(r, 0)).trim();
+				String vn = String.valueOf(extractorModel.getValueAt(r, 1)).trim();
+				if (!fp.isEmpty()) existingExtractors.add(new ResponseFieldExtractor(fp, vn));
+			}
+
+			// Обновляем только тело/заголовки/метод/url/имя
+			def.setName(nameField.getText().trim());
+			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
+			def.setUrl(urlField.getText().trim());
+			def.setRequestBody(bodyArea.getText());
+			def.setRequestHeaders(headersArea.getText());
+
+			// Восстанавливаем настройки, которые были до обновления
+			def.setFieldOverrides(existingOverrides);
+			def.setResponseExtractors(existingExtractors);
+
+			// Добавляем в fieldOverrides новые поля из тела, которых ещё нет
+			List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
+			Set<String> existingPaths = existingOverrides.stream()
+					.map(DtoFieldOverride::getFieldPath)
+					.collect(java.util.stream.Collectors.toSet());
+			int added = 0;
+			for (String path : newPaths) {
+				if (!existingPaths.contains(path)) {
+					def.getFieldOverrides().add(new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false));
+					added++;
+				}
+			}
+
+			save();
+			dlg.dispose();
+
+			if (added > 0) {
+				JOptionPane.showMessageDialog(parent,
+						"DTO обновлено. Добавлено " + added + " новых полей в fieldOverrides (disabled по умолчанию).\n" +
+								"Все предыдущие настройки сохранены.",
+						"Merge Done", JOptionPane.INFORMATION_MESSAGE);
+			} else {
+				JOptionPane.showMessageDialog(parent,
+						"DTO обновлено. Все предыдущие настройки сохранены.",
+						"Merge Done", JOptionPane.INFORMATION_MESSAGE);
+			}
+		});
+
 		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		buttons.add(saveBtn);
 		buttons.add(cancelBtn);
+		buttons.add(mergeBtn);
 
 		JPanel southPanel = new JPanel(new BorderLayout(4, 2));
 		southPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
@@ -577,6 +648,20 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	}
 
 	public void addRequest(BackendRequestDef def) {
+		BackendRequestDef existing = findByName(def.getName());
+		if (existing != null) {
+			throw new IllegalArgumentException("Запрос с именем '" + def.getName() + "' уже существует. Используйте другое имя.");
+		}
+		requests.add(def);
+	}
+
+	public void addOrReplaceRequest(BackendRequestDef def) {
+		for (int i = 0; i < requests.size(); i++) {
+			if (Objects.equals(requests.get(i).getName(), def.getName())) {
+				requests.set(i, def);
+				return;
+			}
+		}
 		requests.add(def);
 	}
 

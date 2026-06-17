@@ -208,10 +208,17 @@ public class CaptureResultDialog extends JDialog {
 			}
 			captured.setResponseExtractors(extractors);
 
-			backendRequestsService.addRequest(captured);
+			try {
+				backendRequestsService.addRequest(captured);
+			} catch (IllegalArgumentException ex) {
+				JOptionPane.showMessageDialog(this,
+						ex.getMessage() + "\n\nИзмените имя запроса в поле выше.",
+						"Имя уже занято", JOptionPane.WARNING_MESSAGE);
+				return; // не закрываем диалог, даём изменить имя
+			}
 			backendRequestsService.save();
 			saved = true;
-			JOptionPane.showMessageDialog(this, "Запрос сохранён: " + name,
+			JOptionPane.showMessageDialog(this, "Запрос сохранён: " + captured.getName(),
 					"Сохранено", JOptionPane.INFORMATION_MESSAGE);
 			dispose();
 		});
