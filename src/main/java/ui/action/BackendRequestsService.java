@@ -8,6 +8,7 @@ import com.google.gson.JsonSyntaxException;
 import dto.AppConfig;
 import dto.BackendRequestDef;
 import dto.DtoFieldOverride;
+import dto.ResponseFieldExtractor;
 import model.VariableAction;
 import ui.AbstractTableSettingsPanel;
 
@@ -201,9 +202,43 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		headersTabContent.add(headersHeaderBar,               BorderLayout.NORTH);
 		headersTabContent.add(new JScrollPane(headersArea),   BorderLayout.CENTER);
 
+		DefaultTableModel extractorModel = new DefaultTableModel(
+				new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0) {
+			@Override public boolean isCellEditable(int r, int c) { return true; }
+		};
+		for (ResponseFieldExtractor ex : def.getResponseExtractors()) {
+			extractorModel.addRow(new Object[]{ex.getFieldPath(), ex.getVariableName()});
+		}
+		JTable extractorTable = new JTable(extractorModel);
+		extractorTable.setRowHeight(22);
+
+		JButton addExtBtn = new JButton("+");
+		JButton removeExtBtn = new JButton("-");
+		addExtBtn.addActionListener(e -> extractorModel.addRow(new Object[]{"", ""}));
+		removeExtBtn.addActionListener(e -> {
+			int r = extractorTable.getSelectedRow();
+			if (r >= 0) { if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing(); extractorModel.removeRow(r); }
+		});
+
+		JPanel extBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		extBar.add(new JLabel("Поля ответа:"));
+		extBar.add(addExtBtn);
+		extBar.add(removeExtBtn);
+
+		JLabel extHint = new JLabel(
+				"<html><font color='gray' size='2'>Переменная доступна как <b>${requestName.fieldPath}</b> — отображается как <b>json(fieldPath)</b></font></html>"
+		);
+		extHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+		JPanel extractorTabContent = new JPanel(new BorderLayout(2, 2));
+		extractorTabContent.add(extBar, BorderLayout.NORTH);
+		extractorTabContent.add(new JScrollPane(extractorTable), BorderLayout.CENTER);
+		extractorTabContent.add(extHint, BorderLayout.SOUTH);
+
 		JTabbedPane centerTabs = new JTabbedPane();
 		centerTabs.addTab("Request Body", bodyTabContent);
 		centerTabs.addTab("Headers",      headersTabContent);
+		centerTabs.addTab("Response Extractors", extractorTabContent);
 
 		dlg.add(centerTabs, BorderLayout.CENTER);
 
@@ -398,6 +433,17 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			def.setFieldOverrides(overrides);
 
 			save();
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+			List<ResponseFieldExtractor> extractors = new ArrayList<>();
+			for (int r = 0; r < extractorModel.getRowCount(); r++) {
+				String fp = String.valueOf(extractorModel.getValueAt(r, 0)).trim();
+				String vn = String.valueOf(extractorModel.getValueAt(r, 1)).trim();
+				if (!fp.isEmpty()) {
+					if (vn.isEmpty()) vn = def.getName() + "." + fp;
+					extractors.add(new ResponseFieldExtractor(fp, vn));
+				}
+			}
+			def.setResponseExtractors(extractors);
 			dlg.dispose();
 		});
 		cancelBtn.addActionListener(e -> dlg.dispose());

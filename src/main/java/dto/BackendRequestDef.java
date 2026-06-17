@@ -17,6 +17,8 @@ public class BackendRequestDef {
 	private String requestBody;
 	private String requestHeaders;
 	private String capturedAt;
+	private String capturedResponseBody;
+	private List<ResponseFieldExtractor> responseExtractors = new ArrayList<>();
 
 	/**
 	 * Список полей, значения которых нужно генерировать уникально при каждом запуске.
@@ -42,6 +44,11 @@ public class BackendRequestDef {
 			fieldOverrides = new ArrayList<>();
 		}
 		return fieldOverrides;
+	}
+
+	public List<ResponseFieldExtractor> getResponseExtractors() {
+		if (responseExtractors == null) responseExtractors = new ArrayList<>();
+		return responseExtractors;
 	}
 
 	@Override

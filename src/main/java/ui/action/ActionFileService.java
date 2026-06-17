@@ -112,8 +112,11 @@ public class ActionFileService {
 			file = new File(file.getParentFile(), file.getName() + ".json");
 		}
 
+		// ВАЖНО: сначала забираем актуальные значения из таблицы Variables
+		variablesService.syncVariablesFromTable();
+
 		List<ActionRecord> rows = buildActionRecords();
-		List<LocalVariables> vars = variablesService.getVariables(); // уже есть метод
+		List<LocalVariables> vars = variablesService.getVariables();
 
 		Scenario scenario = new Scenario(rows, vars);
 
@@ -440,9 +443,10 @@ public class ActionFileService {
 			file = new File(file.getParentFile(), file.getName() + ".json");
 		}
 
-		// шаги с развернутыми customMethod
+		// ВАЖНО: сначала забираем актуальные значения из таблицы Variables
+		variablesService.syncVariablesFromTable();
+
 		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
-		// текущие переменные окружения
 		List<LocalVariables> vars = variablesService.getVariables();
 
 		Scenario scenario = new Scenario(rows, vars);
@@ -574,21 +578,28 @@ public class ActionFileService {
 	}
 
 	private void loadVariablesIntoService(List<LocalVariables> vars) {
-		if (vars == null || vars.isEmpty()) {
-			return;
-		}
+		System.out.println("=== loadVariablesIntoService START ===");
+		System.out.println("vars from json = " + vars);
 
-		// если нужно очищать предыдущие переменные перед загрузкой — добавь clear()
-		 variablesService.clear();
+		variablesService.clear();
+		System.out.println("after clear variablesService.getVariables() = " + variablesService.getVariables());
 
-		for (LocalVariables v : vars) {
-			if (v == null || v.getName() == null || v.getName().isBlank()) {
-				continue;
+		if (vars != null) {
+			for (LocalVariables v : vars) {
+				System.out.println("adding var = " + v);
+				if (v == null || v.getName() == null || v.getName().isBlank()) {
+					continue;
+				}
+				variablesService.addVariable(v);
 			}
-			variablesService.addVariable(v);
 		}
+
+		System.out.println("after addVariable variablesService.getVariables() = " + variablesService.getVariables());
+
+		variablesService.refreshTableFromVariables();
+
+		System.out.println("after refreshTableFromVariables variablesService.getVariables() = " + variablesService.getVariables());
+		System.out.println("=== loadVariablesIntoService END ===");
 	}
-
-
 }
 

@@ -78,6 +78,7 @@ public class BrowserService {
 		// NEW: прокидываем proxy в браузер
 		if (seleniumProxy != null) {
 			chromeOptions.setProxy(seleniumProxy);
+			chromeOptions.addArguments("--proxy-bypass-list=autofaq-hr.rt.ru;localhost;127.0.0.1");
 		}
 
 		String osName = System.getProperty("os.name");

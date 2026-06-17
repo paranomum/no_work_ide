@@ -13,7 +13,7 @@ public class AppConfig {
 
 	public String trustStorePath = "";
 	public String trustStorePassword = "changeit";
-	public String trustStoreType = "JKS";
+	public String trustStoreType = "PKCS12";
 
 	public Map<String, Integer> actionTableColumnWidths = new HashMap<>();
 }

@@ -5,6 +5,7 @@ import dto.AppConfig;
 import dto.BackendRequestDef;
 import net.lightbody.bmp.BrowserMobProxy;
 import net.lightbody.bmp.BrowserMobProxyServer;
+import net.lightbody.bmp.core.har.HarResponse;
 import net.lightbody.bmp.client.ClientUtil;
 import net.lightbody.bmp.core.har.Har;
 import net.lightbody.bmp.core.har.HarEntry;
@@ -76,15 +77,15 @@ public class ProxyCaptureService {
 
 		int port = proxy.getPort();
 		String hostPort = "127.0.0.1:" + port;
+		String noProxyHosts = "autofaq-hr.rt.ru,localhost,127.0.0.1";
 
 		Proxy seleniumProxy = new Proxy();
 		seleniumProxy.setProxyType(Proxy.ProxyType.MANUAL);
 		seleniumProxy.setHttpProxy(hostPort);
 		seleniumProxy.setSslProxy(hostPort);
-		seleniumProxy.setNoProxy("");
+		seleniumProxy.setNoProxy(noProxyHosts);
 
-		System.out.println("== SELENIUM PROXY DEBUG ==");
-		System.out.println("proxy host:port = " + hostPort);
+		log.info("Selenium proxy configured: proxy={}, noProxy={}", hostPort, noProxyHosts);
 
 		return seleniumProxy;
 	}
@@ -143,6 +144,9 @@ public class ProxyCaptureService {
 				continue;
 			}
 
+			// Извлекаем тело ответа из HAR
+			String responseBody = extractResponseBody(entry);
+
 			BackendRequestDef def = new BackendRequestDef(
 					deriveName(url, method),
 					url,
@@ -151,6 +155,7 @@ public class ProxyCaptureService {
 					headersJson,
 					LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 			);
+			def.setCapturedResponseBody(responseBody);
 			result.add(def);
 		}
 
@@ -427,6 +432,18 @@ public class ProxyCaptureService {
 			} catch (IOException ex) {
 				ex.printStackTrace();
 			}
+		}
+	}
+
+	private String extractResponseBody(HarEntry entry) {
+		try {
+			if (entry.getResponse() == null) return "";
+			var content = entry.getResponse().getContent();
+			if (content == null) return "";
+			String text = content.getText();
+			return text != null ? text : "";
+		} catch (Exception ignored) {
+			return "";
 		}
 	}
 }

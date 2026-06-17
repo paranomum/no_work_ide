@@ -87,7 +87,6 @@ public class ActionWindow extends JFrame {
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
 		backendRequestsService = new BackendRequestsService(configService, config);
-		backendRequestsService.setVariablesService(variablesService);
 		backendRequestsService.load();
 		this.customMethodsService.load();
 		proxyCaptureService = new ProxyCaptureService(config, configService);
@@ -117,6 +116,7 @@ public class ActionWindow extends JFrame {
 				backendRequestsService,
 				variablesService
 		);
+		backendRequestsService.setVariablesService(variablesService);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 
@@ -1558,7 +1558,7 @@ public class ActionWindow extends JFrame {
 
 	private void loadCustomMethodVariablesFromTable() {
 		// очищать или нет — по ситуации; если глобальные переменные должны жить, убери clear()
-		 variablesService.clear();
+//		 variablesService.clear();
 
 		int rowCount = tableModel.getRowCount();
 		Set<String> methodNames = new HashSet<>();

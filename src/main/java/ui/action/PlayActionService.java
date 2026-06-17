@@ -109,6 +109,8 @@ public class PlayActionService {
 
 			if (onlyOne) {
 				Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
+				System.out.println("PlayActionService variablesService.getVariables() = " + variablesService.getVariables());
+				System.out.println("PlayActionService nameToValue = " + nameToValue);
 				stopRequested = false;
 				currentRow = startRowIndex;
 				backendExecutionResults.clear();
@@ -151,6 +153,8 @@ public class PlayActionService {
 		}
 
 		Map<String, String> nameToValue = variablesService.buildAllVariableValuesMap();
+		System.out.println("PlayActionService variablesService.getVariables() = " + variablesService.getVariables());
+		System.out.println("PlayActionService nameToValue = " + nameToValue);
 		List<PlayStep> steps = buildStepsFromTable(nameToValue);
 		steps.removeIf(step ->
 				step.rowIndex < startRowIndex
@@ -736,6 +740,8 @@ public class PlayActionService {
 			throw new IllegalArgumentException("Backend request not found: " + requestName);
 		}
 
+		List<String> warnings = new ArrayList<>();
+
 		String url = resolveBackendTemplate(def.getUrl(), nameToValue);
 		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
 		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
@@ -743,45 +749,113 @@ public class PlayActionService {
 				? def.getRequestHeaders()
 				: "{}";
 
-		body = applyUniqueFieldMethods(body, def, nameToValue);
+		body = applyUniqueFieldMethods(body, def, nameToValue, warnings);
 		body = resolveBackendTemplate(body, nameToValue);
 		headers = resolveBackendTemplate(headers, nameToValue);
 
 		try {
+			driver.manage().timeouts().scriptTimeout(java.time.Duration.ofSeconds(30));
+
+			Map<String, String> mergedHeaders = new LinkedHashMap<>();
+
+			try {
+				java.lang.reflect.Type headersType =
+						new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType();
+				Map<String, String> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
+				if (parsed != null) {
+					mergedHeaders.putAll(parsed);
+				}
+			} catch (Exception ex) {
+				warnings.add("WARNING: request headers JSON parse failed, original headers text was ignored. Reason: "
+						+ ex.getMessage());
+				log.warn("Failed to parse backend request headers JSON for '{}': {}", requestName, ex.getMessage());
+			}
+
+			String cookieHeader = driver.manage().getCookies().stream()
+					.filter(Objects::nonNull)
+					.filter(c -> c.getName() != null && !c.getName().isBlank())
+					.map(c -> c.getName() + "=" + (c.getValue() != null ? c.getValue() : ""))
+					.reduce((a, b) -> a + "; " + b)
+					.orElse("");
+
+			if (!cookieHeader.isBlank()) {
+				mergedHeaders.put("Cookie", cookieHeader);
+			} else {
+				warnings.add("WARNING: browser cookies were not found, backend request may return 401.");
+			}
+
+			if (!mergedHeaders.containsKey("Content-Type") && !body.isBlank()) {
+				mergedHeaders.put("Content-Type", "application/json;charset=UTF-8");
+			}
+
+			String finalHeadersJson = new com.google.gson.Gson().toJson(mergedHeaders);
+
+			log.info(
+					"Executing backend request '{}'. method={}, url={}, cookieCount={}, warningsCount={}",
+					requestName,
+					method,
+					url,
+					driver.manage().getCookies().size(),
+					warnings.size()
+			);
+
 			Object raw = ((JavascriptExecutor) driver).executeAsyncScript(
 					"var callback = arguments[arguments.length - 1];" +
-							"fetch(" + toJsString(url) + ", {" +
-							"  method: '" + method + "'," +
-							"  headers: " + headers + "," +
-							(body.isBlank() ? "" : "  body: " + toJsString(body) + ",") +
-							"  credentials: 'include'" +
-							"})" +
-							".then(async function(response) {" +
-							"  var text;" +
-							"  try {" +
-							"    var cloned = response.clone();" +
-							"    var json = await cloned.json();" +
-							"    text = JSON.stringify(json, null, 2);" +
-							"  } catch (e) {" +
-							"    text = await response.text();" +
-							"  }" +
-							"  callback({" +
-							"    ok: response.ok," +
-							"    status: response.status," +
-							"    url: response.url || " + toJsString(url) + "," +
+							"try {" +
+							"  var parsedHeaders = JSON.parse(" + toJsString(finalHeadersJson) + ");" +
+							"  fetch(" + toJsString(url) + ", {" +
 							"    method: " + toJsString(method) + "," +
-							"    body: text" +
+							"    headers: parsedHeaders," +
+							(body.isBlank() ? "" : "    body: " + toJsString(body) + ",") +
+							"    credentials: 'include'" +
+							"  })" +
+							"  .then(async function(response) {" +
+							"    var text = '';" +
+							"    var contentType = response.headers.get('content-type') || '';" +
+							"    var statusText = response.statusText || '';" +
+							"    try {" +
+							"      text = await response.text();" +
+							"    } catch (readError) {" +
+							"      text = 'ERROR_READING_BODY: ' + String(readError);" +
+							"    }" +
+							"    if (text && contentType.toLowerCase().indexOf('application/json') >= 0) {" +
+							"      try {" +
+							"        text = JSON.stringify(JSON.parse(text), null, 2);" +
+							"      } catch (ignore) {" +
+							"      }" +
+							"    }" +
+							"    callback({" +
+							"      ok: response.ok," +
+							"      status: response.status," +
+							"      statusText: statusText," +
+							"      contentType: contentType," +
+							"      url: response.url || " + toJsString(url) + "," +
+							"      method: " + toJsString(method) + "," +
+							"      body: text != null ? String(text) : ''" +
+							"    });" +
+							"  })" +
+							"  .catch(function(error) {" +
+							"    callback({" +
+							"      ok: false," +
+							"      status: 0," +
+							"      statusText: 'FETCH_ERROR'," +
+							"      contentType: ''," +
+							"      url: " + toJsString(url) + "," +
+							"      method: " + toJsString(method) + "," +
+							"      body: 'ERROR: ' + String(error)" +
+							"    });" +
 							"  });" +
-							"})" +
-							".catch(function(error) {" +
+							"} catch (e) {" +
 							"  callback({" +
 							"    ok: false," +
 							"    status: 0," +
+							"    statusText: 'SCRIPT_ERROR'," +
+							"    contentType: ''," +
 							"    url: " + toJsString(url) + "," +
 							"    method: " + toJsString(method) + "," +
-							"    body: 'ERROR: ' + String(error)" +
+							"    body: 'ERROR: ' + String(e)" +
 							"  });" +
-							"});"
+							"}"
 			);
 
 			BackendExecutionResult result = new BackendExecutionResult();
@@ -790,6 +864,7 @@ public class PlayActionService {
 			result.url = url;
 			result.success = true;
 			result.responseBody = "";
+			result.warnings = new ArrayList<>(warnings);
 
 			if (raw instanceof Map<?, ?> map) {
 				Object methodObj = map.get("method");
@@ -802,15 +877,29 @@ public class PlayActionService {
 				result.url = urlObj != null ? String.valueOf(urlObj) : url;
 				result.responseBody = bodyObj != null ? String.valueOf(bodyObj) : "";
 				result.success = okObj instanceof Boolean ? (Boolean) okObj : true;
+				result.status = statusObj instanceof Number n ? n.longValue() : 0L;
 
 				log.info(
-						"Backend request '{}' executed. method={}, url={}, status={}, ok={}",
+						"Backend request '{}' executed. method={}, url={}, status={}, ok={}, bodyLength={}, warningsCount={}",
 						requestName,
 						result.method,
 						result.url,
-						statusObj,
-						result.success
+						result.status,
+						result.success,
+						result.responseBody != null ? result.responseBody.length() : 0,
+						result.warnings != null ? result.warnings.size() : 0
 				);
+
+				if (!result.success) {
+					log.warn(
+							"Backend request '{}' failed. method={}, url={}, status={}, body={}",
+							requestName,
+							result.method,
+							result.url,
+							result.status,
+							result.responseBody
+					);
+				}
 			} else {
 				result.responseBody = raw != null ? String.valueOf(raw) : "";
 				log.info("Backend request '{}' executed. Raw result={}", requestName, raw);
@@ -824,7 +913,9 @@ public class PlayActionService {
 			result.method = method;
 			result.url = url;
 			result.success = false;
+			result.status = 0L;
 			result.responseBody = "ERROR: " + ex.getMessage();
+			result.warnings = new ArrayList<>(warnings);
 			backendExecutionResults.add(result);
 
 			throw new RuntimeException(
@@ -834,7 +925,12 @@ public class PlayActionService {
 		}
 	}
 
-	private String applyUniqueFieldMethods(String body, BackendRequestDef def, Map<String, String> nameToValue) {
+	private String applyUniqueFieldMethods(
+			String body,
+			BackendRequestDef def,
+			Map<String, String> nameToValue,
+			List<String> warnings
+	) {
 		if (body == null || body.isBlank() || def == null) {
 			return body;
 		}
@@ -846,6 +942,7 @@ public class PlayActionService {
 			}
 
 			String result = body;
+
 			for (Object override : overrides) {
 				if (override == null) {
 					continue;
@@ -856,38 +953,91 @@ public class PlayActionService {
 					continue;
 				}
 
-				String fieldPath = invokeStringGetter(override, "getFieldPath", "getName", "getFieldName", "getJsonPath");
+				String fieldPath = invokeStringGetter(
+						override,
+						"getFieldPath", "getName", "getFieldName", "getJsonPath"
+				);
 				if (fieldPath == null || fieldPath.isBlank()) {
 					continue;
 				}
 
-				String methodExpr = resolveOverrideMethodExpression(override);
-				if (methodExpr == null || methodExpr.isBlank()) {
+				String methodExpr;
+				try {
+					methodExpr = resolveOverrideMethodExpression(override);
+				} catch (Exception ex) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: failed to build method expression, keeping original DTO value. Reason: "
+							+ ex.getMessage());
 					continue;
 				}
 
-				String generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
-				result = replaceJsonFieldValue(result, fieldPath, generatedValue);
+				if (methodExpr == null || methodExpr.isBlank()) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: method expression is null/blank, keeping original DTO value.");
+					continue;
+				}
+
+				String generatedValue;
+				try {
+					generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
+				} catch (Exception ex) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: resolve error for expression '" + methodExpr
+							+ "', keeping original DTO value. Reason: " + ex.getMessage());
+					continue;
+				}
+
+				if (generatedValue == null) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: resolved value is null for expression '" + methodExpr
+							+ "', keeping original DTO value.");
+					continue;
+				}
+
+				String trimmedValue = generatedValue.trim();
+				if (trimmedValue.isEmpty()) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: resolved value is blank for expression '" + methodExpr
+							+ "', keeping original DTO value.");
+					continue;
+				}
+
+				if ("null".equalsIgnoreCase(trimmedValue)) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: resolved value is literal 'null' for expression '" + methodExpr
+							+ "', keeping original DTO value.");
+					continue;
+				}
+
+				try {
+					String replaced = replaceJsonFieldValue(result, fieldPath, generatedValue);
+					if (Objects.equals(replaced, result)) {
+						warnings.add("WARNING: field '" + fieldPath
+								+ "' was not substituted: field not found in DTO body, original DTO value kept.");
+						continue;
+					}
+					result = replaced;
+				} catch (Exception ex) {
+					warnings.add("WARNING: field '" + fieldPath
+							+ "' was not substituted: replace error, keeping original DTO value. Reason: "
+							+ ex.getMessage());
+				}
 			}
+
 			return result;
 		} catch (NoSuchMethodException ignored) {
 			return body;
 		} catch (Exception ex) {
-			log.warn("Failed to apply unique field methods for backend DTO '{}': {}", def.getName(), ex.getMessage(), ex);
+			warnings.add("WARNING: failed to apply DTO field overrides for request '"
+					+ (def.getName() != null ? def.getName() : "")
+					+ "', original DTO body kept. Reason: " + ex.getMessage());
+			log.warn("Failed to apply unique field methods for backend DTO '{}': {}",
+					def.getName(), ex.getMessage(), ex);
 			return body;
 		}
 	}
 
 	private String resolveOverrideMethodExpression(Object override) {
-		String raw = invokeStringGetter(override,
-				"getValue",
-				"getMethodExpression",
-				"getMethodValue",
-				"getExpression");
-		if (raw != null && !raw.isBlank()) {
-			return raw.trim();
-		}
-
 		String method = invokeStringGetter(override, "getMethod", "getGeneratorMethod", "getAction");
 		if (method == null || method.isBlank()) {
 			return null;
@@ -895,9 +1045,19 @@ public class PlayActionService {
 		method = method.trim();
 
 		String arg = invokeStringGetter(override, "getMethodArg", "getArgument", "getArg");
-		if ("addUuid".equals(method)) {
-			return "addUuid(" + (arg == null ? "" : arg) + ")";
+		if (arg == null) arg = "";
+
+		// "use variable" — возвращаем arg напрямую (там уже лежит ${varName} или конкретное значение)
+		if ("use variable".equals(method)) {
+			return arg.isBlank() ? null : arg;
 		}
+
+		// addUuid(prefix) — если arg сам является ${varName}, то resolveValue его раскроет
+		if ("addUuid".equals(method)) {
+			return "addUuid(" + arg + ")";
+		}
+
+		// generateEmail / generatePhoneNumber / прочие
 		if (method.endsWith("()") || method.contains("(")) {
 			return method;
 		}
@@ -1056,6 +1216,22 @@ public class PlayActionService {
 				sb.append(r.url != null ? r.url : "");
 				sb.append("\n");
 				sb.append("==================================================\n");
+				sb.append("status: ").append(r.status).append("\n");
+				sb.append("success: ").append(r.success).append("\n");
+
+				if (r.requestName != null && !r.requestName.isBlank()) {
+					sb.append("requestName: ").append(r.requestName).append("\n");
+				}
+
+				if (r.warnings != null && !r.warnings.isEmpty()) {
+					sb.append("\n");
+					sb.append("WARNINGS:\n");
+					for (String warning : r.warnings) {
+						sb.append("- ").append(warning).append("\n");
+					}
+				}
+
+				sb.append("\n");
 
 				String responseBody = r.responseBody == null ? "" : r.responseBody.trim();
 				if (responseBody.isEmpty()) {
@@ -1119,5 +1295,7 @@ public class PlayActionService {
 		String url;
 		String responseBody;
 		boolean success;
+		long status;
+		List<String> warnings = new ArrayList<>();
 	}
 }

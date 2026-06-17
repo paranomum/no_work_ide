@@ -4,38 +4,43 @@ import dto.LocalVariables;
 import ui.AbstractTableSettingsPanel;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
-import java.awt.*;
+import javax.swing.table.TableCellEditor;
 import java.util.*;
-import java.util.List;
 
 import static ru.rt.iqhr.framework.util.StringUtils.*;
 
 public class VariablesService extends AbstractTableSettingsPanel {
 
-	private final Map<String, LocalVariables> variables = new HashMap<>();
+	private final Map<String, LocalVariables> variables = new LinkedHashMap<>();
 
 	private JTable variablesTable;
 	private DefaultTableModel variablesTableModel;
 
 	public void addVariable(String name, String value, String method) {
+		if (name == null || name.isBlank()) {
+			return;
+		}
 		variables.put(name, new LocalVariables(name, value, method));
 	}
 
 	public void addVariable(String name, String value) {
+		if (name == null || name.isBlank()) {
+			return;
+		}
+
 		String method = null;
 		String raw = value;
 
 		if (value != null &&
-			(value.startsWith("generateEmail(") ||
-			 value.startsWith("generatePhoneNumber(") ||
-			 value.startsWith("addUuid("))) {
+				(value.startsWith("generateEmail(")
+						|| value.startsWith("generatePhoneNumber(")
+						|| value.startsWith("addUuid("))) {
 
 			int idx = value.indexOf('(');
 			int last = value.lastIndexOf(')');
 			if (idx > 0 && last > idx) {
-				method = value.substring(idx == -1 ? 0 : 0, idx);
+				method = value.substring(0, idx);
 				raw = value.substring(idx + 1, last);
 			}
 		}
@@ -43,54 +48,140 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		variables.put(name, new LocalVariables(name, raw, method));
 	}
 
-	// перегрузка, если уже есть готовый объект
 	public void addVariable(LocalVariables variable) {
+		System.out.println("VariablesService.addVariable input = " + variable);
+
+		if (variable == null || variable.getName() == null || variable.getName().isBlank()) {
+			throw new IllegalArgumentException("Variable is null or has empty name");
+		}
+
 		variables.put(variable.getName(), variable);
+
+		System.out.println("VariablesService.addVariable map after put = " + variables);
 	}
 
-	// получить текущий список переменных (read‑only)
+	private void stopTableEditing() {
+		if (variablesTable != null && variablesTable.isEditing()) {
+			TableCellEditor editor = variablesTable.getCellEditor();
+			if (editor != null) {
+				editor.stopCellEditing();
+			}
+		}
+	}
+
+	public void syncVariablesFromTable() {
+		stopTableEditing();
+
+		if (variablesTableModel == null) {
+			return;
+		}
+
+		Map<String, LocalVariables> fromTable = new LinkedHashMap<>();
+
+		for (int row = 0; row < variablesTableModel.getRowCount(); row++) {
+			String name = Objects.toString(variablesTableModel.getValueAt(row, 0), "").trim();
+			String value = Objects.toString(variablesTableModel.getValueAt(row, 1), "").trim();
+
+			if (name.isEmpty()) {
+				continue;
+			}
+
+			String method = null;
+			String raw = value;
+
+			if (value != null &&
+					(value.startsWith("generateEmail(")
+							|| value.startsWith("generatePhoneNumber(")
+							|| value.startsWith("addUuid("))) {
+
+				int idx = value.indexOf('(');
+				int last = value.lastIndexOf(')');
+				if (idx > 0 && last > idx) {
+					method = value.substring(0, idx);
+					raw = value.substring(idx + 1, last);
+				}
+			} else if ("generateEmail()".equals(value) || "generatePhoneNumber()".equals(value)) {
+				int idx = value.indexOf('(');
+				method = value.substring(0, idx);
+				raw = "";
+			}
+
+			fromTable.put(name, new LocalVariables(name, raw, method));
+		}
+
+		variables.clear();
+		variables.putAll(fromTable);
+	}
+
 	public List<LocalVariables> getVariables() {
 		return Collections.unmodifiableList(new ArrayList<>(variables.values()));
 	}
 
-
 	public List<String> getVariableNames() {
-		return variables.keySet().stream().toList();
+		return variables.keySet().stream().sorted().toList();
 	}
 
 	public String getVariableValueByNameFormatted(String variable) {
 		LocalVariables var = variables.get(variable);
-		if (var.getMethod() != null && !var.getMethod().equals("addUuid"))
+		if (var == null) {
+			throw new IllegalArgumentException("Variable not found: " + variable);
+		}
+
+		if (var.getMethod() != null && !"addUuid".equals(var.getMethod())) {
 			return var.getMethod() + "()";
-		else if (var.getMethod() != null)
-			return "addUuid(" + var.getValue() + ")";
-		else
+		} else if ("addUuid".equals(var.getMethod())) {
+			return "addUuid(" + (var.getValue() != null ? var.getValue() : "") + ")";
+		} else {
 			return var.getValue();
+		}
 	}
 
 	public String getVariableValueByName(String variable) {
-		LocalVariables var = variables.get(variable.substring(2, variable.length() - 1));
-		if (var.getMethod() != null && !var.getMethod().equals("addUuid"))
+		String variableName = variable;
+
+		if (variableName != null && variableName.startsWith("${") && variableName.endsWith("}")) {
+			variableName = variableName.substring(2, variableName.length() - 1);
+		}
+
+		LocalVariables var = variables.get(variableName);
+		if (var == null) {
+			throw new IllegalArgumentException("Variable not found: " + variableName);
+		}
+
+		if (var.getMethod() != null && !"addUuid".equals(var.getMethod())) {
 			return var.getMethod() + "()";
-		else if (var.getMethod() != null)
-			return "addUuid(" + var.getValue() + ")";
-		else
+		} else if ("addUuid".equals(var.getMethod())) {
+			return "addUuid(" + (var.getValue() != null ? var.getValue() : "") + ")";
+		} else {
 			return var.getValue();
+		}
 	}
 
 	public void clear() {
+		System.out.println("VariablesService.clear BEFORE = " + variables);
+
 		variables.clear();
+
+		if (variablesTableModel != null) {
+			variablesTableModel.setRowCount(0);
+			variablesTableModel.fireTableDataChanged();
+		}
+		if (variablesTable != null) {
+			variablesTable.revalidate();
+			variablesTable.repaint();
+		}
+
+		System.out.println("VariablesService.clear AFTER = " + variables);
 	}
 
 	public JPanel createVariablesSettingsPanel(JDialog parentDialog) {
 		JPanel panel = buildTablePanel(
 				"Variables",
-				new String[] {"Variable Name", "Value"},
+				new String[]{"Variable Name", "Value"},
 				() -> saveVariables(parentDialog),
 				null
 		);
 
-		// связываем наследуемые поля с нашими
 		this.variablesTable = this.table;
 		this.variablesTableModel = this.model;
 
@@ -99,24 +190,40 @@ public class VariablesService extends AbstractTableSettingsPanel {
 	}
 
 	private void loadVariablesIntoTable() {
+		if (variablesTableModel == null) {
+			return;
+		}
+
 		variablesTableModel.setRowCount(0);
+
 		for (LocalVariables v : variables.values()) {
 			String display;
 			if (v.getMethod() != null && !"addUuid".equals(v.getMethod())) {
 				display = v.getMethod() + "()";
 			} else if ("addUuid".equals(v.getMethod())) {
-				display = "addUuid(" + v.getValue() + ")";
+				display = "addUuid(" + (v.getValue() != null ? v.getValue() : "") + ")";
 			} else {
 				display = v.getValue();
 			}
+
 			variablesTableModel.addRow(new Object[]{v.getName(), display});
+		}
+
+		variablesTableModel.fireTableDataChanged();
+	}
+
+	public void refreshTableFromVariables() {
+		loadVariablesIntoTable();
+		if (variablesTable != null) {
+			variablesTable.revalidate();
+			variablesTable.repaint();
 		}
 	}
 
 	public Map<String, String> buildAllVariableValuesMap() {
-		Map<String, String> result = new HashMap<>();
+		Map<String, String> result = new LinkedHashMap<>();
 
-		for (LocalVariables v : getVariables()) {
+		for (LocalVariables v : variables.values()) {
 			String name = v.getName();
 			if (name == null || name.isBlank()) {
 				continue;
@@ -126,7 +233,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			if (v.getMethod() != null && !"addUuid".equals(v.getMethod())) {
 				base = v.getMethod() + "()";
 			} else if ("addUuid".equals(v.getMethod())) {
-				base = "addUuid(" + v.getValue() + ")";
+				base = "addUuid(" + (v.getValue() != null ? v.getValue() : "") + ")";
 			} else {
 				base = v.getValue();
 			}
@@ -139,18 +246,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 	}
 
 	private void saveVariables(JDialog parentDialog) {
-		variables.clear(); // сбрасываем старые
-
-		for (int row = 0; row < variablesTableModel.getRowCount(); row++) {
-			String name = Objects.toString(variablesTableModel.getValueAt(row, 0), "").trim();
-			String value = Objects.toString(variablesTableModel.getValueAt(row, 1), "").trim();
-
-			if (name.isEmpty()) {
-				continue; // игнорим пустые
-			}
-
-			addVariable(name, value);
-		}
+		syncVariablesFromTable();
 
 		JOptionPane.showMessageDialog(
 				parentDialog,
@@ -165,29 +261,36 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			return rawValue;
 		}
 
-		String value = rawValue;
+		String value = rawValue.trim();
 
-		// ${varName}
 		if (value.startsWith("${") && value.endsWith("}")) {
 			String varName = value.substring(2, value.length() - 1);
 
-			// если не было ещё посчитано, берём базовое форматированное значение
 			if (!nameToValue.containsKey(varName)) {
 				String formatted = getVariableValueByNameFormatted(varName);
-				nameToValue.put(varName, formatted);
+				if (formatted == null) {
+					throw new IllegalArgumentException("Variable '" + varName + "' resolved to null");
+				}
+
+				String resolvedFormatted = resolveValue(formatted, nameToValue);
+				nameToValue.put(varName, resolvedFormatted);
 			}
 
 			value = nameToValue.get(varName);
 		}
 
-		// дальше — интерпретация специальных методов
+		if (value == null) {
+			return null;
+		}
+
 		if (value.startsWith("addUuid(") && value.endsWith(")")) {
 			String arg = value.substring(8, value.length() - 1);
-			return addUuid(arg); // твой util
-		} else if (value.contains("generatePhoneNumber()")) {
-			return generatePhoneNumber(); // твой util
-		} else if (value.contains("generateEmail()")) {
-			return generateEmail(); // твой util
+			String resolvedArg = resolveValue(arg, nameToValue);
+			return addUuid(resolvedArg != null ? resolvedArg : "");
+		} else if (value.equals("generatePhoneNumber()")) {
+			return generatePhoneNumber();
+		} else if (value.equals("generateEmail()")) {
+			return generateEmail();
 		}
 
 		return value;

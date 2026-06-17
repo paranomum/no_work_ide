@@ -73,7 +73,7 @@ public class CaptureListDialog extends JDialog {
 		add(new JScrollPane(listTable), BorderLayout.CENTER);
 
 		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-		JButton openBtn = new JButton("Открыть / Сохранить");
+		JButton openBtn = new JButton("Открыть запрос");;
 		JButton closeBtn = new JButton("Закрыть");
 
 		openBtn.addActionListener(e -> openSelected());
@@ -94,8 +94,11 @@ public class CaptureListDialog extends JDialog {
 		BackendRequestDef def = captured.get(row);
 		CaptureResultDialog resultDlg = new CaptureResultDialog((Frame) getOwner(), def, backendRequestsService);
 		resultDlg.setVisible(true);
+		// НЕ закрываем список — пользователь возвращается назад и может выбрать следующий
 		if (resultDlg.isSaved()) {
-			dispose();
+			// обновляем строку в таблице, чтобы визуально отметить сохранённый запрос
+			listModel.setValueAt("✅ " + def.getMethod(), row, 0);
+			listTable.repaint();
 		}
 	}
 }
