@@ -83,12 +83,18 @@ public class CaptureResultDialog extends JDialog {
 		headersArea.setRows(5);
 		headersArea.setLineWrap(true);
 
-		String rawResponse = captured.getCapturedResponseBody() != null ? captured.getCapturedResponseBody() : "";
+		String rawResponse = captured.getCapturedResponseBody();
+		if (rawResponse == null || rawResponse.isBlank()) {
+			rawResponse = "[response body is empty or was not captured]";
+		}
+
 		JTextArea responseArea = new JTextArea(beautifyJson(rawResponse));
 		responseArea.setEditable(false);
 		responseArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 		responseArea.setLineWrap(true);
+		responseArea.setWrapStyleWord(false);
 		responseArea.setBackground(new Color(245, 250, 245));
+		responseArea.setCaretPosition(0);
 
 		// ── Таблица extractors ─────────────────────────────────────────────
 		extractorModel = new DefaultTableModel(new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0) {

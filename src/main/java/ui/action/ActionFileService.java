@@ -29,6 +29,7 @@ public class ActionFileService {
 	private final VariablesService variablesService;
 	private TestGeneratorService testGeneratorService;
 	private BackendRequestsService backendRequestsService;
+	private PlayActionService playActionServiceRef;
 
 	@SneakyThrows
 	public ActionFileService(JFrame parent, DefaultTableModel tableModel, CustomMethodsService customMethodsService, VariablesService variablesService) {
@@ -48,6 +49,9 @@ public class ActionFileService {
 
 	public void setBackendRequestsService(BackendRequestsService backendRequestsService) {
 		this.backendRequestsService = backendRequestsService;
+	}
+	public void setPlayActionServiceRef(PlayActionService playActionService) {
+		this.playActionServiceRef = playActionService;
 	}
 
 	// --------- Публичный вход ---------
@@ -349,6 +353,13 @@ public class ActionFileService {
 				// грузим переменные в variablesService
 				loadVariablesIntoService(scenario.getVariables());
 				importBackendRequestsFromScenario(scenario.getBackendRequests());
+				if (scenario.getScenarioOverrides() != null) {
+					// playActionService доступен через ActionWindow, поэтому прокидываем через callback/setter
+					// В ActionFileService добавить поле:
+					if (this.playActionServiceRef != null) {
+						this.playActionServiceRef.setCurrentScenarioOverrides(scenario.getScenarioOverrides());
+					}
+				}
 			} else if (recordsArray != null) {
 				records = List.of(recordsArray);
 				// переменных нет (старый формат) — можно очистить или оставить как есть

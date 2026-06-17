@@ -5,11 +5,10 @@ import dto.AppConfig;
 import dto.BackendRequestDef;
 import net.lightbody.bmp.BrowserMobProxy;
 import net.lightbody.bmp.BrowserMobProxyServer;
-import net.lightbody.bmp.core.har.HarResponse;
-import net.lightbody.bmp.client.ClientUtil;
 import net.lightbody.bmp.core.har.Har;
 import net.lightbody.bmp.core.har.HarEntry;
 import net.lightbody.bmp.core.har.HarRequest;
+import net.lightbody.bmp.core.har.HarResponse;
 import net.lightbody.bmp.proxy.CaptureType;
 import org.openqa.selenium.Proxy;
 import org.slf4j.Logger;
@@ -19,14 +18,15 @@ import ui.ActionWindow;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 public class ProxyCaptureService {
@@ -85,8 +85,7 @@ public class ProxyCaptureService {
 		seleniumProxy.setSslProxy(hostPort);
 		seleniumProxy.setNoProxy(noProxyHosts);
 
-		log.info("Selenium proxy configured: proxy={}, noProxy={}", hostPort, noProxyHosts);
-
+		log.info("Selenium proxy configured: proxy={}", hostPort);
 		return seleniumProxy;
 	}
 
@@ -94,8 +93,10 @@ public class ProxyCaptureService {
 		if (proxy == null || !proxy.isStarted()) {
 			throw new IllegalStateException("Proxy is not started");
 		}
+
 		proxy.newHar(harLabel != null ? harLabel : "capture");
 		captureActive = true;
+		log.info("Capture started: {}", harLabel);
 	}
 
 	public boolean isCaptureActive() {
@@ -138,14 +139,12 @@ public class ProxyCaptureService {
 
 			String body = extractBody(req);
 			String headersJson = extractHeaders(req);
+			String responseBody = extractResponseBody(entry);
 
 			String dedupeKey = method + "|" + url + "|" + body;
 			if (!seen.add(dedupeKey)) {
 				continue;
 			}
-
-			// Извлекаем тело ответа из HAR
-			String responseBody = extractResponseBody(entry);
 
 			BackendRequestDef def = new BackendRequestDef(
 					deriveName(url, method),
@@ -157,8 +156,15 @@ public class ProxyCaptureService {
 			);
 			def.setCapturedResponseBody(responseBody);
 			result.add(def);
+
+			log.info("Captured request: method={}, url={}, requestBodyLength={}, responseBodyLength={}",
+					method,
+					url,
+					body != null ? body.length() : 0,
+					responseBody != null ? responseBody.length() : 0);
 		}
 
+		log.info("Capture finished. Total backend-like requests captured: {}", result.size());
 		return result;
 	}
 
@@ -310,7 +316,7 @@ public class ProxyCaptureService {
 				}
 
 				if (req.getPostData().getParams() != null && !req.getPostData().getParams().isEmpty()) {
-					Map<String, Object> paramsMap = new LinkedHashMap<>();
+					Map<String, String> paramsMap = new LinkedHashMap<>();
 					req.getPostData().getParams().forEach(p -> {
 						String name = p.getName() != null ? p.getName() : "";
 						String value = p.getValue() != null ? p.getValue() : "";
@@ -325,7 +331,6 @@ public class ProxyCaptureService {
 			}
 		} catch (Exception ignored) {
 		}
-
 		return "";
 	}
 
@@ -356,7 +361,6 @@ public class ProxyCaptureService {
 			}
 		} catch (Exception ignored) {
 		}
-
 		return method + " request";
 	}
 
@@ -437,12 +441,50 @@ public class ProxyCaptureService {
 
 	private String extractResponseBody(HarEntry entry) {
 		try {
-			if (entry.getResponse() == null) return "";
-			var content = entry.getResponse().getContent();
-			if (content == null) return "";
-			String text = content.getText();
-			return text != null ? text : "";
-		} catch (Exception ignored) {
+			if (entry == null) {
+				return "";
+			}
+
+			HarResponse response = entry.getResponse();
+			if (response == null) {
+				log.warn("HAR response is null");
+				return "";
+			}
+
+			if (response.getContent() == null) {
+				log.warn("HAR response content is null for url={}",
+						entry.getRequest() != null ? entry.getRequest().getUrl() : "unknown");
+				return "";
+			}
+
+			String mimeType = response.getContent().getMimeType();
+			String encoding = response.getContent().getEncoding();
+			String text = response.getContent().getText();
+
+			log.info("Response capture info: url={}, status={}, mimeType={}, encoding={}, textLength={}",
+					entry.getRequest() != null ? entry.getRequest().getUrl() : "unknown",
+					response.getStatus(),
+					mimeType,
+					encoding,
+					text != null ? text.length() : 0);
+
+			if (text == null || text.isBlank()) {
+				return "";
+			}
+
+			if (encoding != null && encoding.equalsIgnoreCase("base64")) {
+				try {
+					byte[] decoded = Base64.getDecoder().decode(text);
+					return new String(decoded, StandardCharsets.UTF_8);
+				} catch (Exception ex) {
+					log.warn("Failed to decode base64 response body: {}", ex.getMessage());
+					return text;
+				}
+			}
+
+			return text;
+		} catch (Exception ex) {
+			log.warn("Failed to extract response body: {}", ex.getMessage(), ex);
 			return "";
 		}
 	}

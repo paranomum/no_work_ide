@@ -120,6 +120,7 @@ public class ActionWindow extends JFrame {
 		driver = null;
 		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 		fileService.setBackendRequestsService(backendRequestsService);
+		fileService.setPlayActionServiceRef(playActionService);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());

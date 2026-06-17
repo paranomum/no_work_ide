@@ -4,6 +4,8 @@ import com.codeborne.selenide.WebDriverRunner;
 import dto.ActionRecord;
 import dto.BackendRequestDef;
 import dto.ScenarioBackendConfig;
+import dto.DtoFieldOverride;
+import dto.ResponseFieldExtractor;
 import dto.UsersServiceSpec;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,6 +43,9 @@ import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 
 public class PlayActionService {
 
@@ -913,6 +918,9 @@ public class PlayActionService {
 
 			backendExecutionResults.add(result);
 
+			// Извлекаем переменные из JSON-ответа после фактического выполнения запроса
+			extractResponseVariables(def, result.responseBody, nameToValue);
+
 		} catch (Exception ex) {
 			BackendExecutionResult result = new BackendExecutionResult();
 			result.requestName = requestName;
@@ -939,6 +947,38 @@ public class PlayActionService {
 	) {
 		if (body == null || body.isBlank() || def == null) {
 			return body;
+		}
+
+		// Приоритет у сценарных overrides. Если они есть — используем их вместо глобальных.
+		List<DtoFieldOverride> scenarioFo = getScenarioFieldOverrides(def.getName());
+		if (scenarioFo != null && !scenarioFo.isEmpty()) {
+			String result = body;
+			for (DtoFieldOverride override : scenarioFo) {
+				if (override == null || !Boolean.TRUE.equals(override.isUnique())) {
+					continue;
+				}
+				String fieldPath = override.getFieldPath();
+				if (fieldPath == null || fieldPath.isBlank()) {
+					continue;
+				}
+				String methodExpr = buildMethodExpression(override);
+				if (methodExpr == null || methodExpr.isBlank()) {
+					continue;
+				}
+				try {
+					String generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
+					if (generatedValue == null || generatedValue.isBlank() || "null".equalsIgnoreCase(generatedValue.trim())) {
+						continue;
+					}
+					String replaced = replaceJsonFieldValue(result, fieldPath, generatedValue);
+					if (!Objects.equals(replaced, result)) {
+						result = replaced;
+					}
+				} catch (Exception ex) {
+					warnings.add("WARNING: scenario field '" + fieldPath + "' was not substituted: " + ex.getMessage());
+				}
+			}
+			return result;
 		}
 
 		try {
@@ -1294,6 +1334,102 @@ public class PlayActionService {
 				.replace("\n", "\\n")
 				.replace("\r", "\\r") + "'";
 	}
+
+	private void extractResponseVariables(BackendRequestDef def,
+										  String responseBody,
+										  Map<String, String> nameToValue) {
+		if (def == null || responseBody == null || responseBody.isBlank()) return;
+
+		List<ResponseFieldExtractor> extractors = getScenarioExtractors(def.getName());
+		if (extractors == null || extractors.isEmpty()) {
+			extractors = def.getResponseExtractors();
+		}
+		if (extractors == null || extractors.isEmpty()) return;
+
+		try {
+			JsonElement root = JsonParser.parseString(responseBody);
+			for (ResponseFieldExtractor extractor : extractors) {
+				if (extractor == null || extractor.getFieldPath() == null || extractor.getFieldPath().isBlank()) continue;
+				String value = extractJsonValue(root, extractor.getFieldPath());
+				if (value != null) {
+					String varName = (extractor.getVariableName() != null && !extractor.getVariableName().isBlank())
+							? extractor.getVariableName()
+							: def.getName() + "." + extractor.getFieldPath();
+					nameToValue.put(varName, value);
+					variablesService.addVariable(varName, value);
+					log.info("Extracted response variable: {} = {}", varName, value);
+				}
+			}
+		} catch (JsonSyntaxException ex) {
+			log.warn("Response body for '{}' is not valid JSON, cannot extract variables: {}", def.getName(), ex.getMessage());
+		} catch (Exception ex) {
+			log.warn("Failed to extract response variables for '{}': {}", def.getName(), ex.getMessage());
+		}
+	}
+
+	private String extractJsonValue(JsonElement root, String fieldPath) {
+		try {
+			String[] parts = fieldPath.split("\\.");
+			JsonElement current = root;
+			for (String part : parts) {
+				if (current == null || current.isJsonNull()) return null;
+				if (part.contains("[")) {
+					String key = part.substring(0, part.indexOf('['));
+					int idx = Integer.parseInt(part.replaceAll("[^0-9]", ""));
+					if (!key.isEmpty() && current.isJsonObject()) {
+						current = current.getAsJsonObject().get(key);
+					}
+					if (current != null && current.isJsonArray() && idx < current.getAsJsonArray().size()) {
+						current = current.getAsJsonArray().get(idx);
+					} else {
+						return null;
+					}
+				} else {
+					if (current.isJsonObject()) {
+						current = current.getAsJsonObject().get(part);
+					} else {
+						return null;
+					}
+				}
+			}
+			return (current != null && !current.isJsonNull()) ? current.getAsString() : null;
+		} catch (Exception e) {
+			log.debug("extractJsonValue failed for path '{}': {}", fieldPath, e.getMessage());
+			return null;
+		}
+	}
+
+	private List<ResponseFieldExtractor> getScenarioExtractors(String requestName) {
+		if (currentScenarioOverrides == null) return null;
+		ScenarioBackendConfig cfg = currentScenarioOverrides.get(requestName);
+		return cfg != null ? cfg.getResponseExtractors() : null;
+	}
+
+	private List<DtoFieldOverride> getScenarioFieldOverrides(String requestName) {
+		if (currentScenarioOverrides == null) return null;
+		ScenarioBackendConfig cfg = currentScenarioOverrides.get(requestName);
+		return cfg != null ? cfg.getFieldOverrides() : null;
+	}
+
+	private String buildMethodExpression(DtoFieldOverride override) {
+		String method = override.getMethod();
+		if (method == null || method.isBlank()) return null;
+		method = method.trim();
+
+		if ("use variable".equals(method)) {
+			String arg = override.getMethodArg();
+			return (arg != null && !arg.isBlank()) ? arg : null;
+		}
+		if ("addUuid".equals(method)) {
+			String arg = override.getMethodArg();
+			return "addUuid(" + (arg != null ? arg : "") + ")";
+		}
+		if (method.endsWith("()") || method.contains("(")) {
+			return method;
+		}
+		return method + "()";
+	}
+
 
 	private static class BackendExecutionResult {
 		String requestName;
