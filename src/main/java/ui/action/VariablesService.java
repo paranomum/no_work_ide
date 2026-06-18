@@ -273,8 +273,15 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 		String value = rawValue.trim();
 
-		if (value.startsWith("${") && value.endsWith("}")) {
-			String varName = value.substring(2, value.length() - 1);
+		while (value.contains("${") && value.contains("}")) {
+			int start = value.indexOf("${");
+			int end = value.indexOf("}", start + 2);
+
+			if (start < 0 || end <= start + 2) {
+				break;
+			}
+
+			String varName = value.substring(start + 2, end);
 
 			if (!nameToValue.containsKey(varName)) {
 				String formatted = getVariableValueByNameFormatted(varName);
@@ -286,7 +293,8 @@ public class VariablesService extends AbstractTableSettingsPanel {
 				nameToValue.put(varName, resolvedFormatted);
 			}
 
-			value = nameToValue.get(varName);
+			String resolvedValue = nameToValue.get(varName);
+			value = value.substring(0, start) + resolvedValue + value.substring(end + 1);
 		}
 
 		if (value == null) {

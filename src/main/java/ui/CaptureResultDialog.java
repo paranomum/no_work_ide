@@ -13,7 +13,9 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class CaptureResultDialog extends JDialog {
 
@@ -39,7 +41,6 @@ public class CaptureResultDialog extends JDialog {
 	private void buildUi() {
 		setLayout(new BorderLayout(8, 8));
 
-		// ── NORTH: мета-информация ─────────────────────────────────────────
 		JPanel metaPanel = new JPanel(new GridBagLayout());
 		metaPanel.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createTitledBorder("Информация о запросе"),
@@ -72,7 +73,6 @@ public class CaptureResultDialog extends JDialog {
 
 		add(metaPanel, BorderLayout.NORTH);
 
-		// ── CENTER: табы Request Body / Response Body ──────────────────────
 		JTextArea bodyArea = new JTextArea(captured.getRequestBody() != null ? captured.getRequestBody() : "");
 		bodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 		bodyArea.setLineWrap(true);
@@ -85,23 +85,44 @@ public class CaptureResultDialog extends JDialog {
 
 		String rawResponse = captured.getCapturedResponseBody();
 		if (rawResponse == null || rawResponse.isBlank()) {
-			rawResponse = "[response body is empty or was not captured]";
+			rawResponse = "";
 		}
 
 		JTextArea responseArea = new JTextArea(beautifyJson(rawResponse));
-		responseArea.setEditable(false);
+		responseArea.setEditable(true);
 		responseArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 		responseArea.setLineWrap(true);
 		responseArea.setWrapStyleWord(false);
 		responseArea.setBackground(new Color(245, 250, 245));
 		responseArea.setCaretPosition(0);
 
-		// ── Таблица extractors ─────────────────────────────────────────────
+		JPanel requestBodyPanel = new JPanel(new BorderLayout());
+		requestBodyPanel.setBorder(BorderFactory.createTitledBorder("Request Body"));
+		requestBodyPanel.add(new JScrollPane(bodyArea), BorderLayout.CENTER);
+
+		JPanel headersPanel = new JPanel(new BorderLayout());
+		headersPanel.setBorder(BorderFactory.createTitledBorder("Headers"));
+		headersPanel.add(new JScrollPane(headersArea), BorderLayout.CENTER);
+
+		JSplitPane dtoTopSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, requestBodyPanel, headersPanel);
+		dtoTopSplit.setDividerLocation(230);
+		dtoTopSplit.setResizeWeight(0.72);
+		dtoTopSplit.setBorder(null);
+
+		JPanel dtoTabContent = new JPanel(new BorderLayout());
+		dtoTabContent.add(dtoTopSplit, BorderLayout.CENTER);
+
+		JScrollPane responseScroll = new JScrollPane(responseArea);
+		responseScroll.setBorder(BorderFactory.createTitledBorder("Response Body Template"));
+		responseScroll.setPreferredSize(new Dimension(700, 240));
+
 		extractorModel = new DefaultTableModel(new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0) {
-			@Override public boolean isCellEditable(int r, int c) { return true; }
+			@Override
+			public boolean isCellEditable(int r, int c) {
+				return true;
+			}
 		};
 
-		// Загружаем уже существующие extractors (если редактируем повторно)
 		for (ResponseFieldExtractor ex : captured.getResponseExtractors()) {
 			extractorModel.addRow(new Object[]{ex.getFieldPath(), ex.getVariableName()});
 		}
@@ -130,6 +151,7 @@ public class CaptureResultDialog extends JDialog {
 
 		parseResponseBtn.addActionListener(e -> {
 			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+
 			String respText = responseArea.getText().trim();
 			List<String> paths = extractJsonLeafPaths(respText);
 			if (paths.isEmpty()) {
@@ -138,16 +160,24 @@ public class CaptureResultDialog extends JDialog {
 						"Parse error", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
+
+			Set<String> existing = new HashSet<>();
+			for (int i = 0; i < extractorModel.getRowCount(); i++) {
+				existing.add(String.valueOf(extractorModel.getValueAt(i, 0)).trim());
+			}
+
 			String reqName = nameField.getText().trim().isEmpty() ? captured.getName() : nameField.getText().trim();
+
 			for (String path : paths) {
-				// Имя переменной: requestName.fieldPath → отображается как json(fieldPath)
-				String varName = reqName + "." + path;
-				extractorModel.addRow(new Object[]{path, varName});
+				if (!existing.contains(path)) {
+					String varName = reqName + "." + path;
+					extractorModel.addRow(new Object[]{path, varName});
+				}
 			}
 		});
 
 		JPanel extractorTopBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		extractorTopBar.add(new JLabel("Поля из ответа:"));
+		extractorTopBar.add(new JLabel("Response Extractors:"));
 		extractorTopBar.add(addExtractorBtn);
 		extractorTopBar.add(removeExtractorBtn);
 		extractorTopBar.add(parseResponseBtn);
@@ -161,31 +191,25 @@ public class CaptureResultDialog extends JDialog {
 		extractorHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
 
 		JPanel extractorPanel = new JPanel(new BorderLayout(2, 2));
+		extractorPanel.setBorder(BorderFactory.createTitledBorder("Извлечение переменных из ответа"));
 		extractorPanel.add(extractorTopBar, BorderLayout.NORTH);
 		extractorPanel.add(new JScrollPane(extractorTable), BorderLayout.CENTER);
 		extractorPanel.add(extractorHint, BorderLayout.SOUTH);
-		extractorPanel.setBorder(BorderFactory.createTitledBorder("Извлечение переменных из ответа"));
+		extractorPanel.setPreferredSize(new Dimension(700, 220));
 
-		// Response-таб
-		JPanel responseTabContent = new JPanel(new BorderLayout(4, 4));
-		responseTabContent.add(new JScrollPane(responseArea), BorderLayout.CENTER);
-		responseTabContent.add(extractorPanel, BorderLayout.SOUTH);
+		JSplitPane responseSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, responseScroll, extractorPanel);
+		responseSplit.setResizeWeight(0.55);
+		responseSplit.setDividerLocation(260);
 
-		JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-				new JScrollPane(bodyArea), new JScrollPane(headersArea));
-		split.setDividerLocation(200);
-		split.setBorder(null);
-
-		JPanel requestTabContent = new JPanel(new BorderLayout());
-		requestTabContent.add(split, BorderLayout.CENTER);
+		JPanel responseTabContent = new JPanel(new BorderLayout());
+		responseTabContent.add(responseSplit, BorderLayout.CENTER);
 
 		JTabbedPane centerTabs = new JTabbedPane();
-		centerTabs.addTab("Request Body / Headers", requestTabContent);
-		centerTabs.addTab("Response Body + Поля", responseTabContent);
+		centerTabs.addTab("DTO Template", dtoTabContent);
+		centerTabs.addTab("Response Template", responseTabContent);
 
 		add(centerTabs, BorderLayout.CENTER);
 
-		// ── SOUTH: кнопки ─────────────────────────────────────────────────
 		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		JButton saveBtn = new JButton("💾 Сохранить и вернуться к списку");
 		JButton editBtn = new JButton("Редактировать DTO");
@@ -197,11 +221,12 @@ public class CaptureResultDialog extends JDialog {
 				JOptionPane.showMessageDialog(this, "Введите имя", "Ошибка", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
+
 			captured.setName(name);
 			captured.setRequestBody(bodyArea.getText());
 			captured.setRequestHeaders(headersArea.getText());
+			captured.setCapturedResponseBody(responseArea.getText());
 
-			// Сохраняем extractors
 			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
 			List<ResponseFieldExtractor> extractors = new ArrayList<>();
 			for (int i = 0; i < extractorModel.getRowCount(); i++) {
@@ -220,8 +245,9 @@ public class CaptureResultDialog extends JDialog {
 				JOptionPane.showMessageDialog(this,
 						ex.getMessage() + "\n\nИзмените имя запроса в поле выше.",
 						"Имя уже занято", JOptionPane.WARNING_MESSAGE);
-				return; // не закрываем диалог, даём изменить имя
+				return;
 			}
+
 			backendRequestsService.save();
 			saved = true;
 			JOptionPane.showMessageDialog(this, "Запрос сохранён: " + captured.getName(),
@@ -232,10 +258,32 @@ public class CaptureResultDialog extends JDialog {
 		editBtn.addActionListener(e -> {
 			captured.setRequestBody(bodyArea.getText());
 			captured.setRequestHeaders(headersArea.getText());
+			captured.setCapturedResponseBody(responseArea.getText());
 			captured.setName(nameField.getText().trim());
+
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+			List<ResponseFieldExtractor> extractors = new ArrayList<>();
+			for (int i = 0; i < extractorModel.getRowCount(); i++) {
+				String fp = String.valueOf(extractorModel.getValueAt(i, 0)).trim();
+				String vn = String.valueOf(extractorModel.getValueAt(i, 1)).trim();
+				if (!fp.isEmpty()) {
+					if (vn.isEmpty()) vn = captured.getName() + "." + fp;
+					extractors.add(new ResponseFieldExtractor(fp, vn));
+				}
+			}
+			captured.setResponseExtractors(extractors);
+
 			backendRequestsService.openEditDtoDialogFor(this, captured);
-			bodyArea.setText(captured.getRequestBody());
-			headersArea.setText(captured.getRequestHeaders());
+
+			bodyArea.setText(captured.getRequestBody() != null ? captured.getRequestBody() : "");
+			headersArea.setText(captured.getRequestHeaders() != null ? captured.getRequestHeaders() : "{}");
+			responseArea.setText(beautifyJson(captured.getCapturedResponseBody() != null ? captured.getCapturedResponseBody() : ""));
+			responseArea.setCaretPosition(0);
+
+			extractorModel.setRowCount(0);
+			for (ResponseFieldExtractor ex : captured.getResponseExtractors()) {
+				extractorModel.addRow(new Object[]{ex.getFieldPath(), ex.getVariableName()});
+			}
 		});
 
 		closeBtn.addActionListener(e -> dispose());

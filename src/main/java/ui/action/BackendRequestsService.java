@@ -27,7 +27,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private static final String[] TABLE_COLUMNS = {"Name", "Method", "URL"};
 
 	// HTTP-методы для выпадашки
-	private static final String[] HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"};
+	private static final String[] HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"};
 
 	private JTable backendTable;
 	private DefaultTableModel backendTableModel;
@@ -144,17 +144,15 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				"Edit DTO — " + def.getName(),
 				Dialog.ModalityType.APPLICATION_MODAL
 		);
-		dlg.setSize(860, 900);
+		dlg.setSize(980, 920);
 		dlg.setLocationRelativeTo(parent);
 		dlg.setLayout(new BorderLayout(8, 8));
 
-		// ── NORTH: Name / Method / URL ────────────────────────────────────
 		JPanel top = new JPanel(new GridLayout(3, 2, 6, 6));
 		top.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
 
 		JTextField nameField = new JTextField(def.getName());
 
-		// HTTP-method выпадашка
 		JComboBox<String> httpMethodCombo = new JComboBox<>(HTTP_METHODS);
 		String currentMethod = def.getMethod() != null ? def.getMethod().toUpperCase() : "POST";
 		httpMethodCombo.setSelectedItem(
@@ -169,90 +167,70 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		dlg.add(top, BorderLayout.NORTH);
 
-		// ── CENTER: табы Body / Headers ───────────────────────────────────
-		String rawBody    = def.getRequestBody()    != null ? def.getRequestBody()    : "";
+		String rawBody = def.getRequestBody() != null ? def.getRequestBody() : "";
 		String rawHeaders = def.getRequestHeaders() != null ? def.getRequestHeaders() : "{}";
+		String rawResponse = def.getCapturedResponseBody() != null ? def.getCapturedResponseBody() : "";
 
 		JTextArea bodyArea = new JTextArea(beautifyJson(rawBody));
 		bodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
 
 		JTextArea headersArea = new JTextArea(beautifyJson(rawHeaders));
 		headersArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+		headersArea.setRows(6);
 
-		// Beautify-кнопки
-		JButton bodyBeautifyBtn    = new JButton("Beautify");
+		JTextArea responseBodyArea = new JTextArea(beautifyJson(rawResponse));
+		responseBodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+
+		JButton bodyBeautifyBtn = new JButton("Beautify");
 		JButton headersBeautifyBtn = new JButton("Beautify");
-		for (JButton btn : new JButton[]{bodyBeautifyBtn, headersBeautifyBtn}) {
+		JButton responseBeautifyBtn = new JButton("Beautify");
+
+		for (JButton btn : new JButton[]{bodyBeautifyBtn, headersBeautifyBtn, responseBeautifyBtn}) {
 			btn.setFont(btn.getFont().deriveFont(11f));
 			btn.setFocusable(false);
 		}
+
 		bodyBeautifyBtn.addActionListener(e -> {
 			String pretty = beautifyJson(bodyArea.getText());
 			bodyArea.setText(pretty);
 			bodyArea.setCaretPosition(0);
 		});
+
 		headersBeautifyBtn.addActionListener(e -> {
 			String pretty = beautifyJson(headersArea.getText());
 			headersArea.setText(pretty);
 			headersArea.setCaretPosition(0);
 		});
 
-		// Body-таб
-		JPanel bodyHeaderBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		bodyHeaderBar.add(bodyBeautifyBtn);
-		JPanel bodyTabContent = new JPanel(new BorderLayout());
-		bodyTabContent.add(bodyHeaderBar,                 BorderLayout.NORTH);
-		bodyTabContent.add(new JScrollPane(bodyArea),     BorderLayout.CENTER);
-
-		// Headers-таб
-		JPanel headersHeaderBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		headersHeaderBar.add(headersBeautifyBtn);
-		JPanel headersTabContent = new JPanel(new BorderLayout());
-		headersTabContent.add(headersHeaderBar,               BorderLayout.NORTH);
-		headersTabContent.add(new JScrollPane(headersArea),   BorderLayout.CENTER);
-
-		DefaultTableModel extractorModel = new DefaultTableModel(
-				new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0) {
-			@Override public boolean isCellEditable(int r, int c) { return true; }
-		};
-		for (ResponseFieldExtractor ex : def.getResponseExtractors()) {
-			extractorModel.addRow(new Object[]{ex.getFieldPath(), ex.getVariableName()});
-		}
-		JTable extractorTable = new JTable(extractorModel);
-		extractorTable.setRowHeight(22);
-
-		JButton addExtBtn = new JButton("+");
-		JButton removeExtBtn = new JButton("-");
-		addExtBtn.addActionListener(e -> extractorModel.addRow(new Object[]{"", ""}));
-		removeExtBtn.addActionListener(e -> {
-			int r = extractorTable.getSelectedRow();
-			if (r >= 0) { if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing(); extractorModel.removeRow(r); }
+		responseBeautifyBtn.addActionListener(e -> {
+			String pretty = beautifyJson(responseBodyArea.getText());
+			responseBodyArea.setText(pretty);
+			responseBodyArea.setCaretPosition(0);
 		});
 
-		JPanel extBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		extBar.add(new JLabel("Поля ответа:"));
-		extBar.add(addExtBtn);
-		extBar.add(removeExtBtn);
+		JPanel bodyToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		bodyToolbar.add(new JLabel("Request Body"));
+		bodyToolbar.add(bodyBeautifyBtn);
 
-		JLabel extHint = new JLabel(
-				"<html><font color='gray' size='2'>Переменная доступна как <b>${requestName.fieldPath}</b> — отображается как <b>json(fieldPath)</b></font></html>"
-		);
-		extHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+		JPanel headersToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		headersToolbar.add(new JLabel("Headers"));
+		headersToolbar.add(headersBeautifyBtn);
 
-		JPanel extractorTabContent = new JPanel(new BorderLayout(2, 2));
-		extractorTabContent.add(extBar, BorderLayout.NORTH);
-		extractorTabContent.add(new JScrollPane(extractorTable), BorderLayout.CENTER);
-		extractorTabContent.add(extHint, BorderLayout.SOUTH);
+		JPanel responseToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		responseToolbar.add(new JLabel("Response Body Template"));
+		responseToolbar.add(responseBeautifyBtn);
 
-		JTabbedPane centerTabs = new JTabbedPane();
-		centerTabs.addTab("Request Body", bodyTabContent);
-		centerTabs.addTab("Headers",      headersTabContent);
-		centerTabs.addTab("Response Extractors", extractorTabContent);
+		JPanel bodyPanel = new JPanel(new BorderLayout());
+		bodyPanel.add(bodyToolbar, BorderLayout.NORTH);
+		bodyPanel.add(new JScrollPane(bodyArea), BorderLayout.CENTER);
 
-		dlg.add(centerTabs, BorderLayout.CENTER);
+		JPanel headersPanel = new JPanel(new BorderLayout());
+		headersPanel.add(headersToolbar, BorderLayout.NORTH);
+		headersPanel.add(new JScrollPane(headersArea), BorderLayout.CENTER);
 
-		// ── SOUTH: таблица уникальных полей ──────────────────────────────
-		//   Колонки: [✓] [Field Path] [Method] [Arg / Variable]
+		JSplitPane dtoTopSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, bodyPanel, headersPanel);
+		dtoTopSplit.setResizeWeight(0.78);
+		dtoTopSplit.setDividerLocation(360);
 
 		String[] cols = {"Unique", "Field Path", "Method", "Arg / Variable"};
 		DefaultTableModel uniqueModel = new DefaultTableModel(cols, 0) {
@@ -263,17 +241,15 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 			@Override
 			public boolean isCellEditable(int row, int col) {
-				// колонка Arg/Variable — всегда редактируема (переменная может быть у любого метода)
 				return true;
 			}
 		};
 
-		// загружаем существующие overrides
 		for (DtoFieldOverride ov : def.getFieldOverrides()) {
 			uniqueModel.addRow(new Object[]{
 					ov.isUnique(),
 					ov.getFieldPath() != null ? ov.getFieldPath() : "",
-					ov.getMethod()    != null ? ov.getMethod()    : VariableAction.GENERATE_EMAIL.getCode(),
+					ov.getMethod() != null ? ov.getMethod() : VariableAction.GENERATE_EMAIL.getCode(),
 					ov.getMethodArg() != null ? ov.getMethodArg() : ""
 			});
 		}
@@ -283,14 +259,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		uniqueTable.setShowGrid(true);
 		uniqueTable.setGridColor(new Color(180, 180, 180));
 
-		// ширины колонок
 		uniqueTable.getColumnModel().getColumn(0).setPreferredWidth(55);
 		uniqueTable.getColumnModel().getColumn(0).setMaxWidth(60);
 		uniqueTable.getColumnModel().getColumn(1).setPreferredWidth(280);
 		uniqueTable.getColumnModel().getColumn(2).setPreferredWidth(180);
 		uniqueTable.getColumnModel().getColumn(3).setPreferredWidth(230);
 
-		// Method-колонка — все варианты VariableAction + "use variable"
 		String[] methodOptions = buildMethodOptions();
 		JComboBox<String> methodCombo = new JComboBox<>(methodOptions);
 		uniqueTable.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(methodCombo) {
@@ -298,19 +272,16 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			public boolean stopCellEditing() {
 				String selected = (String) methodCombo.getSelectedItem();
 				if ("use variable".equals(selected)) {
-					// показываем диалог выбора переменной
 					String varName = showVariablePickerDialog(dlg);
 					if (varName != null) {
 						int row = uniqueTable.getEditingRow();
 						super.stopCellEditing();
-						// вставляем "${varName}" в колонку Arg/Variable
 						if (row >= 0) {
 							uniqueModel.setValueAt("use variable", row, 2);
 							uniqueModel.setValueAt("${" + varName + "}", row, 3);
 						}
 						return true;
 					}
-					// отмена — откатываем выбор на предыдущий
 					cancelCellEditing();
 					return false;
 				}
@@ -318,7 +289,6 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 		});
 
-		// Рендерер колонки Arg/Variable — подсвечиваем ${...} серым фоном
 		uniqueTable.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
 			@Override
 			public Component getTableCellRendererComponent(
@@ -338,26 +308,17 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 		});
 
-		// repaint при изменении Method чтобы Arg подхватил вид
 		uniqueModel.addTableModelListener(e -> {
 			if (e.getColumn() == 2) uniqueTable.repaint();
 		});
 
-		// скроллпейн побольше
-		JScrollPane uniqueScroll = new JScrollPane(uniqueTable);
-		uniqueScroll.setPreferredSize(new Dimension(820, 200));
-		uniqueScroll.setBorder(BorderFactory.createTitledBorder("Unique Fields"));
-
-		// ── кнопки таблицы: +, -, Parse ──────────────────────────────────
-		JButton addFieldBtn    = new JButton("+");
+		JButton addFieldBtn = new JButton("+");
 		JButton removeFieldBtn = new JButton("-");
-		JButton parseBtn       = new JButton("⬇ Parse fields from Body");
+		JButton parseBtn = new JButton("⬇ Parse fields from Body");
 		parseBtn.setFont(parseBtn.getFont().deriveFont(11f));
-		parseBtn.setToolTipText("Разобрать JSON тела и добавить все листовые поля в таблицу");
 
 		addFieldBtn.addActionListener(e ->
-				uniqueModel.addRow(new Object[]{false, "",
-						VariableAction.GENERATE_EMAIL.getCode(), ""}));
+				uniqueModel.addRow(new Object[]{false, "", VariableAction.GENERATE_EMAIL.getCode(), ""}));
 
 		removeFieldBtn.addActionListener(e -> {
 			int row = uniqueTable.getSelectedRow();
@@ -385,64 +346,157 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			int added = 0;
 			for (String path : paths) {
 				if (!existing.contains(path)) {
-					uniqueModel.addRow(new Object[]{false, path,
-							VariableAction.GENERATE_EMAIL.getCode(), ""});
+					uniqueModel.addRow(new Object[]{false, path, VariableAction.GENERATE_EMAIL.getCode(), ""});
 					added++;
 				}
 			}
-			// переключаемся на Body-таб если были на Headers
-			centerTabs.setSelectedIndex(0);
+
 			JOptionPane.showMessageDialog(dlg,
 					"Добавлено " + added + " полей (дубликаты пропущены).",
 					"Done", JOptionPane.INFORMATION_MESSAGE);
 		});
 
 		JPanel fieldTopBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		fieldTopBar.add(new JLabel("Fields:"));
+		fieldTopBar.add(new JLabel("Unique Fields"));
 		fieldTopBar.add(addFieldBtn);
 		fieldTopBar.add(removeFieldBtn);
 		fieldTopBar.add(parseBtn);
 
-		JPanel uniquePanel = new JPanel(new BorderLayout(2, 2));
-		uniquePanel.add(fieldTopBar,  BorderLayout.NORTH);
-		uniquePanel.add(uniqueScroll, BorderLayout.CENTER);
-
-		// подсказка для колонки Arg/Variable
 		JLabel argHint = new JLabel(
 				"<html><font color='gray' size='2'>" +
-						"Arg/Variable: для addUuid — дефолтный префикс; " +
-						"для «use variable» — вставляется ${varName}; " +
+						"Arg/Variable: для addUuid — дефолтный префикс; для «use variable» — вставляется ${varName}; " +
 						"оба варианта можно комбинировать (addUuid + ${var} тоже сработает)." +
 						"</font></html>"
 		);
 		argHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
 
-		// ── Save / Cancel ─────────────────────────────────────────────────
-		JButton saveBtn   = new JButton("Save");
+		JPanel uniquePanel = new JPanel(new BorderLayout(2, 2));
+		uniquePanel.add(fieldTopBar, BorderLayout.NORTH);
+		uniquePanel.add(new JScrollPane(uniqueTable), BorderLayout.CENTER);
+		uniquePanel.add(argHint, BorderLayout.SOUTH);
+
+		JSplitPane dtoTabSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, dtoTopSplit, uniquePanel);
+		dtoTabSplit.setResizeWeight(0.58);
+		dtoTabSplit.setDividerLocation(430);
+
+		DefaultTableModel extractorModel = new DefaultTableModel(
+				new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0) {
+			@Override
+			public boolean isCellEditable(int r, int c) {
+				return true;
+			}
+		};
+
+		for (ResponseFieldExtractor ex : def.getResponseExtractors()) {
+			extractorModel.addRow(new Object[]{ex.getFieldPath(), ex.getVariableName()});
+		}
+
+		JTable extractorTable = new JTable(extractorModel);
+		extractorTable.setRowHeight(22);
+
+		JButton addExtBtn = new JButton("+");
+		JButton removeExtBtn = new JButton("-");
+		JButton parseResponseBtn = new JButton("⬇ Parse fields from Response");
+		parseResponseBtn.setFont(parseResponseBtn.getFont().deriveFont(11f));
+
+		addExtBtn.addActionListener(e -> extractorModel.addRow(new Object[]{"", ""}));
+
+		removeExtBtn.addActionListener(e -> {
+			int r = extractorTable.getSelectedRow();
+			if (r >= 0) {
+				if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+				extractorModel.removeRow(r);
+			}
+		});
+
+		parseResponseBtn.addActionListener(e -> {
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+
+			List<String> paths = extractJsonLeafPaths(responseBodyArea.getText().trim());
+			if (paths.isEmpty()) {
+				JOptionPane.showMessageDialog(dlg,
+						"Не удалось разобрать JSON ответа или шаблон ответа пустой.",
+						"Parse error", JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+
+			Set<String> existing = new HashSet<>();
+			for (int r = 0; r < extractorModel.getRowCount(); r++) {
+				existing.add(Objects.toString(extractorModel.getValueAt(r, 0), "").trim());
+			}
+
+			String reqName = nameField.getText().trim().isEmpty() ? def.getName() : nameField.getText().trim();
+			int added = 0;
+
+			for (String path : paths) {
+				if (!existing.contains(path)) {
+					extractorModel.addRow(new Object[]{path, reqName + "." + path});
+					added++;
+				}
+			}
+
+			JOptionPane.showMessageDialog(dlg,
+					"Добавлено " + added + " полей из ответа (дубликаты пропущены).",
+					"Done", JOptionPane.INFORMATION_MESSAGE);
+		});
+
+		JPanel extractorTopBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		extractorTopBar.add(new JLabel("Response Extractors"));
+		extractorTopBar.add(addExtBtn);
+		extractorTopBar.add(removeExtBtn);
+		extractorTopBar.add(parseResponseBtn);
+
+		JLabel extHint = new JLabel(
+				"<html><font color='gray' size='2'>" +
+						"Переменная доступна как <b>${requestName.fieldPath}</b> — отображается как <b>json(fieldPath)</b>" +
+						"</font></html>"
+		);
+		extHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+
+		JPanel responseBodyPanel = new JPanel(new BorderLayout());
+		responseBodyPanel.add(responseToolbar, BorderLayout.NORTH);
+		responseBodyPanel.add(new JScrollPane(responseBodyArea), BorderLayout.CENTER);
+
+		JPanel extractorPanel = new JPanel(new BorderLayout(2, 2));
+		extractorPanel.add(extractorTopBar, BorderLayout.NORTH);
+		extractorPanel.add(new JScrollPane(extractorTable), BorderLayout.CENTER);
+		extractorPanel.add(extHint, BorderLayout.SOUTH);
+
+		JSplitPane responseTabSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, responseBodyPanel, extractorPanel);
+		responseTabSplit.setResizeWeight(0.58);
+		responseTabSplit.setDividerLocation(430);
+
+		JTabbedPane centerTabs = new JTabbedPane();
+		centerTabs.addTab("DTO Template", dtoTabSplit);
+		centerTabs.addTab("Response Template", responseTabSplit);
+
+		dlg.add(centerTabs, BorderLayout.CENTER);
+
+		JButton saveBtn = new JButton("Save");
 		JButton cancelBtn = new JButton("Cancel");
 
 		saveBtn.addActionListener(e -> {
 			if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
 
 			def.setName(nameField.getText().trim());
 			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
 			def.setUrl(urlField.getText().trim());
 			def.setRequestBody(bodyArea.getText());
 			def.setRequestHeaders(headersArea.getText());
+			def.setCapturedResponseBody(responseBodyArea.getText());
 
 			List<DtoFieldOverride> overrides = new ArrayList<>();
 			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
 				boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
 				String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
-				String method    = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
-				String arg       = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
+				String method = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+				String arg = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
 				if (fieldPath.isEmpty()) continue;
 				overrides.add(new DtoFieldOverride(fieldPath, method, arg, isUnique));
 			}
 			def.setFieldOverrides(overrides);
 
-			save();
-			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
 			List<ResponseFieldExtractor> extractors = new ArrayList<>();
 			for (int r = 0; r < extractorModel.getRowCount(); r++) {
 				String fp = String.valueOf(extractorModel.getValueAt(r, 0)).trim();
@@ -453,52 +507,62 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				}
 			}
 			def.setResponseExtractors(extractors);
+
+			save();
 			dlg.dispose();
 		});
+
 		cancelBtn.addActionListener(e -> dlg.dispose());
 
 		JButton mergeBtn = new JButton("🔄 Обновить DTO (сохранить настройки)");
 		mergeBtn.setToolTipText(
-				"Заменяет тело запроса и заголовки новым значением, НЕ затирая fieldOverrides и responseExtractors");
+				"Заменяет тело запроса, заголовки и шаблон ответа новым значением, НЕ затирая fieldOverrides и responseExtractors");
+
 		mergeBtn.addActionListener(e -> {
 			if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
 
-			// Запоминаем текущие fieldOverrides и extractors из таблиц UI
 			List<DtoFieldOverride> existingOverrides = new ArrayList<>();
 			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
 				boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
 				String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
-				String method    = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
-				String arg       = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
-				if (!fieldPath.isEmpty()) existingOverrides.add(new DtoFieldOverride(fieldPath, method, arg, isUnique));
+				String method = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+				String arg = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
+				if (!fieldPath.isEmpty()) {
+					existingOverrides.add(new DtoFieldOverride(fieldPath, method, arg, isUnique));
+				}
 			}
+
 			List<ResponseFieldExtractor> existingExtractors = new ArrayList<>();
 			for (int r = 0; r < extractorModel.getRowCount(); r++) {
 				String fp = String.valueOf(extractorModel.getValueAt(r, 0)).trim();
 				String vn = String.valueOf(extractorModel.getValueAt(r, 1)).trim();
-				if (!fp.isEmpty()) existingExtractors.add(new ResponseFieldExtractor(fp, vn));
+				if (!fp.isEmpty()) {
+					if (vn.isEmpty()) vn = nameField.getText().trim() + "." + fp;
+					existingExtractors.add(new ResponseFieldExtractor(fp, vn));
+				}
 			}
 
-			// Обновляем только тело/заголовки/метод/url/имя
 			def.setName(nameField.getText().trim());
 			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
 			def.setUrl(urlField.getText().trim());
 			def.setRequestBody(bodyArea.getText());
 			def.setRequestHeaders(headersArea.getText());
-
-			// Восстанавливаем настройки, которые были до обновления
+			def.setCapturedResponseBody(responseBodyArea.getText());
 			def.setFieldOverrides(existingOverrides);
 			def.setResponseExtractors(existingExtractors);
 
-			// Добавляем в fieldOverrides новые поля из тела, которых ещё нет
 			List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
 			Set<String> existingPaths = existingOverrides.stream()
 					.map(DtoFieldOverride::getFieldPath)
 					.collect(java.util.stream.Collectors.toSet());
+
 			int added = 0;
 			for (String path : newPaths) {
 				if (!existingPaths.contains(path)) {
-					def.getFieldOverrides().add(new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false));
+					def.getFieldOverrides().add(
+							new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false)
+					);
 					added++;
 				}
 			}
@@ -508,12 +572,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 			if (added > 0) {
 				JOptionPane.showMessageDialog(parent,
-						"DTO обновлено. Добавлено " + added + " новых полей в fieldOverrides (disabled по умолчанию).\n" +
-								"Все предыдущие настройки сохранены.",
+						"DTO обновлено. Добавлено " + added + " новых полей в fieldOverrides.\n" +
+								"Шаблон ответа и предыдущие настройки сохранены.",
 						"Merge Done", JOptionPane.INFORMATION_MESSAGE);
 			} else {
 				JOptionPane.showMessageDialog(parent,
-						"DTO обновлено. Все предыдущие настройки сохранены.",
+						"DTO обновлено. Шаблон ответа и предыдущие настройки сохранены.",
 						"Merge Done", JOptionPane.INFORMATION_MESSAGE);
 			}
 		});
@@ -523,13 +587,11 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		buttons.add(cancelBtn);
 		buttons.add(mergeBtn);
 
-		JPanel southPanel = new JPanel(new BorderLayout(4, 2));
-		southPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-		southPanel.add(uniquePanel, BorderLayout.CENTER);
-		southPanel.add(argHint,     BorderLayout.NORTH);
-		southPanel.add(buttons,     BorderLayout.SOUTH);
+		JPanel south = new JPanel(new BorderLayout());
+		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+		south.add(buttons, BorderLayout.EAST);
 
-		dlg.add(southPanel, BorderLayout.SOUTH);
+		dlg.add(south, BorderLayout.SOUTH);
 		dlg.setVisible(true);
 	}
 
