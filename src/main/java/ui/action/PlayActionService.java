@@ -65,6 +65,7 @@ public class PlayActionService {
 	@Getter @Setter
 	private volatile boolean stopRequested = false;
 	private volatile int currentRow = -1;
+	private volatile ActionWindow currentActionWindow;
 
 	private final List<BackendExecutionResult> backendExecutionResults =
 			Collections.synchronizedList(new ArrayList<>());
@@ -112,6 +113,10 @@ public class PlayActionService {
 			);
 			return;
 		}
+
+		// УЛУЧШЕНИЕ 1: запоминаем окно и сбрасываем старые backend-метки
+		currentActionWindow = actionWindow;
+		actionWindow.clearBackendMarks();
 
 		Object actionObj = tableModel.getValueAt(startRowIndex, 1);
 		if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
@@ -291,20 +296,20 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex = r;
-			step.actionCode = actionCode;
-			step.selector = val(r, 2);
-			String rawValue = val(r, 3);
+			step.rowIndex    = r;
+			step.actionCode  = actionCode;
+			step.selector    = val(r, 2);
+			String rawValue  = val(r, 3);
 			step.javaClassName = val(r, 5);
-			step.xpath = val(r, 6);
-			step.name = val(r, 7);
-			step.index = val(r, 8);
-			step.byXpath = val(r, 9);
-			step.url = val(r, 10);
+			step.xpath       = val(r, 6);
+			step.name        = val(r, 7);
+			step.index       = val(r, 8);
+			step.byXpath     = val(r, 9);
+			step.url         = val(r, 10);
 
-			if (rawValue != null && !rawValue.isBlank()) {
-				step.value = variablesService.resolveValue(rawValue, nameToValue);
-			}
+			// БАГ 3 FIX: сохраняем сырое значение, резолвинг переносим в playOneStep
+			step.rawValue = rawValue;
+			step.value    = rawValue; // оставляем для совместимости, перезапишется в playOneStep
 
 			steps.add(step);
 		}
@@ -326,11 +331,19 @@ public class PlayActionService {
 	}
 
 	private void playOneStep(PlayStep step, Map<String, String> nameToValue) throws RuntimeException {
-		String action = step.actionCode;
-		String selector = step.selector;
-		String value = step.value;
+		String action        = step.actionCode;
+		String selector      = step.selector;
 		String javaClassName = step.javaClassName;
-		String url = step.url;
+		String url           = step.url;
+
+		// БАГ 3 FIX: резолвим rawValue прямо перед использованием,
+		// чтобы подхватить значения переменных, извлечённых предыдущими шагами
+		String value;
+		if (step.rawValue != null && !step.rawValue.isBlank()) {
+			value = variablesService.resolveValue(step.rawValue, nameToValue);
+		} else {
+			value = step.value;
+		}
 
 		boolean passValue = !action.contains("click")
 				&& !action.contains("fillDate")
@@ -530,15 +543,14 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex = -1;
-			step.actionCode = dto.getAction();
-			step.selector = dto.getSelector();
-			String rawValue = dto.getValue();
+			step.rowIndex    = -1;
+			step.actionCode  = dto.getAction();
+			step.selector    = dto.getSelector();
 			step.javaClassName = dto.getElementType();
-			step.xpath = dto.getXpath();
-			step.name = dto.getName();
-			step.index = dto.getIndex();
-			step.byXpath = dto.getByXpath();
+			step.xpath       = dto.getXpath();
+			step.name        = dto.getName();
+			step.index       = dto.getIndex();
+			step.byXpath     = dto.getByXpath();
 
 			log.debug(
 					"customStep={\"method\":\"{}\",\"action\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
@@ -552,9 +564,10 @@ public class PlayActionService {
 					nullSafe(step.byXpath)
 			);
 
-			if (rawValue != null && !rawValue.isBlank()) {
-				step.value = variablesService.resolveValue(rawValue, nameToValue);
-			}
+			// БАГ 3 FIX: сохраняем сырое значение — playOneStep сам резолвит через nameToValue
+			String rawValue = dto.getValue();
+			step.rawValue = rawValue;
+			step.value    = rawValue;
 
 			playOneStep(step, nameToValue);
 		}
@@ -579,6 +592,50 @@ public class PlayActionService {
 
 	private boolean hasText(String s) {
 		return s != null && !s.isBlank();
+	}
+
+	private void markBackendRow(int rowIndex, BackendExecutionResult result) {
+		if (currentActionWindow == null || rowIndex < 0) return;
+
+		Color color = result.success
+				? new Color(0xC8, 0xF0, 0xC8)   // зелёный — успех
+				: new Color(0xF7, 0xB7, 0xB7);  // красный — ошибка
+
+		StringBuilder tip = new StringBuilder("<html>");
+		tip.append("<b>").append(result.method != null ? result.method : "").append("</b> ");
+		tip.append(result.url != null ? result.url : "").append("<br/>");
+		tip.append("Status: <b>").append(result.status).append("</b>");
+		if (!result.success) {
+			tip.append(" ❌");
+		} else {
+			tip.append(" ✓");
+		}
+		if (result.extractedVars != null && !result.extractedVars.isEmpty()) {
+			tip.append("<br/><i>Extracted:</i>");
+			for (Map.Entry<String, String> e : result.extractedVars.entrySet()) {
+				tip.append("<br/>&nbsp;&nbsp;${").append(e.getKey()).append("} = ")
+						.append(truncate(e.getValue(), 60));
+			}
+		}
+		if (result.warnings != null && !result.warnings.isEmpty()) {
+			tip.append("<br/><font color='orange'>");
+			for (String w : result.warnings) {
+				tip.append(truncate(w, 80)).append("<br/>");
+			}
+			tip.append("</font>");
+		}
+		tip.append("</html>");
+
+		final String tooltip = tip.toString();
+		SwingUtilities.invokeLater(() -> {
+			currentActionWindow.setRowMark(rowIndex, color);
+			currentActionWindow.setRowTooltip(rowIndex, tooltip);
+		});
+	}
+
+	private static String truncate(String s, int maxLen) {
+		if (s == null) return "";
+		return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
 	}
 
 	private void showErrorOnUi(ActionWindow parent, String message) {
@@ -704,6 +761,7 @@ public class PlayActionService {
 		String actionCode;
 		String selector;
 		String value;
+		String rawValue;   // БАГ 3 FIX: сырое значение до резолвинга
 		String javaClassName;
 		String xpath;
 		String name;
@@ -753,15 +811,15 @@ public class PlayActionService {
 
 		List<String> warnings = new ArrayList<>();
 
-		String url = resolveBackendTemplate(def.getUrl(), nameToValue);
+		String url    = resolveBackendTemplate(def.getUrl(), nameToValue);
 		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
-		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
+		String body   = def.getRequestBody() != null ? def.getRequestBody() : "";
 		String headers = def.getRequestHeaders() != null && !def.getRequestHeaders().isBlank()
 				? def.getRequestHeaders()
 				: "{}";
 
-		body = applyUniqueFieldMethods(body, def, nameToValue, warnings);
-		body = resolveBackendTemplate(body, nameToValue);
+		body    = applyUniqueFieldMethods(body, def, nameToValue, warnings);
+		body    = resolveBackendTemplate(body, nameToValue);
 		headers = resolveBackendTemplate(headers, nameToValue);
 
 		try {
@@ -803,9 +861,7 @@ public class PlayActionService {
 
 			log.info(
 					"Executing backend request '{}'. method={}, url={}, cookieCount={}, warningsCount={}",
-					requestName,
-					method,
-					url,
+					requestName, method, url,
 					driver.manage().getCookies().size(),
 					warnings.size()
 			);
@@ -871,45 +927,35 @@ public class PlayActionService {
 
 			BackendExecutionResult result = new BackendExecutionResult();
 			result.requestName = requestName;
-			result.method = method;
-			result.url = url;
-			result.success = true;
+			result.method      = method;
+			result.url         = url;
+			result.success     = true;
 			result.responseBody = "";
-			result.warnings = new ArrayList<>(warnings);
+			result.warnings    = new ArrayList<>(warnings);
 
 			if (raw instanceof Map<?, ?> map) {
 				Object methodObj = map.get("method");
-				Object urlObj = map.get("url");
-				Object bodyObj = map.get("body");
-				Object okObj = map.get("ok");
+				Object urlObj    = map.get("url");
+				Object bodyObj   = map.get("body");
+				Object okObj     = map.get("ok");
 				Object statusObj = map.get("status");
 
-				result.method = methodObj != null ? String.valueOf(methodObj) : method;
-				result.url = urlObj != null ? String.valueOf(urlObj) : url;
-				result.responseBody = bodyObj != null ? String.valueOf(bodyObj) : "";
-				result.success = okObj instanceof Boolean ? (Boolean) okObj : true;
-				result.status = statusObj instanceof Number n ? n.longValue() : 0L;
+				result.method       = methodObj != null ? String.valueOf(methodObj) : method;
+				result.url          = urlObj    != null ? String.valueOf(urlObj)    : url;
+				result.responseBody = bodyObj   != null ? String.valueOf(bodyObj)   : "";
+				result.success      = okObj instanceof Boolean ? (Boolean) okObj : true;
+				result.status       = statusObj instanceof Number n ? n.longValue() : 0L;
 
 				log.info(
 						"Backend request '{}' executed. method={}, url={}, status={}, ok={}, bodyLength={}, warningsCount={}",
-						requestName,
-						result.method,
-						result.url,
-						result.status,
-						result.success,
+						requestName, result.method, result.url, result.status, result.success,
 						result.responseBody != null ? result.responseBody.length() : 0,
 						result.warnings != null ? result.warnings.size() : 0
 				);
 
 				if (!result.success) {
-					log.warn(
-							"Backend request '{}' failed. method={}, url={}, status={}, body={}",
-							requestName,
-							result.method,
-							result.url,
-							result.status,
-							result.responseBody
-					);
+					log.warn("Backend request '{}' failed. method={}, url={}, status={}, body={}",
+							requestName, result.method, result.url, result.status, result.responseBody);
 				}
 			} else {
 				result.responseBody = raw != null ? String.valueOf(raw) : "";
@@ -918,19 +964,25 @@ public class PlayActionService {
 
 			backendExecutionResults.add(result);
 
-			// Извлекаем переменные из JSON-ответа после фактического выполнения запроса
+			// Извлекаем переменные из JSON-ответа
 			extractResponseVariables(def, result.responseBody, nameToValue);
+
+			// УЛУЧШЕНИЕ 1: помечаем строку в таблице Actions цветом + tooltip
+			markBackendRow(currentRow, result);
 
 		} catch (Exception ex) {
 			BackendExecutionResult result = new BackendExecutionResult();
-			result.requestName = requestName;
-			result.method = method;
-			result.url = url;
-			result.success = false;
-			result.status = 0L;
+			result.requestName  = requestName;
+			result.method       = method;
+			result.url          = url;
+			result.success      = false;
+			result.status       = 0L;
 			result.responseBody = "ERROR: " + ex.getMessage();
-			result.warnings = new ArrayList<>(warnings);
+			result.warnings     = new ArrayList<>(warnings);
 			backendExecutionResults.add(result);
+
+			// УЛУЧШЕНИЕ 1: помечаем строку красным даже при исключении
+			markBackendRow(currentRow, result);
 
 			throw new RuntimeException(
 					"Failed to execute backend request '" + requestName + "': " + ex.getMessage(),
@@ -1346,6 +1398,17 @@ public class PlayActionService {
 		}
 		if (extractors == null || extractors.isEmpty()) return;
 
+		// УЛУЧШЕНИЕ 1: ищем последний result для данного запроса, чтобы записать извлечённые переменные
+		BackendExecutionResult lastResult = null;
+		synchronized (backendExecutionResults) {
+			for (int i = backendExecutionResults.size() - 1; i >= 0; i--) {
+				if (def.getName().equals(backendExecutionResults.get(i).requestName)) {
+					lastResult = backendExecutionResults.get(i);
+					break;
+				}
+			}
+		}
+
 		try {
 			JsonElement root = JsonParser.parseString(responseBody);
 			for (ResponseFieldExtractor extractor : extractors) {
@@ -1357,9 +1420,15 @@ public class PlayActionService {
 							: def.getName() + "." + extractor.getFieldPath();
 					nameToValue.put(varName, value);
 					variablesService.addVariable(varName, value);
+					// УЛУЧШЕНИЕ 1: сохраняем в result для tooltip
+					if (lastResult != null) {
+						lastResult.extractedVars.put(varName, value);
+					}
 					log.info("Extracted response variable: {} = {}", varName, value);
 				}
 			}
+			// БАГ 2 FIX: обновляем UI-таблицу Variables
+			variablesService.refreshTableFromVariables();
 		} catch (JsonSyntaxException ex) {
 			log.warn("Response body for '{}' is not valid JSON, cannot extract variables: {}", def.getName(), ex.getMessage());
 		} catch (Exception ex) {
@@ -1439,5 +1508,7 @@ public class PlayActionService {
 		boolean success;
 		long status;
 		List<String> warnings = new ArrayList<>();
+		// УЛУЧШЕНИЕ 1: переменные, извлечённые из ответа — для tooltip в таблице Actions
+		Map<String, String> extractedVars = new LinkedHashMap<>();
 	}
 }

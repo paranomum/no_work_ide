@@ -42,6 +42,7 @@ public class ActionWindow extends JFrame {
 	private final java.util.Deque<Runnable> undoStack = new java.util.ArrayDeque<>();
 	private final java.util.Deque<Runnable> redoStack = new java.util.ArrayDeque<>();
 	private final Map<Integer, Color> rowMarks = new HashMap<>();
+	private final Map<Integer, String> rowTooltips = new HashMap<>();
 	private final Set<String> expandedMethods = new HashSet<>();
 
 
@@ -338,6 +339,16 @@ public class ActionWindow extends JFrame {
 					}
 				}
 				return super.editCellAt(row, column, e);
+			}
+
+			// УЛУЧШЕНИЕ 1: tooltip по строке — показывает статус backend-запроса и извлечённые переменные
+			@Override
+			public String getToolTipText(MouseEvent event) {
+				int viewRow = rowAtPoint(event.getPoint());
+				if (viewRow < 0) return null;
+				int modelRow = convertRowIndexToModel(viewRow);
+				String tip = rowTooltips.get(modelRow);
+				return (tip != null && !tip.isBlank()) ? tip : null;
 			}
 		};
 		actionTable.setFillsViewportHeight(true);
@@ -1762,6 +1773,49 @@ public class ActionWindow extends JFrame {
 			} else if (name.endsWith(".jks") || name.endsWith(".cacerts")) {
 				trustStoreTypeField.setText("JKS");
 			}
+		}
+	}
+
+	/**
+	 * Помечает строку цветом (результат backend-запроса).
+	 * color == null — снимает метку.
+	 */
+	public void setRowMark(int modelRow, Color color) {
+		if (color == null) {
+			rowMarks.remove(modelRow);
+		} else {
+			rowMarks.put(modelRow, color);
+		}
+		if (actionTable != null) {
+			actionTable.repaint();
+		}
+	}
+
+	/**
+	 * Устанавливает tooltip для строки таблицы Actions.
+	 * tooltip == null — удаляет.
+	 */
+	public void setRowTooltip(int modelRow, String tooltip) {
+		if (tooltip == null) {
+			rowTooltips.remove(modelRow);
+		} else {
+			rowTooltips.put(modelRow, tooltip);
+		}
+	}
+
+	/**
+	 * Сбрасывает все backend-метки и tooltips перед новым запуском.
+	 */
+	public void clearBackendMarks() {
+		// Удаляем только те цвета, которые соответствуют backend-статусам
+		Color successColor = new Color(0xC8, 0xF0, 0xC8);
+		Color failColor    = new Color(0xF7, 0xB7, 0xB7);
+		rowMarks.entrySet().removeIf(e ->
+				successColor.equals(e.getValue()) || failColor.equals(e.getValue())
+		);
+		rowTooltips.clear();
+		if (actionTable != null) {
+			actionTable.repaint();
 		}
 	}
 }
