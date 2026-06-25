@@ -7,7 +7,7 @@ import lombok.Setter;
 
 /**
  * Одно уникальное поле в теле backend-запроса.
- *
+ * <p>
  * fieldPath  — JSON-ключ поля (например "email", "phone", "user.email")
  * method     — метод генерации: addUuid | generateEmail | generatePhoneNumber
  * methodArg  — аргумент для addUuid (префикс); для остальных методов игнорируется

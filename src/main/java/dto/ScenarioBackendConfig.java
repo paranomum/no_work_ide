@@ -17,8 +17,12 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ScenarioBackendConfig {
-	/** Переопределяет BackendRequestDef.fieldOverrides для данного сценария */
+	/**
+	 * Переопределяет BackendRequestDef.fieldOverrides для данного сценария
+	 */
 	private List<DtoFieldOverride> fieldOverrides;
-	/** Переопределяет BackendRequestDef.responseExtractors для данного сценария */
+	/**
+	 * Переопределяет BackendRequestDef.responseExtractors для данного сценария
+	 */
 	private List<ResponseFieldExtractor> responseExtractors;
 }

@@ -50,25 +50,38 @@ public class CaptureResultDialog extends JDialog {
 		gbc.anchor = GridBagConstraints.WEST;
 		gbc.insets = new Insets(3, 3, 3, 3);
 
-		gbc.gridx = 0; gbc.gridy = 0;
+		gbc.gridx = 0;
+		gbc.gridy = 0;
 		metaPanel.add(new JLabel("Метод:"), gbc);
 		JLabel methodLabel = new JLabel(captured.getMethod());
 		methodLabel.setFont(methodLabel.getFont().deriveFont(Font.BOLD));
-		gbc.gridx = 1; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.gridx = 1;
+		gbc.weightx = 1.0;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
 		metaPanel.add(methodLabel, gbc);
 
-		gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+		gbc.gridx = 0;
+		gbc.gridy = 1;
+		gbc.fill = GridBagConstraints.NONE;
+		gbc.weightx = 0;
 		metaPanel.add(new JLabel("URL:"), gbc);
 		JTextField urlField = new JTextField(captured.getUrl());
 		urlField.setEditable(false);
 		urlField.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-		gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+		gbc.gridx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
 		metaPanel.add(urlField, gbc);
 
-		gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+		gbc.gridx = 0;
+		gbc.gridy = 2;
+		gbc.fill = GridBagConstraints.NONE;
+		gbc.weightx = 0;
 		metaPanel.add(new JLabel("Имя запроса:"), gbc);
 		JTextField nameField = new JTextField(captured.getName());
-		gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+		gbc.gridx = 1;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
 		metaPanel.add(nameField, gbc);
 
 		add(metaPanel, BorderLayout.NORTH);
@@ -310,7 +323,8 @@ public class CaptureResultDialog extends JDialog {
 		try {
 			JsonElement root = JsonParser.parseString(jsonText);
 			collectLeafPaths(root, "", paths);
-		} catch (JsonSyntaxException ignored) {}
+		} catch (JsonSyntaxException ignored) {
+		}
 		return paths;
 	}
 

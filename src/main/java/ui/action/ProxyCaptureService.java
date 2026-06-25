@@ -21,24 +21,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class ProxyCaptureService {
 
+	private static final Logger log = LoggerFactory.getLogger(ProxyCaptureService.class);
 	private final Gson gson = new Gson();
-
-	private BrowserMobProxy proxy;
-	private boolean captureActive = false;
 	private final AppConfig config;
 	private final ConfigService configService;
-
-	private static final Logger log = LoggerFactory.getLogger(ProxyCaptureService.class);
+	private BrowserMobProxy proxy;
+	private boolean captureActive = false;
 
 	public ProxyCaptureService(AppConfig config, ConfigService configService) {
 		this.config = config;
@@ -130,7 +122,7 @@ public class ProxyCaptureService {
 			}
 
 			String method = req.getMethod() != null
-					? req.getMethod().toString().toUpperCase()
+					? req.getMethod().toUpperCase()
 					: "UNKNOWN";
 
 			if (!isFetchOrXhrLike(entry, req, method, url)) {

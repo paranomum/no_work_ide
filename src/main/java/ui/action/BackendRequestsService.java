@@ -1,10 +1,6 @@
 package ui.action;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.*;
 import dto.*;
 import model.VariableAction;
 import ui.AbstractTableSettingsPanel;
@@ -17,30 +13,28 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 	private static final String[] TABLE_COLUMNS = {"Name", "Method", "URL"};
 	private static final String[] HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"};
-
-	private JTable backendTable;
-	private DefaultTableModel backendTableModel;
-
 	private final AppConfig config;
 	private final List<BackendRequestDef> requests = new ArrayList<>();
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-	private volatile ActionWindow currentActionWindow;
-
 	/**
 	 * ВАЖНО:
 	 * таблица теперь держит ссылку на исходный объект,
 	 * а не "старое имя", чтобы rename работал как update.
 	 */
 	private final Map<Integer, BackendRequestDef> rowToRequestRef = new HashMap<>();
-
-	/** Прокидывается из ActionWindow после создания, нужен для выбора переменных */
+	private JTable backendTable;
+	private DefaultTableModel backendTableModel;
+	private final ActionWindow currentActionWindow;
+	/**
+	 * Прокидывается из ActionWindow после создания, нужен для выбора переменных
+	 */
 	private VariablesService variablesService;
 
 	public BackendRequestsService(ActionWindow currentActionWindow, AppConfig config) {

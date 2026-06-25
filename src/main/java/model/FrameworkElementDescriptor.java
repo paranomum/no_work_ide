@@ -6,5 +6,6 @@ public record FrameworkElementDescriptor(
 		String fieldName,
 		Class<?> fieldType,   // Field, Button, LinkButton, ...
 		String label          // человекочитаемый label из твоего web_element
-) {}
+) {
+}
 

@@ -99,7 +99,8 @@ public class PageObjectMatcher {
 					if (v != null) {
 						return v.toString();
 					}
-				} catch (NoSuchMethodException ignore) {}
+				} catch (NoSuchMethodException ignore) {
+				}
 			}
 		} catch (Exception e) {
 			System.out.println("    -> tryGetElementXpath error: " + e.getMessage());

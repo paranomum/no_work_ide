@@ -1,38 +1,34 @@
 package ui;
 
 import com.codeborne.selenide.WebDriverRunner;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLightLaf;
 import dto.ActionRecord;
 import dto.AppConfig;
 import dto.BackendRequestDef;
 import dto.LocalVariables;
-import model.ActionGroup;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import ui.action.*;
 
-import javax.swing.ActionMap;
-import javax.swing.InputMap;
-import javax.swing.KeyStroke;
-import java.awt.event.*;
-import javax.swing.AbstractAction;
-
-
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.*;
-import javax.swing.table.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
+import javax.swing.table.TableCellEditor;
 import java.awt.*;
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
-
-import com.formdev.flatlaf.FlatLightLaf;
-import com.formdev.flatlaf.FlatDarkLaf;
+import java.util.*;
 
 import static com.codeborne.selenide.Selenide.open;
 
@@ -45,8 +41,18 @@ public class ActionWindow extends JFrame {
 	private final Map<Integer, Color> rowMarks = new HashMap<>();
 	private final Map<Integer, String> rowTooltips = new HashMap<>();
 	private final Set<String> expandedMethods = new HashSet<>();
-
-
+	private final ActionRecorder actionRecorder;
+	private final ActionFileService fileService;
+	private final ConfigService configService = new ConfigService();
+	private final AppConfig config;
+	//	private final OpenApiService openApiService;
+	private final UsersService usersService;
+	private final PlayActionService playActionService;
+	private final BrowserService browserService;
+	private final CustomMethodsService customMethodsService;
+	private final BackendRequestsService backendRequestsService;
+	private final ProxyCaptureService proxyCaptureService;
+	private final VariablesService variablesService;
 	private JTable actionTable;
 	private DefaultTableModel tableModel;
 	private JButton addActionButton;
@@ -55,25 +61,10 @@ public class ActionWindow extends JFrame {
 	private JButton playButton;
 	private JComboBox<String> themeSelect;
 	private JTextField driverPathField;
-	private final ActionRecorder actionRecorder;
 	private WebDriver driver;
 	private JButton recordingButton;
-
-	private final ActionFileService fileService;
-	private final ConfigService configService = new ConfigService();
-	private final AppConfig config;
-
-//	private final OpenApiService openApiService;
-	private final UsersService usersService;
-	private final PlayActionService playActionService;
-	private final BrowserService browserService;
-	private final CustomMethodsService customMethodsService;
-	private final BackendRequestsService backendRequestsService;
-	private final ProxyCaptureService proxyCaptureService;
 	private JButton captureButton;
 	private volatile boolean captureAllModeActive = false;
-	private final VariablesService variablesService;
-
 	private boolean methodEditMode = false;
 	private String currentEditedMethodName = null;
 
@@ -133,10 +124,21 @@ public class ActionWindow extends JFrame {
 				saveColumnWidthsToConfig();
 			}
 
-			@Override public void columnAdded(TableColumnModelEvent e) {}
-			@Override public void columnRemoved(TableColumnModelEvent e) {}
-			@Override public void columnMoved(TableColumnModelEvent e) {}
-			@Override public void columnSelectionChanged(ListSelectionEvent e) {}
+			@Override
+			public void columnAdded(TableColumnModelEvent e) {
+			}
+
+			@Override
+			public void columnRemoved(TableColumnModelEvent e) {
+			}
+
+			@Override
+			public void columnMoved(TableColumnModelEvent e) {
+			}
+
+			@Override
+			public void columnSelectionChanged(ListSelectionEvent e) {
+			}
 		});
 		JScrollPane scrollPane = new JScrollPane(actionTable);
 		content.add(scrollPane, BorderLayout.CENTER);
@@ -159,6 +161,7 @@ public class ActionWindow extends JFrame {
 			if (fileService != null) {
 				fileService.loadFromJsonFile();
 				loadCustomMethodVariablesFromTable();
+				loadCustomMethodBackendRequestsFromTable();
 				resetMethodEditMode();
 			}
 		});
@@ -265,6 +268,31 @@ public class ActionWindow extends JFrame {
 		captureButton.addActionListener(e ->
 				capturePopup.show(captureButton, 0, captureButton.getHeight())
 		);
+	}
+
+	private void loadCustomMethodBackendRequestsFromTable() {
+		int rowCount = tableModel.getRowCount();
+		Set<String> methodNames = new LinkedHashSet<>();
+
+		for (int r = 0; r < rowCount; r++) {
+			Object actionObj = tableModel.getValueAt(r, 1); // Action
+			if (actionObj instanceof UserAction ua && ua == UserAction.CUSTOM_METHOD) {
+				Object valObj = tableModel.getValueAt(r, 3); // Value = method name
+				String methodName = Objects.toString(valObj, "").trim();
+				if (!methodName.isEmpty()) {
+					methodNames.add(methodName);
+				}
+			}
+		}
+
+		for (String methodName : methodNames) {
+			List<BackendRequestDef> defs = customMethodsService.loadMethodBackendRequests(methodName);
+			for (BackendRequestDef def : defs) {
+				if (def != null && def.getName() != null && !def.getName().isBlank()) {
+					backendRequestsService.addOrReplaceRequest(def);
+				}
+			}
+		}
 	}
 
 	private JPanel createTopBarPanel() {
@@ -398,39 +426,6 @@ public class ActionWindow extends JFrame {
 		}
 	}
 
-	private void renameBackendMethodUsagesInActionTable(String oldName, String newName) {
-		if (oldName == null || newName == null || oldName.equals(newName)) {
-			return;
-		}
-
-		int updatedCount = 0;
-
-		for (int row = 0; row < tableModel.getRowCount(); row++) {
-			Object actionObj = tableModel.getValueAt(row, 1);
-			String actionCode = null;
-
-			if (actionObj instanceof UserAction ua) {
-				actionCode = ua.getCode();
-			} else if (actionObj != null) {
-				actionCode = actionObj.toString();
-			}
-
-			if (!"useBackendMethod".equals(actionCode)) {
-				continue;
-			}
-
-			String currentValue = Objects.toString(tableModel.getValueAt(row, 3), "").trim();
-			if (Objects.equals(currentValue, oldName)) {
-				tableModel.setValueAt(newName, row, 3);
-				updatedCount++;
-			}
-		}
-
-		if (updatedCount > 0) {
-			repaintActionTable();
-		}
-	}
-
 	private void initColumnEditors() {
 		initUserActionEditor();
 
@@ -458,7 +453,7 @@ public class ActionWindow extends JFrame {
 				new ActionMenuCellEditor(
 						actionTable,
 						tableModel,
-						this::showCustomMethodChooser,
+						this::showCustomMethodChooserWithBackendRequests,
 						this::showBackendRequestChooser
 				)
 		);
@@ -492,6 +487,32 @@ public class ActionWindow extends JFrame {
 			label.setText(action.getGroup().getCode() + " / " + action.getCode());
 			return label;
 		});
+	}
+
+	private CustomMethodsService.MethodDef showCustomMethodChooserWithBackendRequests() {
+		CustomMethodsService.MethodDef selected = showCustomMethodChooser();
+		if (selected == null) {
+			return null;
+		}
+
+		String methodName = selected.getName();
+		if (methodName == null || methodName.isBlank()) {
+			return selected;
+		}
+
+		java.util.List<BackendRequestDef> backendDefs =
+				customMethodsService.loadMethodBackendRequests(methodName);
+
+		if (backendDefs != null) {
+			for (BackendRequestDef def : backendDefs) {
+				if (def == null) {
+					continue;
+				}
+				backendRequestsService.addOrReplaceRequest(def);
+			}
+		}
+
+		return selected;
 	}
 
 	private CustomMethodsService.MethodDef showCustomMethodChooser() {
@@ -791,20 +812,31 @@ public class ActionWindow extends JFrame {
 						.sorted()
 						.toArray();
 
-				// 1) спросить имя и файл
 				CustomMethodSaveData data = askCustomMethodNameAndFile();
 				if (data == null) {
 					return;
 				}
 
-				List<dto.ActionRecord> records = buildActionRecordsForRows(modelRows);
+				List<ActionRecord> records = buildActionRecordsForRows(modelRows);
+				List<BackendRequestDef> backendDefs = collectBackendRequestsForActions(records);
 
-				// 3) сохранить JSON
-				try (Writer writer = new OutputStreamWriter(
-						new FileOutputStream(data.file), StandardCharsets.UTF_8)) {
+				try {
+					customMethodsService.load();
 
-					Gson gson = new GsonBuilder().setPrettyPrinting().create();
-					gson.toJson(records, writer);
+					CustomMethodsService.MethodDef existing = customMethodsService.findByName(data.name);
+					if (existing == null) {
+						customMethodsService.addMethod(data.name, data.file.getAbsolutePath());
+						customMethodsService.save();
+					}
+
+					customMethodsService.saveMethod(data.name, records, List.of(), backendDefs);
+
+					JOptionPane.showMessageDialog(
+							ActionWindow.this,
+							"Custom method '" + data.name + "' saved to:\n" + data.file.getAbsolutePath(),
+							"Saved",
+							JOptionPane.INFORMATION_MESSAGE
+					);
 				} catch (Exception ex) {
 					ex.printStackTrace();
 					JOptionPane.showMessageDialog(
@@ -813,20 +845,7 @@ public class ActionWindow extends JFrame {
 							"Error",
 							JOptionPane.ERROR_MESSAGE
 					);
-					return;
 				}
-
-				// 4) добавить запись в CustomMethodsService
-				customMethodsService.load(); // подтянуть текущее
-				customMethodsService.addMethod(data.name, data.file.getAbsolutePath());
-				customMethodsService.save();
-
-				JOptionPane.showMessageDialog(
-						ActionWindow.this,
-						"Custom method '" + data.name + "' saved to:\n" + data.file.getAbsolutePath(),
-						"Saved",
-						JOptionPane.INFORMATION_MESSAGE
-				);
 			}
 
 			@Override
@@ -836,35 +855,34 @@ public class ActionWindow extends JFrame {
 
 				int modelRow = actionTable.convertRowIndexToModel(viewRow);
 
-				Object actionVal = tableModel.getValueAt(modelRow, 1); // "Action"
+				Object actionVal = tableModel.getValueAt(modelRow, 1);
 				if (!(actionVal instanceof UserAction ua) || ua != UserAction.CUSTOM_METHOD) {
 					return;
 				}
 
-				String methodName = Objects.toString(tableModel.getValueAt(modelRow, 3), "").trim(); // "Value"
+				String methodName = Objects.toString(tableModel.getValueAt(modelRow, 3), "").trim();
 				if (methodName.isEmpty()) return;
 
-				// уже разворачивали этот кастомный метод — сразу выходим
 				if (expandedMethods.contains(methodName)) {
 					return;
 				}
 
-				// грузим шаги
-				java.util.List<ActionRecord> steps = customMethodsService.loadMethodSteps(methodName);
-				// грузим variables из файла метода
-				java.util.List<LocalVariables> methodVars = customMethodsService.loadMethodVariables(methodName);
-				// -> прокидываем в VariablesService
+				List<ActionRecord> steps = customMethodsService.loadMethodSteps(methodName);
+				List<LocalVariables> methodVars = customMethodsService.loadMethodVariables(methodName);
+				List<BackendRequestDef> methodBackendRequests = customMethodsService.loadMethodBackendRequests(methodName);
+
 				for (LocalVariables v : methodVars) {
 					variablesService.addVariable(v);
 				}
 
-				// вставляем строки-steps под этой строкой
+				for (BackendRequestDef def : methodBackendRequests) {
+					if (def != null && def.getName() != null && !def.getName().isBlank()) {
+						backendRequestsService.addOrReplaceRequest(def);
+					}
+				}
+
 				expandCustomMethodRow(modelRow, methodName, steps);
-
-				// блокируем редактирование остальных строк
 				lockEditingOutsideMethodBlock(methodName);
-
-				// помечаем метод как уже обработанный
 				expandedMethods.add(methodName);
 			}
 
@@ -872,23 +890,20 @@ public class ActionWindow extends JFrame {
 			public void saveAndCollapseCustomMethod() {
 				if (!methodEditMode || currentEditedMethodName == null) return;
 
-				// 1. собрать шаги из таблицы для текущего метода
-				java.util.List<ActionRecord> steps = collectStepsForCurrentMethod();
+				String methodNameToClose = currentEditedMethodName;
 
-				// 2. собрать variables из VariablesService
-				java.util.List<LocalVariables> vars = variablesService.getVariables();
+				List<ActionRecord> steps = collectStepsForCurrentMethod();
+				List<LocalVariables> vars = variablesService.getVariables();
+				List<BackendRequestDef> backendDefs = collectBackendRequestsForActions(steps);
 
-				// 3. записать в JSON-файл через CustomMethodsService
-				customMethodsService.saveMethod(currentEditedMethodName, steps, vars);
+				customMethodsService.saveMethod(methodNameToClose, steps, vars, backendDefs);
 
-				// 4. удалить строки-steps из таблицы
 				collapseCurrentMethodRows();
 
-				// 5. выключить режим редактирования метода
 				methodEditMode = false;
 				currentEditedMethodName = null;
 				actionTable.repaint();
-				expandedMethods.remove(currentEditedMethodName);
+				expandedMethods.remove(methodNameToClose);
 			}
 
 
@@ -1303,15 +1318,6 @@ public class ActionWindow extends JFrame {
 		});
 	}
 
-	private static class CustomMethodSaveData {
-		final String name;
-		final File file;
-		CustomMethodSaveData(String name, File file) {
-			this.name = name;
-			this.file = file;
-		}
-	}
-
 	private CustomMethodSaveData askCustomMethodNameAndFile() {
 		JTextField nameField = new JTextField(20);
 		JButton browseBtn = new JButton("Browse...");
@@ -1322,16 +1328,23 @@ public class ActionWindow extends JFrame {
 		gbc.insets = new Insets(4, 4, 4, 4);
 		gbc.fill = GridBagConstraints.HORIZONTAL;
 
-		gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
+		gbc.gridx = 0;
+		gbc.gridy = 0;
+		gbc.weightx = 0;
 		panel.add(new JLabel("Method name:"), gbc);
-		gbc.gridx = 1; gbc.weightx = 1.0;
+		gbc.gridx = 1;
+		gbc.weightx = 1.0;
 		panel.add(nameField, gbc);
 
-		gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+		gbc.gridx = 0;
+		gbc.gridy = 1;
+		gbc.weightx = 0;
 		panel.add(new JLabel("File path:"), gbc);
-		gbc.gridx = 1; gbc.weightx = 1.0;
+		gbc.gridx = 1;
+		gbc.weightx = 1.0;
 		panel.add(pathField, gbc);
-		gbc.gridx = 2; gbc.weightx = 0;
+		gbc.gridx = 2;
+		gbc.weightx = 0;
 		panel.add(browseBtn, gbc);
 
 		browseBtn.addActionListener(e -> {
@@ -1396,13 +1409,13 @@ public class ActionWindow extends JFrame {
 			}
 
 			String selector = val(r, 2);
-			String value    = val(r, 3);
-			String comment  = val(r, 4);
-			String xpath    = val(r, 6);
-			String name     = val(r, 7);
-			String index    = val(r, 8);
-			String byXpath  = val(r, 9);
-			String url  = val(r, 10);
+			String value = val(r, 3);
+			String comment = val(r, 4);
+			String xpath = val(r, 6);
+			String name = val(r, 7);
+			String index = val(r, 8);
+			String byXpath = val(r, 9);
+			String url = val(r, 10);
 
 			list.add(new dto.ActionRecord(
 					actionCode,
@@ -1418,6 +1431,36 @@ public class ActionWindow extends JFrame {
 			));
 		}
 		return list;
+	}
+
+	private List<BackendRequestDef> collectBackendRequestsForActions(List<ActionRecord> actions) {
+		Map<String, BackendRequestDef> result = new LinkedHashMap<>();
+		if (actions == null || actions.isEmpty()) {
+			return new ArrayList<>();
+		}
+
+		for (ActionRecord rec : actions) {
+			if (rec == null) {
+				continue;
+			}
+
+			String actionCode = rec.getAction() != null ? rec.getAction().trim() : "";
+			if (!"useBackendMethod".equals(actionCode)) {
+				continue;
+			}
+
+			String requestName = rec.getValue() != null ? rec.getValue().trim() : "";
+			if (requestName.isEmpty()) {
+				continue;
+			}
+
+			BackendRequestDef def = backendRequestsService.findByName(requestName);
+			if (def != null && def.getName() != null && !def.getName().isBlank()) {
+				result.putIfAbsent(def.getName(), def);
+			}
+		}
+
+		return new ArrayList<>(result.values());
 	}
 
 	private String val(int row, int col) {
@@ -1535,61 +1578,20 @@ public class ActionWindow extends JFrame {
 			Object[] row = new Object[tableModel.getColumnCount()];
 			String indexStr = methodIndex + "." + (i + 1);
 
-			row[0]  = indexStr;                       // "#": "1.1", "1.2"
-			row[1]  = UserAction.fromCode(s.getAction());
-			row[2]  = s.getSelector();
-			row[3]  = s.getValue();
-			row[4]  = s.getComment();
-			row[5]  = ElementType.fromClassName(s.getElementType());
-			row[6]  = s.getXpath();
-			row[7]  = s.getName();
-			row[8]  = s.getIndex();
-			row[9]  = s.getByXpath();
+			row[0] = indexStr;                       // "#": "1.1", "1.2"
+			row[1] = UserAction.fromCode(s.getAction());
+			row[2] = s.getSelector();
+			row[3] = s.getValue();
+			row[4] = s.getComment();
+			row[5] = ElementType.fromClassName(s.getElementType());
+			row[6] = s.getXpath();
+			row[7] = s.getName();
+			row[8] = s.getIndex();
+			row[9] = s.getByXpath();
 			row[10] = s.getPageUrlPath();
 			row[11] = methodName; // CustomMethodRef
 
 			tableModel.insertRow(insertPos++, row);
-		}
-	}
-
-	private class ActionTableModel extends DefaultTableModel {
-		public ActionTableModel(String[] cols) {
-			super(cols, 0);
-		}
-
-		public boolean isRowEditable(int row) {
-			// колонка 0 никогда не редактируется
-			for (int col = 1; col < getColumnCount(); col++) {
-				if (isCellEditable(row, col)) {
-					return true;
-				}
-			}
-			return false;
-		}
-
-		@Override
-		public boolean isCellEditable(int row, int column) {
-			if (column == 0) return false; // индекс никогда не редактируется
-
-			if (!methodEditMode) {
-				return true;
-			}
-
-			// если в режиме редактирования метода, разрешаем только строки этого метода
-			Object ref = getValueAt(row, 11); // CustomMethodRef
-			if (ref != null && ref.equals(currentEditedMethodName)) {
-				return true;
-			}
-
-			// также разрешаем редактировать саму строку CUSTOM_METHOD, если нужно
-			Object actionVal = getValueAt(row, 1);
-			if (actionVal instanceof UserAction ua &&
-					ua == UserAction.CUSTOM_METHOD &&
-					Objects.equals(getValueAt(row, 3), currentEditedMethodName)) {
-				return true;
-			}
-
-			return false;
 		}
 	}
 
@@ -1869,7 +1871,7 @@ public class ActionWindow extends JFrame {
 	public void clearBackendMarks() {
 		// Удаляем только те цвета, которые соответствуют backend-статусам
 		Color successColor = new Color(0xC8, 0xF0, 0xC8);
-		Color failColor    = new Color(0xF7, 0xB7, 0xB7);
+		Color failColor = new Color(0xF7, 0xB7, 0xB7);
 		rowMarks.entrySet().removeIf(e ->
 				successColor.equals(e.getValue()) || failColor.equals(e.getValue())
 		);
@@ -1894,6 +1896,53 @@ public class ActionWindow extends JFrame {
 		@Override
 		public String toString() {
 			return label;
+		}
+	}
+
+	private static class CustomMethodSaveData {
+		final String name;
+		final File file;
+
+		CustomMethodSaveData(String name, File file) {
+			this.name = name;
+			this.file = file;
+		}
+	}
+
+	private class ActionTableModel extends DefaultTableModel {
+		public ActionTableModel(String[] cols) {
+			super(cols, 0);
+		}
+
+		public boolean isRowEditable(int row) {
+			// колонка 0 никогда не редактируется
+			for (int col = 1; col < getColumnCount(); col++) {
+				if (isCellEditable(row, col)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		@Override
+		public boolean isCellEditable(int row, int column) {
+			if (column == 0) return false; // индекс никогда не редактируется
+
+			if (!methodEditMode) {
+				return true;
+			}
+
+			// если в режиме редактирования метода, разрешаем только строки этого метода
+			Object ref = getValueAt(row, 11); // CustomMethodRef
+			if (ref != null && ref.equals(currentEditedMethodName)) {
+				return true;
+			}
+
+			// также разрешаем редактировать саму строку CUSTOM_METHOD, если нужно
+			Object actionVal = getValueAt(row, 1);
+			return actionVal instanceof UserAction ua &&
+					ua == UserAction.CUSTOM_METHOD &&
+					Objects.equals(getValueAt(row, 3), currentEditedMethodName);
 		}
 	}
 }

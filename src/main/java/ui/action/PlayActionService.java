@@ -1,12 +1,10 @@
 package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
-import dto.ActionRecord;
-import dto.BackendRequestDef;
-import dto.ScenarioBackendConfig;
-import dto.DtoFieldOverride;
-import dto.ResponseFieldExtractor;
-import dto.UsersServiceSpec;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
+import dto.*;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.val;
@@ -15,13 +13,21 @@ import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ru.rt.iqhr.framework.config.FrameworkConfig;
+import ru.rt.iqhr.framework.pageobject.react.web_elements.DatePicker;
+import ru.rt.iqhr.framework.pageobject.react.web_elements.Field;
+import ru.rt.iqhr.framework.pageobject.react.web_elements.RichField;
+import ru.rt.iqhr.framework.pageobject.react.web_elements.Select;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.buttons.Button;
 import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
 import ui.ActionWindow;
 
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.net.URI;
 import java.util.List;
@@ -30,28 +36,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-
-import ru.rt.iqhr.framework.pageobject.react.web_elements.*;
-
 import static com.codeborne.selenide.Selenide.$x;
 import static com.codeborne.selenide.Selenide.open;
 import static ru.rt.iqhr.framework.util.WebElementUtil.*;
 import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
 import static ui.action.ActionFileService.hasCommaSpacesDigitAndNoLettersAfter;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
-
 public class PlayActionService {
 
-	@Setter
-	private WebDriver driver;
-
+	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 	private final DefaultTableModel tableModel;
 	private final TabManager tabManager = new TabManager();
 	private final FormFiller formFiller;
@@ -59,18 +52,17 @@ public class PlayActionService {
 	private final CustomMethodsService customMethodsService;
 	private final BackendRequestsService backendRequestsService;
 	private final VariablesService variablesService;
+	private final List<BackendExecutionResult> backendExecutionResults =
+			Collections.synchronizedList(new ArrayList<>());
+	@Setter
+	private WebDriver driver;
 	private Map<String, ScenarioBackendConfig> currentScenarioOverrides;
-
 	private Thread playThread;
-	@Getter @Setter
+	@Getter
+	@Setter
 	private volatile boolean stopRequested = false;
 	private volatile int currentRow = -1;
 	private volatile ActionWindow currentActionWindow;
-
-	private final List<BackendExecutionResult> backendExecutionResults =
-			Collections.synchronizedList(new ArrayList<>());
-
-	private static final Logger log = LoggerFactory.getLogger(PlayActionService.class);
 
 	public PlayActionService(DefaultTableModel tableModel,
 							 UsersService usersService,
@@ -85,6 +77,11 @@ public class PlayActionService {
 		this.backendRequestsService = backendRequestsService;
 		this.variablesService = variablesService;
 		log.info("PlayActionService created, speedMode=FAST");
+	}
+
+	private static String truncate(String s, int maxLen) {
+		if (s == null) return "";
+		return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
 	}
 
 	public void setCurrentScenarioOverrides(Map<String, ScenarioBackendConfig> overrides) {
@@ -296,20 +293,20 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex    = r;
-			step.actionCode  = actionCode;
-			step.selector    = val(r, 2);
-			String rawValue  = val(r, 3);
+			step.rowIndex = r;
+			step.actionCode = actionCode;
+			step.selector = val(r, 2);
+			String rawValue = val(r, 3);
 			step.javaClassName = val(r, 5);
-			step.xpath       = val(r, 6);
-			step.name        = val(r, 7);
-			step.index       = val(r, 8);
-			step.byXpath     = val(r, 9);
-			step.url         = val(r, 10);
+			step.xpath = val(r, 6);
+			step.name = val(r, 7);
+			step.index = val(r, 8);
+			step.byXpath = val(r, 9);
+			step.url = val(r, 10);
 
 			// БАГ 3 FIX: сохраняем сырое значение, резолвинг переносим в playOneStep
 			step.rawValue = rawValue;
-			step.value    = rawValue; // оставляем для совместимости, перезапишется в playOneStep
+			step.value = rawValue; // оставляем для совместимости, перезапишется в playOneStep
 
 			steps.add(step);
 		}
@@ -331,10 +328,10 @@ public class PlayActionService {
 	}
 
 	private void playOneStep(PlayStep step, Map<String, String> nameToValue) throws RuntimeException {
-		String action        = step.actionCode;
-		String selector      = step.selector;
+		String action = step.actionCode;
+		String selector = step.selector;
 		String javaClassName = step.javaClassName;
-		String url           = step.url;
+		String url = step.url;
 
 		// БАГ 3 FIX: резолвим rawValue прямо перед использованием,
 		// чтобы подхватить значения переменных, извлечённых предыдущими шагами
@@ -543,14 +540,14 @@ public class PlayActionService {
 			}
 
 			PlayStep step = new PlayStep();
-			step.rowIndex    = -1;
-			step.actionCode  = dto.getAction();
-			step.selector    = dto.getSelector();
+			step.rowIndex = -1;
+			step.actionCode = dto.getAction();
+			step.selector = dto.getSelector();
 			step.javaClassName = dto.getElementType();
-			step.xpath       = dto.getXpath();
-			step.name        = dto.getName();
-			step.index       = dto.getIndex();
-			step.byXpath     = dto.getByXpath();
+			step.xpath = dto.getXpath();
+			step.name = dto.getName();
+			step.index = dto.getIndex();
+			step.byXpath = dto.getByXpath();
 
 			log.debug(
 					"customStep={\"method\":\"{}\",\"action\":\"{}\",\"javaClassName\":\"{}\",\"selector\":\"{}\",\"xpath\":\"{}\",\"name\":\"{}\",\"index\":\"{}\",\"byXpath\":\"{}\"}",
@@ -567,7 +564,7 @@ public class PlayActionService {
 			// БАГ 3 FIX: сохраняем сырое значение — playOneStep сам резолвит через nameToValue
 			String rawValue = dto.getValue();
 			step.rawValue = rawValue;
-			step.value    = rawValue;
+			step.value = rawValue;
 
 			playOneStep(step, nameToValue);
 		}
@@ -631,11 +628,6 @@ public class PlayActionService {
 			currentActionWindow.setRowMark(rowIndex, color);
 			currentActionWindow.setRowTooltip(rowIndex, tooltip);
 		});
-	}
-
-	private static String truncate(String s, int maxLen) {
-		if (s == null) return "";
-		return s.length() <= maxLen ? s : s.substring(0, maxLen) + "…";
 	}
 
 	private void showErrorOnUi(ActionWindow parent, String message) {
@@ -756,32 +748,6 @@ public class PlayActionService {
 		return currentRow;
 	}
 
-	private static class PlayStep {
-		int rowIndex;
-		String actionCode;
-		String selector;
-		String value;
-		String rawValue;   // БАГ 3 FIX: сырое значение до резолвинга
-		String javaClassName;
-		String xpath;
-		String name;
-		String index;
-		String byXpath;
-		String url;
-	}
-
-	private class Auth {
-		private final Field emailField = new Field("E-mail");
-		private final Field passwordField = new Field("Пароль");
-		private final Button authButton = new Button("Далее");
-
-		public void logIN(String username, String password) {
-			emailField.fill(username);
-			passwordField.fill(password);
-			authButton.click();
-		}
-	}
-
 	private String parseUrl() {
 		val cur = WebDriverRunner.getWebDriver().getCurrentUrl();
 		String pageUrlPath = "";
@@ -838,7 +804,8 @@ public class PlayActionService {
 
 			try {
 				java.lang.reflect.Type headersType =
-						new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType();
+						new com.google.gson.reflect.TypeToken<Map<String, Object>>() {
+						}.getType();
 				Map<String, Object> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
 				if (parsed != null) {
 					mergedHeaders.putAll(parsed);
@@ -1549,6 +1516,19 @@ public class PlayActionService {
 		return method + "()";
 	}
 
+	private static class PlayStep {
+		int rowIndex;
+		String actionCode;
+		String selector;
+		String value;
+		String rawValue;   // БАГ 3 FIX: сырое значение до резолвинга
+		String javaClassName;
+		String xpath;
+		String name;
+		String index;
+		String byXpath;
+		String url;
+	}
 
 	private static class BackendExecutionResult {
 		String requestName;
@@ -1560,5 +1540,17 @@ public class PlayActionService {
 		List<String> warnings = new ArrayList<>();
 		// УЛУЧШЕНИЕ 1: переменные, извлечённые из ответа — для tooltip в таблице Actions
 		Map<String, String> extractedVars = new LinkedHashMap<>();
+	}
+
+	private class Auth {
+		private final Field emailField = new Field("E-mail");
+		private final Field passwordField = new Field("Пароль");
+		private final Button authButton = new Button("Далее");
+
+		public void logIN(String username, String password) {
+			emailField.fill(username);
+			passwordField.fill(password);
+			authButton.click();
+		}
 	}
 }

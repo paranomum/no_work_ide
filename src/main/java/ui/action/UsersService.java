@@ -12,16 +12,15 @@ import java.awt.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 
 import static ru.rt.iqhr.framework.util.StringUtils.isEmail;
 
 public class UsersService {
 
-	private DefaultTableModel usersTableModel;
-	private JTable usersTable;
 	private final ConfigService configService;
 	private final AppConfig config;
+	private DefaultTableModel usersTableModel;
+	private JTable usersTable;
 
 	public UsersService(ConfigService configService, AppConfig config) {
 		this.configService = configService;
@@ -100,10 +99,10 @@ public class UsersService {
 				usersTableModel.addRow(new Object[]{
 						s.role != null ? s.role : "",
 						s.username != null ? s.username : "",
-						s.password !=  null ? s.password : ""
+						s.password != null ? s.password : ""
 				});
 			}
-			}
+		}
 
 	}
 
@@ -116,11 +115,11 @@ public class UsersService {
 				String username = (String) usersTableModel.getValueAt(r, 1);
 				String password = (String) usersTableModel.getValueAt(r, 2);
 				System.out.println("Row " + r +
-						" role=" + usersTableModel.getValueAt(r,0) +
-						" user=" + usersTableModel.getValueAt(r,1) +
-						" pass=" + usersTableModel.getValueAt(r,2));
+						" role=" + usersTableModel.getValueAt(r, 0) +
+						" user=" + usersTableModel.getValueAt(r, 1) +
+						" pass=" + usersTableModel.getValueAt(r, 2));
 				if ((role != null && !role.isBlank()) ||
-						(username != null && !username.isBlank())||
+						(username != null && !username.isBlank()) ||
 						(password != null && !password.isBlank())) {
 					list.add(new dto.UsersServiceSpec(
 							role != null ? role.trim() : "",

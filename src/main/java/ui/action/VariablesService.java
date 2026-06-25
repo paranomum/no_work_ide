@@ -17,6 +17,16 @@ public class VariablesService extends AbstractTableSettingsPanel {
 	private JTable variablesTable;
 	private DefaultTableModel variablesTableModel;
 
+	public static String formatVariableDisplayName(String variableName) {
+		if (variableName == null) return "";
+		int dotIdx = variableName.indexOf('.');
+		if (dotIdx > 0 && dotIdx < variableName.length() - 1) {
+			String fieldPath = variableName.substring(dotIdx + 1);
+			return variableName + " [json(" + fieldPath + ")]";
+		}
+		return variableName;
+	}
+
 	public void addVariable(String name, String value, String method) {
 		if (name == null || name.isBlank()) {
 			return;
@@ -172,16 +182,6 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		}
 
 		System.out.println("VariablesService.clear AFTER = " + variables);
-	}
-
-	public static String formatVariableDisplayName(String variableName) {
-		if (variableName == null) return "";
-		int dotIdx = variableName.indexOf('.');
-		if (dotIdx > 0 && dotIdx < variableName.length() - 1) {
-			String fieldPath = variableName.substring(dotIdx + 1);
-			return variableName + " [json(" + fieldPath + ")]";
-		}
-		return variableName;
 	}
 
 	public JPanel createVariablesSettingsPanel(JDialog parentDialog) {

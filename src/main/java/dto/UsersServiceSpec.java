@@ -5,7 +5,8 @@ public class UsersServiceSpec {
 	public String username;
 	public String password;
 
-	public UsersServiceSpec() {}
+	public UsersServiceSpec() {
+	}
 
 	public UsersServiceSpec(String role, String username, String password) {
 		this.role = role;

@@ -38,7 +38,9 @@ public class BackendRequestDef {
 		this.fieldOverrides = new ArrayList<>();
 	}
 
-	/** Защита от null при десериализации из старого JSON без поля fieldOverrides */
+	/**
+	 * Защита от null при десериализации из старого JSON без поля fieldOverrides
+	 */
 	public List<DtoFieldOverride> getFieldOverrides() {
 		if (fieldOverrides == null) {
 			fieldOverrides = new ArrayList<>();

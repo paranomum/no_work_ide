@@ -3,8 +3,6 @@ package ui.action;
 import dto.ActionRecord;
 import dto.AtomicStep;
 import dto.GeneratedStep;
-import model.ElementType;
-import model.UserAction;
 import ui.frameworkmeta.PageObjectIntrospector;
 import ui.frameworkmeta.PageObjectMatcher;
 import ui.frameworkmeta.PageObjectRegistry;
@@ -140,15 +138,15 @@ public class TestGeneratorService {
 		List<AtomicStep> steps = new ArrayList<>();
 
 		for (ActionRecord rec : records) {
-			String actionCode  = rec.getAction();
-			String selector    = rec.getSelector();
-			String value       = rec.getValue();
-			String comment     = rec.getComment();
+			String actionCode = rec.getAction();
+			String selector = rec.getSelector();
+			String value = rec.getValue();
+			String comment = rec.getComment();
 			String elementType = rec.getElementType();
-			String xpath       = rec.getXpath();
-			String name        = rec.getName();
-			String indexStr    = rec.getIndex();
-			String byXpathStr  = rec.getByXpath();
+			String xpath = rec.getXpath();
+			String name = rec.getName();
+			String indexStr = rec.getIndex();
+			String byXpathStr = rec.getByXpath();
 			String pageUrlPath = rec.getPageUrlPath();
 
 			if (actionCode == null || actionCode.isBlank()) {
@@ -221,11 +219,11 @@ public class TestGeneratorService {
 
 			AtomicStep step = new AtomicStep();
 			step.pageClassName = pageClassFqn;
-			step.pageVarName   = pageVar;
-			step.fieldName     = fieldName;
-			step.actionCode    = actionCode;
-			step.value         = value;
-			step.comment       = comment;
+			step.pageVarName = pageVar;
+			step.fieldName = fieldName;
+			step.actionCode = actionCode;
+			step.value = value;
+			step.comment = comment;
 			step.javaWebElement = javaWebElement;
 
 			steps.add(step);
@@ -239,15 +237,15 @@ public class TestGeneratorService {
 		JavaBuildResult result = new JavaBuildResult();
 
 		for (ActionRecord rec : records) {
-			String actionCode  = rec.getAction();
-			String selector    = rec.getSelector();
-			String value       = rec.getValue();
-			String comment     = rec.getComment();
+			String actionCode = rec.getAction();
+			String selector = rec.getSelector();
+			String value = rec.getValue();
+			String comment = rec.getComment();
 			String elementType = rec.getElementType();
-			String xpath       = rec.getXpath();
-			String name        = rec.getName();
-			String indexStr    = rec.getIndex();
-			String byXpathStr  = rec.getByXpath();
+			String xpath = rec.getXpath();
+			String name = rec.getName();
+			String indexStr = rec.getIndex();
+			String byXpathStr = rec.getByXpath();
 			String pageUrlPath = rec.getPageUrlPath();
 
 			if (actionCode == null || actionCode.isBlank()) {
@@ -335,8 +333,8 @@ public class TestGeneratorService {
 		}
 
 		String actionCode = s.actionCode;
-		String value      = s.value;
-		String comment    = s.comment;
+		String value = s.value;
+		String comment = s.comment;
 
 		String actionLower = actionCode.toLowerCase();
 		boolean isValueAction = !actionLower.contains("click")
@@ -376,7 +374,8 @@ public class TestGeneratorService {
 				if (indexStr != null && !indexStr.isBlank()) {
 					try {
 						index = Integer.parseInt(indexStr.trim());
-					} catch (NumberFormatException ignore) {}
+					} catch (NumberFormatException ignore) {
+					}
 				}
 
 				if (index != null && index > 1) {
@@ -544,17 +543,6 @@ public class TestGeneratorService {
 		return Character.toUpperCase(s.charAt(0)) + s.substring(1);
 	}
 
-	private static class JavaBuildResult {
-		List<String> lines = new ArrayList<>();
-		Set<String> usedPageObjectClasses = new LinkedHashSet<>();
-	}
-
-	private static class Match {
-		String methodName;
-		int length;
-		List<String> args;
-	}
-
 	private Match tryMatchPattern(String methodName,
 								  List<String> pattern,
 								  List<AtomicStep> steps,
@@ -602,5 +590,16 @@ public class TestGeneratorService {
 
 	private String normalize(String s) {
 		return s == null ? "" : s.trim().toLowerCase();
+	}
+
+	private static class JavaBuildResult {
+		List<String> lines = new ArrayList<>();
+		Set<String> usedPageObjectClasses = new LinkedHashSet<>();
+	}
+
+	private static class Match {
+		String methodName;
+		int length;
+		List<String> args;
 	}
 }

@@ -8,20 +8,8 @@ import java.awt.event.MouseEvent;
 
 public class ActionTableContextMenu {
 
-	public interface Callback {
-		void deleteSelectedRow();
-		void toggleMarkSelectedRow();      // mark / unmark
-		void startScenarioFromSelectedRow();
-		void createMethodFromSelectedSteps();
-		void playOnlyStep();
-
-		void editCustomMethod();          // NEW
-		void saveAndCollapseCustomMethod(); // NEW
-	}
-
 	private final JTable table;
 	private final Callback callback;
-
 	public ActionTableContextMenu(JTable table, Callback callback) {
 		this.table = table;
 		this.callback = callback;
@@ -130,5 +118,21 @@ public class ActionTableContextMenu {
 				popup.show(table, e.getX(), e.getY());
 			}
 		});
+	}
+
+	public interface Callback {
+		void deleteSelectedRow();
+
+		void toggleMarkSelectedRow();      // mark / unmark
+
+		void startScenarioFromSelectedRow();
+
+		void createMethodFromSelectedSteps();
+
+		void playOnlyStep();
+
+		void editCustomMethod();          // NEW
+
+		void saveAndCollapseCustomMethod(); // NEW
 	}
 }

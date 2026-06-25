@@ -8,7 +8,10 @@ import javax.swing.table.DefaultTableModel;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class ActionRecorder {
 
@@ -17,8 +20,8 @@ public class ActionRecorder {
 	private boolean isRecording = false;
 	private WebDriver driver;
 
-	private volatile String lastFocusedXPath = null;
-	private volatile String lastFocusedValue = "";
+	private final String lastFocusedXPath = null;
+	private final String lastFocusedValue = "";
 
 	private String lastSelectOpenXpath = null;
 	private String selectName = null;
@@ -34,7 +37,7 @@ public class ActionRecorder {
 	private String datePickerName = null;
 	private String datePickerIndex = null;
 	private String datePickerByXpath = null;
-	private List<String> currentDateRange = new ArrayList<>();
+	private final List<String> currentDateRange = new ArrayList<>();
 
 	private Thread recorderThread;
 
@@ -70,10 +73,9 @@ public class ActionRecorder {
 
 	@SneakyThrows
 	private void injectListeners() {
-		if (!(driver instanceof JavascriptExecutor)) return;
+		if (!(driver instanceof JavascriptExecutor js)) return;
 
 		injectScriptsIntoCurrentTab();
-		JavascriptExecutor js = (JavascriptExecutor) driver;
 		js.executeScript("window.recordedClicks = [];");
 		js.executeScript("window.recordedInputs = [];");
 
@@ -93,10 +95,9 @@ public class ActionRecorder {
 			System.out.println("[RECORDER] capture thread started: " + Thread.currentThread().getId());
 			while (isRecording && driver != null) {
 				try {
-					if (!(driver instanceof JavascriptExecutor)) {
+					if (!(driver instanceof JavascriptExecutor js)) {
 						break;
 					}
-					JavascriptExecutor js = (JavascriptExecutor) driver;
 
 					// ===== ВВОД ТЕКСТА =====
 					Object inputs = js.executeScript("return window.recordedInputs;");
@@ -108,8 +109,8 @@ public class ActionRecorder {
 							js.executeScript("window.recordedInputs = [];");
 
 							for (Map<String, ?> input : inputList) {
-								String xpath   = (String) input.get("xpath");
-								String value   = (String) input.get("value");
+								String xpath = (String) input.get("xpath");
+								String value = (String) input.get("value");
 								String name = (String) input.get("name");
 								String pageUrlPath = (String) input.get("pageUrlPath");
 
@@ -123,7 +124,7 @@ public class ActionRecorder {
 								String byXpath = null;
 								if (byXpathObj instanceof Boolean) {
 									byXpath = byXpathObj.toString();
-								};
+								}
 
 								System.out.println("[CAPTURE] fill: xpath=" + xpath + ", value=" + value);
 								record("fill", xpath, value, "Field", xpath, name, index, byXpath, pageUrlPath);
@@ -141,12 +142,12 @@ public class ActionRecorder {
 
 							for (Map<String, ?> click : clickList) {
 								System.out.println(clickList);
-								String xpath   = (String) click.get("xpath");
-								String elType  = (String) click.get("elementType");
-								String text    = (String) click.get("text");
+								String xpath = (String) click.get("xpath");
+								String elType = (String) click.get("elementType");
+								String text = (String) click.get("text");
 								String selectXpath = (String) click.get("selectXpath");
-								Object rawEvent    = click.get("eventType");
-								String eventType   = rawEvent != null ? rawEvent.toString() : "click";
+								Object rawEvent = click.get("eventType");
+								String eventType = rawEvent != null ? rawEvent.toString() : "click";
 								String pageUrlPath = (String) click.get("pageUrlPath");
 
 								Object indexObj = click.get("index");
@@ -159,7 +160,7 @@ public class ActionRecorder {
 								String byXpath = null;
 								if (byXpathObj instanceof Boolean) {
 									byXpath = byXpathObj.toString();
-								};
+								}
 
 								Object newTabRaw = click.get("newTab");
 								boolean newTab = false;
@@ -258,7 +259,8 @@ public class ActionRecorder {
 										} else if (rangeRaw != null) {
 											try {
 												rangeIndex = Integer.parseInt(rangeRaw.toString());
-											} catch (NumberFormatException ignore) {}
+											} catch (NumberFormatException ignore) {
+											}
 										}
 
 										System.out.println("[CAPTURE] datepicker-date: rangeIndex=" + rangeIndex
@@ -283,7 +285,7 @@ public class ActionRecorder {
 
 										if (rangeIndex == 1) {
 											String start = currentDateRange.get(0);
-											String end   = currentDateRange.get(1);
+											String end = currentDateRange.get(1);
 											if (start != null && end != null) {
 												String value = start + " - " + end;
 												String selector = lastDatePickerOpenXpath != null
@@ -358,7 +360,7 @@ public class ActionRecorder {
 				type != null ? type : "",
 				xpath != null ? xpath : "",
 				name != null ? name : "",
-				index != null ? index.toString() : "",
+				index != null ? index : "",
 				byXpath != null ? byXpath : "",
 				pageUrlPath != null ? pageUrlPath : "",
 		});
@@ -368,24 +370,21 @@ public class ActionRecorder {
 
 	@SneakyThrows
 	public void startLocatorPick(java.util.function.Consumer<String> callback) {
-		if (driver == null || !(driver instanceof JavascriptExecutor)) return;
-
-		JavascriptExecutor js = (JavascriptExecutor) driver;
+		if (driver == null || !(driver instanceof JavascriptExecutor js)) return;
 
 		String locatorScript = loadResource("get_locator.js");
 		String base = loadResource("base.js");
-		String buttonScript  = loadResource("buttons.js");
-		String inputScript   = loadResource("input.js");
-		String picker        = loadResource("date_picker.js");
-		String select        = loadResource("select.js");
-		js.executeScript(base+ locatorScript + buttonScript + inputScript + picker + select);
+		String buttonScript = loadResource("buttons.js");
+		String inputScript = loadResource("input.js");
+		String picker = loadResource("date_picker.js");
+		String select = loadResource("select.js");
+		js.executeScript(base + locatorScript + buttonScript + inputScript + picker + select);
 
 		new Thread(() -> {
 			try {
 				while (driver != null) {
 					Object result = ((JavascriptExecutor) driver).executeScript("return window.locatorPickResult");
-					if (result instanceof String) {
-						String xpath = (String) result;
+					if (result instanceof String xpath) {
 						System.out.println("LOCATOR_PICK result: " + xpath);
 						callback.accept(xpath);
 
@@ -400,7 +399,10 @@ public class ActionRecorder {
 				);
 				System.err.println("Error in locator pick: " + e.getMessage());
 				callback.accept("");
-				try { injectScriptsIntoCurrentTab(); } catch (Exception ignored) {}
+				try {
+					injectScriptsIntoCurrentTab();
+				} catch (Exception ignored) {
+				}
 			}
 		}, "LocatorPickThread").start();
 	}
@@ -465,29 +467,27 @@ public class ActionRecorder {
 
 	@SneakyThrows
 	private void injectScriptsIntoCurrentTab() {
-		if (!(driver instanceof JavascriptExecutor)) return;
-		JavascriptExecutor js = (JavascriptExecutor) driver;
+		if (!(driver instanceof JavascriptExecutor js)) return;
 
 		String buttons = loadResource("buttons.js");
 		String base = loadResource("base.js");
-		String fields  = loadResource("input.js");
-		String script  = loadResource("actions.js");
-		String picker  = loadResource("date_picker.js");
-		String select  = loadResource("select.js");
+		String fields = loadResource("input.js");
+		String script = loadResource("actions.js");
+		String picker = loadResource("date_picker.js");
+		String select = loadResource("select.js");
 
 		js.executeScript(base + buttons + fields + script + picker + select);
 		System.out.println("[TAB] recorder scripts injected into current tab: " + driver.getCurrentUrl());
 	}
 
 	public void highlightByXpath(String xpath) {
-		if (driver == null || !(driver instanceof JavascriptExecutor)) {
+		if (driver == null || !(driver instanceof JavascriptExecutor js)) {
 			return;
 		}
 		if (xpath == null || xpath.isEmpty()) {
 			return;
 		}
 
-		JavascriptExecutor js = (JavascriptExecutor) driver;
 		String script =
 				"function ensureHighlightStyle() {" +
 						"  if (document.getElementById('__locator-highlight-style')) return;" +

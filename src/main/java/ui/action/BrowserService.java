@@ -1,6 +1,5 @@
 package ui.action;
 
-import com.codeborne.selenide.WebDriverRunner;
 import dto.AppConfig;
 import lombok.val;
 import org.openqa.selenium.Proxy;
@@ -16,8 +15,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.codeborne.selenide.Selenide.open;
-
 public class BrowserService {
 
 	private final ConfigService configService;
@@ -26,6 +23,18 @@ public class BrowserService {
 	public BrowserService(ConfigService configService, AppConfig config) {
 		this.configService = configService;
 		this.config = config;
+	}
+
+	public static boolean isBrowserClosed(WebDriver driver) {
+		if (driver == null) return true;
+		try {
+			driver.getTitle();
+			driver.getTitle();
+			driver.getTitle();
+			return false;                   // сессия жива
+		} catch (Exception e) {
+			return true;                    // окно/сессия уже мертвы
+		}
 	}
 
 	public ChromeDriver openBrowser(ActionWindow parent,
@@ -95,7 +104,7 @@ public class BrowserService {
 	public void selectChromeDriver(ActionWindow actionWindow, JTextField driverPathField) {
 		JFileChooser fileChooser = new JFileChooser();
 		fileChooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-		if(System.getProperty("os.name").toLowerCase().contains("mac"))
+		if (System.getProperty("os.name").toLowerCase().contains("mac"))
 			fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
 		fileChooser.setDialogTitle("Select ChromeDriver");
 
@@ -129,18 +138,6 @@ public class BrowserService {
 			} catch (IOException ex) {
 				ex.printStackTrace();
 			}
-		}
-	}
-
-	public static boolean isBrowserClosed(WebDriver driver) {
-		if (driver == null) return true;
-		try {
-			driver.getTitle();
-			driver.getTitle();
-			driver.getTitle();
-			return false;                   // сессия жива
-		} catch (Exception e) {
-			return true;                    // окно/сессия уже мертвы
 		}
 	}
 }

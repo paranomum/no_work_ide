@@ -37,7 +37,8 @@ public class MethodPatternRegistry {
 
 		try (InputStreamReader reader = new InputStreamReader(is, StandardCharsets.UTF_8)) {
 			Gson gson = new Gson();
-			Type type = new TypeToken<Map<String, Map<String, List<String>>>>() {}.getType();
+			Type type = new TypeToken<Map<String, Map<String, List<String>>>>() {
+			}.getType();
 			Map<String, Map<String, List<String>>> m = gson.fromJson(reader, type); // [web:82][web:80]
 			System.out.println("[MethodPatternRegistry] Loaded patterns for "
 					+ m.size() + " page object classes");

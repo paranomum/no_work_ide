@@ -5,7 +5,6 @@ import lombok.Setter;
 import javax.swing.*;
 import javax.swing.table.TableCellEditor;
 import java.awt.*;
-import java.util.function.Consumer;
 
 public class SelectorCellEditor extends AbstractCellEditor implements TableCellEditor {
 	private final JPanel panel = new JPanel(new BorderLayout());
@@ -19,7 +18,7 @@ public class SelectorCellEditor extends AbstractCellEditor implements TableCellE
 	private LocatorHighlighter locatorHighlighter;
 
 	public SelectorCellEditor() {
-		JPanel buttons =  new JPanel(new GridLayout(1, 2, 3, 0));
+		JPanel buttons = new JPanel(new GridLayout(1, 2, 3, 0));
 		buttons.add(pickButton);
 		buttons.add(highlightButton);
 

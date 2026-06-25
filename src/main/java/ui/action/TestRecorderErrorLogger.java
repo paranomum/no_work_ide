@@ -4,7 +4,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -43,7 +46,7 @@ public class TestRecorderErrorLogger {
 			if (t != null) {
 				StringWriter sw = new StringWriter();
 				t.printStackTrace(new PrintWriter(sw));
-				sb.append(sw.toString());
+				sb.append(sw);
 			}
 
 			sb.append(System.lineSeparator());

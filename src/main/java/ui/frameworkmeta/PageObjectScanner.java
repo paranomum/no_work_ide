@@ -1,7 +1,6 @@
 package ui.frameworkmeta;
 
 import org.reflections.Reflections;
-import org.reflections.scanners.Scanners;
 import org.reflections.util.ClasspathHelper;
 import org.reflections.util.ConfigurationBuilder;
 import ru.rt.iqhr.framework.listeners.PageObjectUrl;

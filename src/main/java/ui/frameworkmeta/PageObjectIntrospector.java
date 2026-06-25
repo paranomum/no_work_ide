@@ -6,31 +6,6 @@ import java.util.List;
 
 public class PageObjectIntrospector {
 
-	public static class Descriptor {
-		public final Class<?> pageClass;
-		public final String pageSimpleName;
-		public final String fieldName;
-		public final Class<?> fieldType;
-		public final String label;
-
-		public Descriptor(Class<?> pageClass,
-						  String fieldName,
-						  Class<?> fieldType,
-						  String label) {
-			this.pageClass = pageClass;
-			this.pageSimpleName = pageClass.getSimpleName();
-			this.fieldName = fieldName;
-			this.fieldType = fieldType;
-			this.label = label;
-		}
-
-		@Override
-		public String toString() {
-			return pageSimpleName + "." + fieldName + " : "
-					+ fieldType.getSimpleName() + " [" + label + "]";
-		}
-	}
-
 	public static List<Descriptor> scanPageClass(Class<?> pageClass) {
 		List<Descriptor> result = new ArrayList<>();
 
@@ -71,6 +46,31 @@ public class PageObjectIntrospector {
 			return pageClass.getDeclaredConstructor().newInstance();
 		} catch (Exception e) {
 			return null;
+		}
+	}
+
+	public static class Descriptor {
+		public final Class<?> pageClass;
+		public final String pageSimpleName;
+		public final String fieldName;
+		public final Class<?> fieldType;
+		public final String label;
+
+		public Descriptor(Class<?> pageClass,
+						  String fieldName,
+						  Class<?> fieldType,
+						  String label) {
+			this.pageClass = pageClass;
+			this.pageSimpleName = pageClass.getSimpleName();
+			this.fieldName = fieldName;
+			this.fieldType = fieldType;
+			this.label = label;
+		}
+
+		@Override
+		public String toString() {
+			return pageSimpleName + "." + fieldName + " : "
+					+ fieldType.getSimpleName() + " [" + label + "]";
 		}
 	}
 }

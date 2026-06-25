@@ -5,7 +5,7 @@ import java.awt.*;
 
 public class CaptureUrlDialog extends JDialog {
 
-	private JTextField urlField;
+	private final JTextField urlField;
 	private boolean confirmed = false;
 
 	public CaptureUrlDialog(Frame parent) {

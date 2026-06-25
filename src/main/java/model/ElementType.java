@@ -16,9 +16,9 @@ public enum ElementType {
 	SELECT("Select", "Select list"),
 	DROPDOWN("Dropdown", "Dropdown list"),
 	CHECKBOX("CheckBoxButton", "Checkbox"),
-	RADIO_BUTTON("RadioButton","Radio button"),
-	DATE_PICKER("DatePicker","DatePicker"),
-	UNKNOWN("UNKNOWN","Unknown element");
+	RADIO_BUTTON("RadioButton", "Radio button"),
+	DATE_PICKER("DatePicker", "DatePicker"),
+	UNKNOWN("UNKNOWN", "Unknown element");
 
 	private final String className;
 	private final String description;

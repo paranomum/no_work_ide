@@ -73,7 +73,7 @@ public class CaptureListDialog extends JDialog {
 		add(new JScrollPane(listTable), BorderLayout.CENTER);
 
 		JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-		JButton openBtn = new JButton("Открыть запрос");;
+		JButton openBtn = new JButton("Открыть запрос");
 		JButton closeBtn = new JButton("Закрыть");
 
 		openBtn.addActionListener(e -> openSelected());

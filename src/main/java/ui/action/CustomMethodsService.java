@@ -9,58 +9,33 @@ import dto.LocalVariables;
 import ui.AbstractTableSettingsPanel;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
-import java.awt.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.List;
 
 public class CustomMethodsService extends AbstractTableSettingsPanel {
 
-	public static class MethodDef {
-		private String name;
-		private String path;
-
-		public MethodDef(String name, String path) {
-			this.name = name;
-			this.path = path;
-		}
-
-		public String getName() { return name; }
-		public String getPath() { return path; }
-
-		@Override
-		public String toString() {
-			return name;
-		}
-	}
-
-	private JTable customMethodsTable;
-	private DefaultTableModel customMethodsTableModel;
 	private final ConfigService configService;
 	private final AppConfig config;
-
 	// внутренняя коллекция как у OpenApiService (там map, здесь список)
 	private final List<MethodDef> methods = new ArrayList<>();
-
 	// Gson один раз на сервис
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+	private JTable customMethodsTable;
+	private DefaultTableModel customMethodsTableModel;
 
 	public CustomMethodsService(ConfigService configService, AppConfig config) {
 		this.configService = configService;
 		this.config = config;
 	}
 
-	// ---------- SETTINGS PANEL ----------
-
 	public JPanel createCustomMethodsSettingsPanel(JDialog parentDialog) {
 		JPanel panel = buildTablePanel(
 				"Custom methods",
-				new String[] {"Method", "Path"},
+				new String[]{"Method", "Path"},
 				() -> saveCustomMethods(parentDialog),
 				() -> openPathFileChooser(parentDialog)
 		);
@@ -73,8 +48,7 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		return panel;
 	}
 
-
-	// ---------- TABLE <-> LIST BINDING ----------
+	// ---------- SETTINGS PANEL ----------
 
 	private void loadCustomMethodsIntoTable() {
 		customMethodsTableModel.setRowCount(0);
@@ -82,6 +56,9 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 			customMethodsTableModel.addRow(new Object[]{m.getName(), m.getPath()});
 		}
 	}
+
+
+	// ---------- TABLE <-> LIST BINDING ----------
 
 	private void saveCustomMethods(JDialog parentDialog) {
 		List<MethodDef> list = new ArrayList<>();
@@ -103,11 +80,11 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		);
 	}
 
-	// ---------- IN-MEMORY API ----------
-
 	public List<MethodDef> getMethods() {
 		return Collections.unmodifiableList(methods);
 	}
+
+	// ---------- IN-MEMORY API ----------
 
 	public void setMethods(List<MethodDef> list) {
 		methods.clear();
@@ -133,13 +110,13 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		return null;
 	}
 
-	// ---------- PERSISTENCE (по образцу OpenApiService) ----------
-
 	// тут использую аналогичный подход: отдельный json-файл рядом с конфигом
 	private Path getCustomMethodsFile() throws Exception {
 		// сделай в ConfigService метод вроде getCustomMethodsFile(config)
 		return configService.getCustomMethodsFile(config);
 	}
+
+	// ---------- PERSISTENCE (по образцу OpenApiService) ----------
 
 	public void load() {
 		methods.clear();
@@ -211,7 +188,7 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 			java.io.File file = chooser.getSelectedFile();
 			if (file != null) {
 				customMethodsTableModel.setValueAt(
-						file.getAbsolutePath().toString(),
+						file.getAbsolutePath(),
 						row,
 						1 // колонка Path
 				);
@@ -238,7 +215,8 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 			// формат 1: в корне массив шагов
 			if (root.isJsonArray()) {
 				java.lang.reflect.Type listType =
-						new com.google.gson.reflect.TypeToken<List<ActionRecord>>(){}.getType();
+						new com.google.gson.reflect.TypeToken<List<ActionRecord>>() {
+						}.getType();
 				List<ActionRecord> steps = gson.fromJson(root, listType);
 				return steps != null ? steps : List.of();
 			}
@@ -265,37 +243,19 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 	}
 
 	public List<ActionRecord> loadMethodStepsAsActionRecords(String methodName) {
-		MethodDef def = findByName(methodName); // тут тип виден без полного имени
-		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
-			throw new IllegalArgumentException("Custom method not found or path is empty: " + methodName);
-		}
-
-		File file = new File(def.getPath());
-		if (!file.exists()) {
-			throw new IllegalArgumentException("Custom method file not found: " + file.getAbsolutePath());
-		}
-
-		try (Reader reader = new InputStreamReader(
-				new FileInputStream(file), StandardCharsets.UTF_8)) {
-
-			Gson gson = new GsonBuilder().create();
-			ActionRecord[] records = gson.fromJson(reader, ActionRecord[].class);
-			if (records == null) {
-				return List.of();
-			}
-			return java.util.Arrays.asList(records);
-		} catch (Exception ex) {
-			TestRecorderErrorLogger.logError(
-					"Failed to load custom method '" + methodName, ex
-			);
-			throw new RuntimeException(
-					"Failed to load custom method '" + methodName + "': " + ex.getMessage(), ex);
-		}
+		return loadMethodSteps(methodName);
 	}
 
 	public void saveMethod(String methodName,
 						   List<ActionRecord> actions,
 						   List<LocalVariables> variables) {
+		saveMethod(methodName, actions, variables, List.of());
+	}
+
+	public void saveMethod(String methodName,
+						   List<ActionRecord> actions,
+						   List<LocalVariables> variables,
+						   List<BackendRequestDef> backendRequests) {
 
 		MethodDef def = findByName(methodName);
 		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
@@ -305,8 +265,9 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		File file = new File(def.getPath());
 
 		MethodFile mf = new MethodFile();
-		mf.actions = actions;
-		mf.variables = variables;
+		mf.actions = actions != null ? actions : List.of();
+		mf.variables = variables != null ? variables : List.of();
+		mf.backendRequests = backendRequests != null ? backendRequests : List.of();
 
 		try (Writer writer = new OutputStreamWriter(
 				new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -360,43 +321,104 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 	}
 
 	public List<BackendRequestDef> loadMethodBackendRequests(String methodName) {
+		Map<String, BackendRequestDef> collected = new LinkedHashMap<>();
+		loadMethodBackendRequestsRecursive(methodName, collected, new LinkedHashSet<>());
+		return new ArrayList<>(collected.values());
+	}
+
+	private void loadMethodBackendRequestsRecursive(String methodName,
+													Map<String, BackendRequestDef> collected,
+													Set<String> visitedMethods) {
+		if (methodName == null || methodName.isBlank() || !visitedMethods.add(methodName)) {
+			return;
+		}
+
 		MethodDef def = findByName(methodName);
 		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
-			return List.of();
+			return;
 		}
-		java.io.File file = new java.io.File(def.getPath());
+
+		File file = new File(def.getPath());
 		if (!file.exists()) {
-			return List.of();
+			return;
 		}
+
 		try (Reader reader = new InputStreamReader(
 				new FileInputStream(file), StandardCharsets.UTF_8)) {
 
 			com.google.gson.JsonElement root = com.google.gson.JsonParser.parseReader(reader);
-			if (root.isJsonArray()) {
-				// Старый формат — нет backendRequests
-				return List.of();
-			}
+
 			if (root.isJsonObject()) {
 				MethodFile methodFile = gson.fromJson(root, MethodFile.class);
-				return (methodFile != null && methodFile.getBackendRequests() != null)
-						? methodFile.getBackendRequests()
-						: List.of();
+
+				if (methodFile != null && methodFile.getBackendRequests() != null) {
+					for (BackendRequestDef req : methodFile.getBackendRequests()) {
+						if (req != null && req.getName() != null && !req.getName().isBlank()) {
+							collected.putIfAbsent(req.getName(), req);
+						}
+					}
+				}
+
+				if (methodFile != null && methodFile.getActions() != null) {
+					for (ActionRecord action : methodFile.getActions()) {
+						if (action == null) {
+							continue;
+						}
+
+						if ("customMethod".equals(action.getAction())) {
+							String nestedMethodName = action.getValue();
+							loadMethodBackendRequestsRecursive(nestedMethodName, collected, visitedMethods);
+						}
+					}
+				}
 			}
-			return List.of();
 		} catch (Exception ex) {
-			TestRecorderErrorLogger.logError("Failed to load backendRequests for custom method '" + methodName + "'", ex);
-			return List.of();
+			TestRecorderErrorLogger.logError(
+					"Failed to load backendRequests for custom method '" + methodName + "'",
+					ex
+			);
+		}
+	}
+
+	public static class MethodDef {
+		private final String name;
+		private final String path;
+
+		public MethodDef(String name, String path) {
+			this.name = name;
+			this.path = path;
+		}
+
+		public String getName() {
+			return name;
+		}
+
+		public String getPath() {
+			return path;
+		}
+
+		@Override
+		public String toString() {
+			return name;
 		}
 	}
 
 	public static class MethodFile {
 		private List<ActionRecord> actions;
 		private List<LocalVariables> variables;
-		private List<BackendRequestDef> backendRequests; // ← НОВОЕ поле
+		private List<BackendRequestDef> backendRequests;
 
-		public List<ActionRecord> getActions() { return actions; }
-		public List<LocalVariables> getVariables() { return variables; }
-		public List<BackendRequestDef> getBackendRequests() { return backendRequests; } // ← НОВОЕ
+		public List<ActionRecord> getActions() {
+			return actions;
+		}
+
+		public List<LocalVariables> getVariables() {
+			return variables;
+		}
+
+		public List<BackendRequestDef> getBackendRequests() {
+			return backendRequests;
+		}
 	}
 
 }

@@ -17,7 +17,7 @@ public class ConfigService {
 	private static final String OPENAPI_SPECS_FILE_NAME = "openApiSpec.json";
 	private static final String CUSTOM_METHODS_FILE_NAME = "customMethods.json";
 	private static final String USERS_FILE_NAME = "users.json";
-//	private static final String BACKEND_REQUESTS_FILE_NAME = "backendRequests.json";
+	//	private static final String BACKEND_REQUESTS_FILE_NAME = "backendRequests.json";
 	private static final String DEFAULT_TRUSTSTORE_FILE_NAME = "custom-cacerts.jks";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
@@ -104,7 +104,8 @@ public class ConfigService {
 			AppConfig cfg = new AppConfig();
 			try {
 				save(cfg);
-			} catch (Exception ignored) {}
+			} catch (Exception ignored) {
+			}
 			return cfg;
 		}
 	}

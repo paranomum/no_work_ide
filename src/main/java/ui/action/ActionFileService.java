@@ -7,8 +7,6 @@ import lombok.SneakyThrows;
 import lombok.val;
 import model.ElementType;
 import model.UserAction;
-import ui.frameworkmeta.PageObjectIntrospector;
-import ui.frameworkmeta.PageObjectMatcher;
 import ui.frameworkmeta.PageObjectRegistry;
 
 import javax.swing.*;
@@ -19,15 +17,15 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 
-import static ru.rt.iqhr.framework.util.XPathUtils.isProbablyXPath;
-
 public class ActionFileService {
 
+	private static final Pattern COMMA_SPACE_DIGIT_NON_LETTERS =
+			Pattern.compile(",\\s*\\d[^A-Za-z]*");
 	private final DefaultTableModel tableModel;
 	private final JFrame parent;
 	private final CustomMethodsService customMethodsService;
 	private final VariablesService variablesService;
-	private TestGeneratorService testGeneratorService;
+	private final TestGeneratorService testGeneratorService;
 	private BackendRequestsService backendRequestsService;
 	private PlayActionService playActionServiceRef;
 
@@ -47,14 +45,22 @@ public class ActionFileService {
 
 	}
 
-	public void setBackendRequestsService(BackendRequestsService backendRequestsService) {
-		this.backendRequestsService = backendRequestsService;
-	}
-	public void setPlayActionServiceRef(PlayActionService playActionService) {
-		this.playActionServiceRef = playActionService;
+	public static boolean hasCommaSpacesDigitAndNoLettersAfter(String s) {
+		if (s == null) return false;
+		return COMMA_SPACE_DIGIT_NON_LETTERS.matcher(s).find();
 	}
 
 	// --------- Публичный вход ---------
+
+	public void setBackendRequestsService(BackendRequestsService backendRequestsService) {
+		this.backendRequestsService = backendRequestsService;
+	}
+
+	// --------- JSON ---------
+
+	public void setPlayActionServiceRef(PlayActionService playActionService) {
+		this.playActionServiceRef = playActionService;
+	}
 
 	public void saveWithModeDialog() {
 		if (tableModel.getRowCount() == 0) {
@@ -98,7 +104,7 @@ public class ActionFileService {
 		}
 	}
 
-	// --------- JSON ---------
+	// --------- Java test ---------
 
 	private void saveJsonPlan() {
 		JFileChooser chooser = new JFileChooser();
@@ -116,17 +122,10 @@ public class ActionFileService {
 		List<ActionRecord> rows = buildActionRecords();
 		List<LocalVariables> vars = variablesService.getVariables();
 
-		// Собираем backend-запросы, используемые в сценарии
-		List<BackendRequestDef> usedBackendRequests = new ArrayList<>();
-		if (backendRequestsService != null) {
-			for (String name : collectUsedBackendRequestNames()) {
-				BackendRequestDef def = backendRequestsService.findByName(name);
-				if (def != null) usedBackendRequests.add(def);
-			}
-		}
-
-		List<String> usedNames = collectUsedBackendRequestNames();
+		List<BackendRequestDef> usedBackendRequests = collectBackendRequestsForScenario(rows);
+		List<String> usedNames = extractBackendRequestNames(usedBackendRequests);
 		Map<String, ScenarioBackendConfig> scenarioOverrides = buildScenarioOverrides(usedNames);
+
 		Scenario scenario = new Scenario(rows, vars, usedBackendRequests, scenarioOverrides);
 
 		try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -134,12 +133,14 @@ public class ActionFileService {
 			gson.toJson(scenario, writer);
 			writer.flush();
 			JOptionPane.showMessageDialog(parent,
-					"Table saved to:\n" + file.getAbsolutePath(), "Save Successful",
+					"Table saved to:\n" + file.getAbsolutePath(),
+					"Save Successful",
 					JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception ex) {
 			TestRecorderErrorLogger.logError("Failed to save table\n", ex);
 			JOptionPane.showMessageDialog(parent,
-					"Failed to save table: " + ex.getMessage(), "Error",
+					"Failed to save table: " + ex.getMessage(),
+					"Error",
 					JOptionPane.ERROR_MESSAGE);
 		}
 	}
@@ -229,13 +230,13 @@ public class ActionFileService {
 			}
 
 			String selector = val(r, 2);
-			String value    = val(r, 3);
-			String comment  = val(r, 4);
-			String xpath    = val(r, 6);
-			String name     = val(r, 7);
-			String index    = val(r, 8);
-			String byXpath  = val(r, 9);
-			String url      = val(r, 10);
+			String value = val(r, 3);
+			String comment = val(r, 4);
+			String xpath = val(r, 6);
+			String name = val(r, 7);
+			String index = val(r, 8);
+			String byXpath = val(r, 9);
+			String url = val(r, 10);
 
 			rows.add(new ActionRecord(
 					actionCode,
@@ -254,7 +255,7 @@ public class ActionFileService {
 		return rows;
 	}
 
-	// --------- Java test ---------
+	// --------- JSON load ---------
 
 	private void saveGeneratedJava() {
 		JFileChooser chooser = new JFileChooser();
@@ -302,8 +303,6 @@ public class ActionFileService {
 		return v == null ? null : v.toString();
 	}
 
-	// --------- JSON load ---------
-
 	public void loadFromJsonFile() {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Open actions JSON");
@@ -349,17 +348,16 @@ public class ActionFileService {
 			List<ActionRecord> records;
 
 			if (scenario != null) {
-				records = scenario.getActions();
+				records = scenario.getActions() != null ? scenario.getActions() : List.of();
 				loadVariablesIntoService(scenario.getVariables());
 
-				// ← НОВОЕ: сброс к системным запросам перед загрузкой тестовых
 				if (backendRequestsService != null) {
 					backendRequestsService.load(
 							scenario.getBackendRequests(),
 							scenario.getScenarioOverrides()
 					);
 
-					importBackendRequestsFromCustomMethods(records);
+					importBackendRequestsFromCustomMethods(records, true);
 				}
 
 				if (scenario.getScenarioOverrides() != null && this.playActionServiceRef != null) {
@@ -427,14 +425,6 @@ public class ActionFileService {
 		return actionCode; // если не нашли — положим строкой
 	}
 
-	private static final Pattern COMMA_SPACE_DIGIT_NON_LETTERS =
-			Pattern.compile(",\\s*\\d[^A-Za-z]*");
-
-	public static boolean hasCommaSpacesDigitAndNoLettersAfter(String s) {
-		if (s == null) return false;
-		return COMMA_SPACE_DIGIT_NON_LETTERS.matcher(s).find();
-	}
-
 	private void saveJsonPlanWithInlinedCustomMethods() {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setDialogTitle("Save full test plan (inline custom methods)");
@@ -451,17 +441,10 @@ public class ActionFileService {
 		List<ActionRecord> rows = buildActionRecordsWithInlinedCustomMethods();
 		List<LocalVariables> vars = variablesService.getVariables();
 
-		// Собираем backend-запросы, используемые в сценарии
-		List<BackendRequestDef> usedBackendRequests = new ArrayList<>();
-		if (backendRequestsService != null) {
-			for (String name : collectUsedBackendRequestNames()) {
-				BackendRequestDef def = backendRequestsService.findByName(name);
-				if (def != null) usedBackendRequests.add(def);
-			}
-		}
-
-		List<String> usedNames = collectUsedBackendRequestNames();
+		List<BackendRequestDef> usedBackendRequests = collectBackendRequestsForScenario(rows);
+		List<String> usedNames = extractBackendRequestNames(usedBackendRequests);
 		Map<String, ScenarioBackendConfig> scenarioOverrides = buildScenarioOverrides(usedNames);
+
 		Scenario scenario = new Scenario(rows, vars, usedBackendRequests, scenarioOverrides);
 
 		try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -470,11 +453,13 @@ public class ActionFileService {
 			writer.flush();
 			JOptionPane.showMessageDialog(parent,
 					"Full test plan (inline) saved to:\n" + file.getAbsolutePath(),
-					"Save Successful", JOptionPane.INFORMATION_MESSAGE);
+					"Save Successful",
+					JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception ex) {
 			TestRecorderErrorLogger.logError("Failed to save full test plan\n", ex);
 			JOptionPane.showMessageDialog(parent,
-					"Failed to save full test plan: " + ex.getMessage(), "Error",
+					"Failed to save full test plan: " + ex.getMessage(),
+					"Error",
 					JOptionPane.ERROR_MESSAGE);
 		}
 	}
@@ -492,7 +477,6 @@ public class ActionFileService {
 		int rowCount = tableModel.getRowCount();
 
 		for (int r = 0; r < rowCount; r++) {
-			// вытаскиваем actionCode так же, как в buildActionRecords()
 			Object actionObj = tableModel.getValueAt(r, 1);
 			String actionCode = null;
 			if (actionObj instanceof UserAction) {
@@ -501,39 +485,8 @@ public class ActionFileService {
 				actionCode = actionObj.toString();
 			}
 
-			// если это не customMethod — просто добавляем один ActionRecord
-			if (!"customMethod".equals(actionCode)) {
-				result.add(buildActionRecordForRow(r, actionCode));
-				continue;
-			}
-
-			// customMethod: берём имя метода из Value
-			String methodName = val(r, 3); // колонка Value
-			if (methodName == null || methodName.isBlank() || customMethodsService == null) {
-				// если что-то не так — сохраняем как есть, чтобы не потерять шаг
-				result.add(buildActionRecordForRow(r, actionCode));
-				continue;
-			}
-
-			// грузим шаги метода и inline-им их
-			try {
-				List<ActionRecord> methodSteps =
-						customMethodsService.loadMethodStepsAsActionRecords(methodName);
-				if (methodSteps == null || methodSteps.isEmpty()) {
-					// если метод пуст — можно либо ничего не добавлять,
-					// либо сохранить исходный шаг; я предлагаю сохранить исходный
-					result.add(buildActionRecordForRow(r, actionCode));
-				} else {
-					result.addAll(methodSteps);
-				}
-			} catch (Exception ex) {
-				ex.printStackTrace();
-				TestRecorderErrorLogger.logError(
-						"buildActionRecordsWithInlinedCustomMethods\n", ex
-				);
-				// в случае ошибки лучше сохранить исходный шаг, чтобы сценарий не «терялся»
-				result.add(buildActionRecordForRow(r, actionCode));
-			}
+			ActionRecord rowRecord = buildActionRecordForRow(r, actionCode);
+			appendExpandedActionRecord(result, rowRecord, new LinkedHashSet<>());
 		}
 
 		return result;
@@ -561,13 +514,13 @@ public class ActionFileService {
 		}
 
 		String selector = val(r, 2);
-		String value    = val(r, 3);
-		String comment  = val(r, 4);
-		String xpath    = val(r, 6);
-		String name     = val(r, 7);
-		String index    = val(r, 8);
-		String byXpath  = val(r, 9);
-		String url  = val(r, 10);
+		String value = val(r, 3);
+		String comment = val(r, 4);
+		String xpath = val(r, 6);
+		String name = val(r, 7);
+		String index = val(r, 8);
+		String byXpath = val(r, 9);
+		String url = val(r, 10);
 
 		return new ActionRecord(
 				actionCode,
@@ -608,22 +561,135 @@ public class ActionFileService {
 		System.out.println("=== loadVariablesIntoService END ===");
 	}
 
-	private List<String> collectUsedBackendRequestNames() {
-		List<String> names = new ArrayList<>();
-		Set<String> seen = new LinkedHashSet<>();
-		for (int r = 0; r < tableModel.getRowCount(); r++) {
-			Object actionObj = tableModel.getValueAt(r, 1);
-			String actionCode = actionObj instanceof model.UserAction
-					? ((model.UserAction) actionObj).getCode()
-					: (actionObj != null ? actionObj.toString() : null);
-			if ("useBackendMethod".equals(actionCode)) {
-				String name = String.valueOf(tableModel.getValueAt(r, 3)).trim();
-				if (!name.isEmpty() && seen.add(name)) {
-					names.add(name);
+	private List<BackendRequestDef> collectBackendRequestsForScenario(List<ActionRecord> records) {
+		Map<String, BackendRequestDef> collected = new LinkedHashMap<>();
+		collectBackendRequestsRecursive(records, collected, new LinkedHashSet<>());
+		return new ArrayList<>(collected.values());
+	}
+
+	private void collectBackendRequestsRecursive(List<ActionRecord> records,
+												 Map<String, BackendRequestDef> collected,
+												 Set<String> visitedCustomMethods) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+
+		for (ActionRecord rec : records) {
+			if (rec == null) {
+				continue;
+			}
+
+			String action = safeTrim(rec.getAction());
+
+			if ("useBackendMethod".equals(action)) {
+				String backendName = safeTrim(rec.getValue());
+				if (backendName.isEmpty() || backendRequestsService == null) {
+					continue;
+				}
+
+				BackendRequestDef def = backendRequestsService.findByName(backendName);
+				if (def != null) {
+					collected.putIfAbsent(def.getName(), def);
+				}
+				continue;
+			}
+
+			if ("customMethod".equals(action)) {
+				String methodName = safeTrim(rec.getValue());
+				if (methodName.isEmpty() || !visitedCustomMethods.add(methodName)) {
+					continue;
+				}
+
+				try {
+					List<BackendRequestDef> methodBackends =
+							customMethodsService.loadMethodBackendRequests(methodName);
+					if (methodBackends != null) {
+						for (BackendRequestDef def : methodBackends) {
+							if (def != null && def.getName() != null && !def.getName().isBlank()) {
+								collected.putIfAbsent(def.getName(), def);
+								if (backendRequestsService != null && backendRequestsService.findByName(def.getName()) == null) {
+									backendRequestsService.loadFromScenario(List.of(def));
+								}
+							}
+						}
+					}
+
+					List<ActionRecord> nestedSteps = customMethodsService.loadMethodSteps(methodName);
+					collectBackendRequestsRecursive(nestedSteps, collected, visitedCustomMethods);
+				} catch (Exception ex) {
+					TestRecorderErrorLogger.logError(
+							"Failed to collect backend requests from custom method '" + methodName + "'",
+							ex
+					);
 				}
 			}
 		}
+	}
+
+	private List<String> extractBackendRequestNames(List<BackendRequestDef> defs) {
+		List<String> names = new ArrayList<>();
+		if (defs == null || defs.isEmpty()) {
+			return names;
+		}
+
+		for (BackendRequestDef def : defs) {
+			if (def == null) {
+				continue;
+			}
+			String name = safeTrim(def.getName());
+			if (!name.isEmpty()) {
+				names.add(name);
+			}
+		}
+
 		return names;
+	}
+
+	private void appendExpandedActionRecord(List<ActionRecord> target,
+											ActionRecord record,
+											Set<String> visitedCustomMethods) {
+		if (record == null) {
+			return;
+		}
+
+		String action = safeTrim(record.getAction());
+		if (!"customMethod".equals(action)) {
+			target.add(record);
+			return;
+		}
+
+		String methodName = safeTrim(record.getValue());
+		if (methodName.isEmpty()) {
+			target.add(record);
+			return;
+		}
+
+		if (!visitedCustomMethods.add(methodName)) {
+			target.add(record);
+			return;
+		}
+
+		try {
+			List<ActionRecord> methodSteps = customMethodsService.loadMethodSteps(methodName);
+			if (methodSteps == null || methodSteps.isEmpty()) {
+				target.add(record);
+				return;
+			}
+
+			for (ActionRecord step : methodSteps) {
+				appendExpandedActionRecord(target, step, visitedCustomMethods);
+			}
+		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError(
+					"Failed to inline custom method '" + methodName + "'",
+					ex
+			);
+			target.add(record);
+		}
+	}
+
+	private String safeTrim(String value) {
+		return value == null ? "" : value.trim();
 	}
 
 	private Map<String, ScenarioBackendConfig> buildScenarioOverrides(List<String> usedRequestNames) {
@@ -645,25 +711,56 @@ public class ActionFileService {
 	 * Проходит по всем шагам теста с action=customMethod,
 	 * загружает JSON-файлы методов и подтягивает их backendRequests в память.
 	 */
-	private void importBackendRequestsFromCustomMethods(List<ActionRecord> records) {
+	private void importBackendRequestsFromCustomMethods(List<ActionRecord> records, boolean importVariablesToo) {
 		if (records == null || customMethodsService == null || backendRequestsService == null) {
 			return;
 		}
+
+		Set<String> visitedMethods = new LinkedHashSet<>();
+		importBackendRequestsFromCustomMethodsRecursive(records, visitedMethods, importVariablesToo);
+	}
+
+	private void importBackendRequestsFromCustomMethodsRecursive(List<ActionRecord> records,
+																 Set<String> visitedMethods,
+																 boolean importVariablesToo) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+
 		for (ActionRecord rec : records) {
-			if (!"customMethod".equals(rec.getAction())) {
+			if (rec == null || !"customMethod".equals(safeTrim(rec.getAction()))) {
 				continue;
 			}
-			String methodName = rec.getValue();
-			if (methodName == null || methodName.isBlank()) {
+
+			String methodName = safeTrim(rec.getValue());
+			if (methodName.isEmpty() || !visitedMethods.add(methodName)) {
 				continue;
 			}
+
 			try {
 				List<BackendRequestDef> methodBackendRequests =
 						customMethodsService.loadMethodBackendRequests(methodName);
 				backendRequestsService.loadFromScenario(methodBackendRequests);
+
+				if (importVariablesToo) {
+					List<LocalVariables> methodVars = customMethodsService.loadMethodVariables(methodName);
+					if (methodVars != null) {
+						for (LocalVariables v : methodVars) {
+							if (v != null && v.getName() != null && !v.getName().isBlank()) {
+								variablesService.addVariable(v);
+							}
+						}
+						variablesService.refreshTableFromVariables();
+					}
+				}
+
+				List<ActionRecord> nestedSteps = customMethodsService.loadMethodSteps(methodName);
+				importBackendRequestsFromCustomMethodsRecursive(nestedSteps, visitedMethods, importVariablesToo);
 			} catch (Exception ex) {
-				// Метод может не иметь backendRequests — игнорируем тихо
-				ex.printStackTrace();
+				TestRecorderErrorLogger.logError(
+						"Failed to import backendRequests from custom method '" + methodName + "'",
+						ex
+				);
 			}
 		}
 	}
