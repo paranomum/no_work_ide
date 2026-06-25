@@ -37,6 +37,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private final AppConfig config;
 	private final List<BackendRequestDef> requests = new ArrayList<>();
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+	private final Map<Integer, String> rowToOriginalName = new HashMap<>();
 
 	/** Прокидывается из ActionWindow после создания, нужен для выбора переменных */
 	private VariablesService variablesService;
@@ -63,10 +64,20 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		);
 
 		this.backendTable = this.table;
-		this.backendTableModel = this.model;
 
-		JComboBox<String> httpCombo = new JComboBox<>(HTTP_METHODS);
-		backendTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(httpCombo));
+		// Заменяем дефолтную модель на нередактируемую
+		DefaultTableModel readOnlyModel = new DefaultTableModel(TABLE_COLUMNS, 0) {
+			@Override
+			public boolean isCellEditable(int row, int column) {
+				return false;  // запрет редактирования всех ячеек
+			}
+		};
+		this.backendTable.setModel(readOnlyModel);
+		this.backendTableModel = readOnlyModel;
+
+		// Убираем JComboBox-редактор для HTTP-метода — таблица read-only,
+		// редактирование только через Edit DTO
+		// (DefaultCellEditor от httpCombo больше не нужен)
 
 		JButton editDtoBtn = new JButton("Edit DTO");
 		editDtoBtn.addActionListener(e -> openEditDtoDialog(parentDialog));
@@ -83,21 +94,29 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 	private void loadIntoTable() {
 		backendTableModel.setRowCount(0);
+		rowToOriginalName.clear();
+		int row = 0;
 		for (BackendRequestDef r : requests) {
 			backendTableModel.addRow(new Object[]{r.getName(), r.getMethod(), r.getUrl()});
+			rowToOriginalName.put(row, r.getName());
+			row++;
 		}
 	}
 
 	private void saveFromTable(JDialog parentDialog) {
 		List<BackendRequestDef> updated = new ArrayList<>();
 		for (int row = 0; row < backendTableModel.getRowCount(); row++) {
-			String name = Objects.toString(backendTableModel.getValueAt(row, 0), "").trim();
-			String method = Objects.toString(backendTableModel.getValueAt(row, 1), "").trim();
-			String url = Objects.toString(backendTableModel.getValueAt(row, 2), "").trim();
+			String name    = Objects.toString(backendTableModel.getValueAt(row, 0), "").trim();
+			String method  = Objects.toString(backendTableModel.getValueAt(row, 1), "").trim();
+			String url     = Objects.toString(backendTableModel.getValueAt(row, 2), "").trim();
 
 			if (!name.isEmpty() || !url.isEmpty()) {
-				BackendRequestDef original = findByName(name);
+				// Ищем по ИСХОДНОМУ имени (до переименования)
+				String originalName = rowToOriginalName.get(row);
+				BackendRequestDef original = (originalName != null) ? findByName(originalName) : null;
+
 				if (original != null) {
+					original.setName(name);   // применяем новое имя
 					original.setMethod(method);
 					original.setUrl(url);
 					updated.add(original);
@@ -122,12 +141,9 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		setRequests(updated);
 		save();
-		JOptionPane.showMessageDialog(
-				parentDialog,
-				"Backend requests saved",
-				"Saved",
-				JOptionPane.INFORMATION_MESSAGE
-		);
+		// После сохранения перезагружаем маппинг оригинальных имён
+		loadIntoTable();
+		JOptionPane.showMessageDialog(parentDialog, "Backend requests saved", "Saved", JOptionPane.INFORMATION_MESSAGE);
 	}
 
 	private void openEditDtoDialog(JDialog parentDialog) {
@@ -454,7 +470,14 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 			int row = extractorTable.getSelectedRow();
 			if (row >= 0) {
+				// Читаем имя переменной ДО удаления строки
+				String variableName = Objects.toString(extractorModel.getValueAt(row, 1), "").trim();
 				extractorModel.removeRow(row);
+				// Удаляем из VariablesService
+				if (!variableName.isEmpty() && variablesService != null) {
+					variablesService.removeVariable(variableName);
+					variablesService.refreshTableFromVariables();
+				}
 			}
 		});
 
@@ -536,12 +559,11 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		JButton cancelBtn = new JButton("Cancel");
 
 		saveBtn.addActionListener(e -> {
-			if (uniqueTable.isEditing()) {
-				uniqueTable.getCellEditor().stopCellEditing();
-			}
-			if (extractorTable.isEditing()) {
-				extractorTable.getCellEditor().stopCellEditing();
-			}
+			if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+
+			// ← НОВОЕ: запоминаем старое имя
+			String oldDefName = def.getName();
 
 			def.setName(nameField.getText().trim());
 			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
@@ -552,41 +574,28 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 			List<DtoFieldOverride> overrides = new ArrayList<>();
 			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
-				boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
-				String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
-				String method = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
-				String arg = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
-				if (fieldPath.isEmpty()) {
-					continue;
-				}
-				overrides.add(new DtoFieldOverride(fieldPath, method, arg, isUnique));
+				boolean isUnique  = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
+				String fieldPath  = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
+				String methodVal  = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+				String arg        = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
+				if (fieldPath.isEmpty()) continue;
+				overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, isUnique));
 			}
 			def.setFieldOverrides(overrides);
 
-			List<ResponseFieldExtractor> extractors = new ArrayList<>();
-			for (int r = 0; r < extractorModel.getRowCount(); r++) {
-				String fp = String.valueOf(extractorModel.getValueAt(r, 0)).trim();
-				String vn = String.valueOf(extractorModel.getValueAt(r, 1)).trim();
-				if (!fp.isEmpty()) {
-					if (vn.isEmpty()) {
-						vn = def.getName() + "." + fp;
-					}
-					extractors.add(new ResponseFieldExtractor(fp, vn));
-				}
-			}
+			List<ResponseFieldExtractor> extractors = collectResponseExtractors(extractorModel, def);
 			def.setResponseExtractors(extractors);
 			syncResponseExtractorsToVariables(extractors);
 
-			// Сохраняем поведение saveBtn из новой версии:
-			// автодобавляем новые leaf-пути из body в fieldOverrides, не требуя mergeBtn
+			// ← НОВОЕ: синхронизируем имена переменных при переименовании
+			renameVariablesInService(oldDefName, def.getName(), extractors);
+
+			// Автодобавление новых leaf-путей из body в fieldOverrides (существующая логика)
 			List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
 			Set<String> existingPaths = new HashSet<>();
 			for (DtoFieldOverride ov : def.getFieldOverrides()) {
-				if (ov.getFieldPath() != null) {
-					existingPaths.add(ov.getFieldPath());
-				}
+				if (ov.getFieldPath() != null) existingPaths.add(ov.getFieldPath());
 			}
-
 			int added = 0;
 			for (String path : newPaths) {
 				if (!existingPaths.contains(path)) {
@@ -888,5 +897,64 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		}
 
 		return extractors;
+	}
+
+	/**
+	 * Переименовывает переменные в VariablesService при переименовании запроса.
+	 * Удаляет старые ключи oldName.fieldPath и добавляет newName.fieldPath.
+	 */
+	private void renameVariablesInService(String oldName, String newName, List<ResponseFieldExtractor> extractors) {
+		if (variablesService == null || extractors == null || extractors.isEmpty()) {
+			return;
+		}
+		if (Objects.equals(oldName, newName)) {
+			return;
+		}
+		for (ResponseFieldExtractor ex : extractors) {
+			if (ex == null) continue;
+			String fieldPath = ex.getFieldPath() != null ? ex.getFieldPath().trim() : "";
+			if (fieldPath.isEmpty()) continue;
+
+			String oldVarName = oldName + "." + fieldPath;
+			String newVarName = newName + "." + fieldPath;
+			String value = fieldPath.isEmpty() ? "" : "json(" + fieldPath + ")";
+
+			// Удаляем старую переменную
+			variablesService.removeVariable(oldVarName);
+			// Добавляем с новым именем
+			variablesService.addVariable(newVarName, value);
+
+			// Обновляем variableName в самом экстракторе
+			ex.setVariableName(newVarName);
+		}
+		variablesService.refreshTableFromVariables();
+	}
+
+	/**
+	 * Загружает backend-запросы из сценария (JSON теста) только в память,
+	 * НЕ записывая в системный backendRequests.json.
+	 * Если запрос с таким именем уже есть — он НЕ перезаписывается
+	 * (системный приоритет выше тестового, чтобы не ломать настроенные URL/методы).
+	 */
+	public void loadFromScenario(List<BackendRequestDef> defs) {
+		if (defs == null || defs.isEmpty()) {
+			return;
+		}
+		for (BackendRequestDef def : defs) {
+			if (def == null || def.getName() == null || def.getName().isBlank()) {
+				continue;
+			}
+			if (findByName(def.getName()) == null) {
+				requests.add(def);  // только в память, без save()
+			}
+		}
+	}
+
+	/**
+	 * Перезагружает список запросов из системного файла (сбрасывает тестовые in-memory записи).
+	 * Вызывается при загрузке нового теста для изоляции между тестами.
+	 */
+	public void reloadFromSystem() {
+		load(); // существующий метод: читает из backendRequests.json
 	}
 }

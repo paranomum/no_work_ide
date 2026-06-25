@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.ActionRecord;
 import dto.AppConfig;
+import dto.BackendRequestDef;
 import dto.LocalVariables;
 import ui.AbstractTableSettingsPanel;
 
@@ -358,12 +359,44 @@ public class CustomMethodsService extends AbstractTableSettingsPanel {
 		}
 	}
 
+	public List<BackendRequestDef> loadMethodBackendRequests(String methodName) {
+		MethodDef def = findByName(methodName);
+		if (def == null || def.getPath() == null || def.getPath().isBlank()) {
+			return List.of();
+		}
+		java.io.File file = new java.io.File(def.getPath());
+		if (!file.exists()) {
+			return List.of();
+		}
+		try (Reader reader = new InputStreamReader(
+				new FileInputStream(file), StandardCharsets.UTF_8)) {
+
+			com.google.gson.JsonElement root = com.google.gson.JsonParser.parseReader(reader);
+			if (root.isJsonArray()) {
+				// Старый формат — нет backendRequests
+				return List.of();
+			}
+			if (root.isJsonObject()) {
+				MethodFile methodFile = gson.fromJson(root, MethodFile.class);
+				return (methodFile != null && methodFile.getBackendRequests() != null)
+						? methodFile.getBackendRequests()
+						: List.of();
+			}
+			return List.of();
+		} catch (Exception ex) {
+			TestRecorderErrorLogger.logError("Failed to load backendRequests for custom method '" + methodName + "'", ex);
+			return List.of();
+		}
+	}
+
 	public static class MethodFile {
 		private List<ActionRecord> actions;
 		private List<LocalVariables> variables;
+		private List<BackendRequestDef> backendRequests; // ← НОВОЕ поле
 
 		public List<ActionRecord> getActions() { return actions; }
 		public List<LocalVariables> getVariables() { return variables; }
+		public List<BackendRequestDef> getBackendRequests() { return backendRequests; } // ← НОВОЕ
 	}
 
 }

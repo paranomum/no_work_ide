@@ -313,4 +313,14 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 		return value;
 	}
+
+	/**
+	 * Удаляет переменную по имени из внутреннего Map и обновляет таблицу.
+	 */
+	public void removeVariable(String name) {
+		if (name == null || name.isBlank()) {
+			return;
+		}
+		variables.remove(name.trim());
+	}
 }

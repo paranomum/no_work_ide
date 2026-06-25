@@ -350,15 +350,21 @@ public class ActionFileService {
 
 			if (scenario != null) {
 				records = scenario.getActions();
-				// грузим переменные в variablesService
 				loadVariablesIntoService(scenario.getVariables());
+
+				// ← НОВОЕ: сброс к системным запросам перед загрузкой тестовых
+				if (backendRequestsService != null) {
+					backendRequestsService.reloadFromSystem();
+				}
+
+				// Загружаем тестовые backend-запросы только в память
 				importBackendRequestsFromScenario(scenario.getBackendRequests());
-				if (scenario.getScenarioOverrides() != null) {
-					// playActionService доступен через ActionWindow, поэтому прокидываем через callback/setter
-					// В ActionFileService добавить поле:
-					if (this.playActionServiceRef != null) {
-						this.playActionServiceRef.setCurrentScenarioOverrides(scenario.getScenarioOverrides());
-					}
+
+				// ← НОВОЕ: подтягиваем backendRequests из customMethod-файлов
+				importBackendRequestsFromCustomMethods(records);
+
+				if (scenario.getScenarioOverrides() != null && this.playActionServiceRef != null) {
+					this.playActionServiceRef.setCurrentScenarioOverrides(scenario.getScenarioOverrides());
 				}
 			} else if (recordsArray != null) {
 				records = List.of(recordsArray);
@@ -475,21 +481,11 @@ public class ActionFileService {
 	}
 
 	private void importBackendRequestsFromScenario(List<BackendRequestDef> backendRequests) {
-		if (backendRequests == null || backendRequests.isEmpty() || backendRequestsService == null) return;
-		int imported = 0;
-		for (BackendRequestDef def : backendRequests) {
-			if (def == null || def.getName() == null || def.getName().isBlank()) continue;
-			if (backendRequestsService.findByName(def.getName()) == null) {
-				backendRequestsService.addRequest(def);
-				imported++;
-			}
+		if (backendRequests == null || backendRequests.isEmpty() || backendRequestsService == null) {
+			return;
 		}
-		if (imported > 0) {
-			backendRequestsService.save();
-			JOptionPane.showMessageDialog(parent,
-					"Импортировано " + imported + " backend-запрос(ов) из сценария.",
-					"Импорт backend-запросов", JOptionPane.INFORMATION_MESSAGE);
-		}
+		// Загружаем только в память — НЕ сохраняем в системный файл
+		backendRequestsService.loadFromScenario(backendRequests);
 	}
 
 	private List<ActionRecord> buildActionRecordsWithInlinedCustomMethods() {
@@ -644,6 +640,33 @@ public class ActionFileService {
 			}
 		}
 		return overrides.isEmpty() ? null : overrides;
+	}
+
+	/**
+	 * Проходит по всем шагам теста с action=customMethod,
+	 * загружает JSON-файлы методов и подтягивает их backendRequests в память.
+	 */
+	private void importBackendRequestsFromCustomMethods(List<ActionRecord> records) {
+		if (records == null || customMethodsService == null || backendRequestsService == null) {
+			return;
+		}
+		for (ActionRecord rec : records) {
+			if (!"customMethod".equals(rec.getAction())) {
+				continue;
+			}
+			String methodName = rec.getValue();
+			if (methodName == null || methodName.isBlank()) {
+				continue;
+			}
+			try {
+				List<BackendRequestDef> methodBackendRequests =
+						customMethodsService.loadMethodBackendRequests(methodName);
+				backendRequestsService.loadFromScenario(methodBackendRequests);
+			} catch (Exception ex) {
+				// Метод может не иметь backendRequests — игнорируем тихо
+				ex.printStackTrace();
+			}
+		}
 	}
 }
 
