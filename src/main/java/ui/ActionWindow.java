@@ -7,6 +7,7 @@ import dto.ActionRecord;
 import dto.AppConfig;
 import dto.BackendRequestDef;
 import dto.LocalVariables;
+import model.ActionGroup;
 import model.ElementType;
 import model.UserAction;
 import org.openqa.selenium.WebDriver;
@@ -399,56 +400,8 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void initColumnEditors() {
-		// колонка 1 — UserAction
-		JComboBox<UserAction> actionComboBox = new JComboBox<>(UserAction.values());
-		actionComboBox.putClientProperty("JComboBox.isTableCellEditor", Boolean.TRUE);
+		initUserActionEditor();
 
-		ItemListener listener = e -> {
-			if (e.getStateChange() != ItemEvent.SELECTED) return;
-
-			UserAction selected = (UserAction) e.getItem();
-
-			int editingRow = actionTable.getEditingRow();
-			if (editingRow < 0) {
-				return;
-			}
-			int modelRow = actionTable.convertRowIndexToModel(editingRow);
-			int valueColIndex = 3;
-
-			if (selected == UserAction.CUSTOM_METHOD) {
-				CustomMethodsService.MethodDef method = showCustomMethodChooser();
-				if (method == null) {
-					return;
-				}
-
-				if (actionTable.isEditing()) {
-					actionTable.getCellEditor().stopCellEditing();
-				}
-
-				tableModel.setValueAt(method.getName(), modelRow, valueColIndex);
-				return;
-			}
-
-			if (selected == UserAction.USE_BACKEND_METHOD) {
-				BackendRequestDef request = showBackendRequestChooser();
-				if (request == null) {
-					return;
-				}
-
-				if (actionTable.isEditing()) {
-					actionTable.getCellEditor().stopCellEditing();
-				}
-
-				tableModel.setValueAt(request.getName(), modelRow, valueColIndex);
-			}
-		};
-
-		actionComboBox.addItemListener(listener);
-
-		DefaultCellEditor actionEditor = new DefaultCellEditor(actionComboBox);
-		actionTable.getColumnModel().getColumn(1).setCellEditor(actionEditor);
-
-		// колонка 2 — Selector
 		SelectorCellEditor selectorEditor = new SelectorCellEditor();
 		selectorEditor.setLocatorPicker(callback -> {
 			if (actionRecorder == null) return;
@@ -463,11 +416,50 @@ public class ActionWindow extends JFrame {
 		ValueCellEditor valueEditor = new ValueCellEditor(actionTable, variablesService);
 		actionTable.getColumnModel().getColumn(3).setCellEditor(valueEditor);
 
-
-		// колонка 5 — ElementType
 		JComboBox<ElementType> elementComboBox = new JComboBox<>(ElementType.values());
 		actionTable.getColumnModel().getColumn(5)
 				.setCellEditor(new DefaultCellEditor(elementComboBox));
+	}
+
+	private void initUserActionEditor() {
+		actionTable.getColumnModel().getColumn(1).setCellEditor(
+				new ActionMenuCellEditor(
+						actionTable,
+						tableModel,
+						this::showCustomMethodChooser,
+						this::showBackendRequestChooser
+				)
+		);
+
+		actionTable.getColumnModel().getColumn(1).setCellRenderer((table, value, isSelected, hasFocus, row, column) -> {
+			JLabel label = new JLabel();
+			label.setOpaque(true);
+
+			if (isSelected) {
+				label.setBackground(table.getSelectionBackground());
+				label.setForeground(table.getSelectionForeground());
+			} else {
+				label.setBackground(table.getBackground());
+				label.setForeground(table.getForeground());
+			}
+
+			UserAction action = null;
+			if (value instanceof UserAction ua) {
+				action = ua;
+			} else if (value instanceof String s && !s.isBlank()) {
+				try {
+					action = UserAction.fromCode(s);
+				} catch (Exception ignored) {
+				}
+			}
+
+			if (action == null) {
+				action = UserAction.CLICK;
+			}
+
+			label.setText(action.getGroup().getCode() + " / " + action.getCode());
+			return label;
+		});
 	}
 
 	private CustomMethodsService.MethodDef showCustomMethodChooser() {
@@ -1816,6 +1808,24 @@ public class ActionWindow extends JFrame {
 		rowTooltips.clear();
 		if (actionTable != null) {
 			actionTable.repaint();
+		}
+	}
+
+	private enum ActionChoice {
+		COMMON_GROUP("common"),
+		SPEC_ACTIONS_GROUP("spec_actions"),
+		CUSTOM_METHOD("customMethod"),
+		BACKEND_METHOD("useBackendMethod");
+
+		private final String label;
+
+		ActionChoice(String label) {
+			this.label = label;
+		}
+
+		@Override
+		public String toString() {
+			return label;
 		}
 	}
 }

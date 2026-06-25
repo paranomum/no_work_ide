@@ -811,26 +811,35 @@ public class PlayActionService {
 
 		List<String> warnings = new ArrayList<>();
 
-		String url    = resolveBackendTemplate(def.getUrl(), nameToValue);
+		String url = resolveBackendTemplate(def.getUrl(), nameToValue);
 		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
-		String body   = def.getRequestBody() != null ? def.getRequestBody() : "";
+		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
 		String headers = def.getRequestHeaders() != null && !def.getRequestHeaders().isBlank()
 				? def.getRequestHeaders()
 				: "{}";
 
-		body    = applyUniqueFieldMethods(body, def, nameToValue, warnings);
-		body    = resolveBackendTemplate(body, nameToValue);
+		body = applyUniqueFieldMethods(body, def, nameToValue, warnings);
+		body = resolveBackendTemplate(body, nameToValue);
 		headers = resolveBackendTemplate(headers, nameToValue);
+
+		BackendExecutionResult result = new BackendExecutionResult();
+		result.requestName = requestName;
+		result.method = method;
+		result.url = url;
+		result.success = false;
+		result.status = 0L;
+		result.responseBody = "";
+		result.warnings = new ArrayList<>(warnings);
 
 		try {
 			driver.manage().timeouts().scriptTimeout(java.time.Duration.ofSeconds(30));
 
-			Map<String, String> mergedHeaders = new LinkedHashMap<>();
+			Map<String, Object> mergedHeaders = new LinkedHashMap<>();
 
 			try {
 				java.lang.reflect.Type headersType =
-						new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType();
-				Map<String, String> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
+						new com.google.gson.reflect.TypeToken<Map<String, Object>>() {}.getType();
+				Map<String, Object> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
 				if (parsed != null) {
 					mergedHeaders.putAll(parsed);
 				}
@@ -858,6 +867,7 @@ public class PlayActionService {
 			}
 
 			String finalHeadersJson = new com.google.gson.Gson().toJson(mergedHeaders);
+			result.warnings = new ArrayList<>(warnings);
 
 			log.info(
 					"Executing backend request '{}'. method={}, url={}, cookieCount={}, warningsCount={}",
@@ -869,119 +879,125 @@ public class PlayActionService {
 			Object raw = ((JavascriptExecutor) driver).executeAsyncScript(
 					"var callback = arguments[arguments.length - 1];" +
 							"try {" +
-							"  var parsedHeaders = JSON.parse(" + toJsString(finalHeadersJson) + ");" +
-							"  fetch(" + toJsString(url) + ", {" +
-							"    method: " + toJsString(method) + "," +
-							"    headers: parsedHeaders," +
-							(body.isBlank() ? "" : "    body: " + toJsString(body) + ",") +
-							"    credentials: 'include'" +
-							"  })" +
-							"  .then(async function(response) {" +
-							"    var text = '';" +
-							"    var contentType = response.headers.get('content-type') || '';" +
-							"    var statusText = response.statusText || '';" +
-							"    try {" +
-							"      text = await response.text();" +
-							"    } catch (readError) {" +
-							"      text = 'ERROR_READING_BODY: ' + String(readError);" +
-							"    }" +
-							"    if (text && contentType.toLowerCase().indexOf('application/json') >= 0) {" +
-							"      try {" +
-							"        text = JSON.stringify(JSON.parse(text), null, 2);" +
-							"      } catch (ignore) {" +
-							"      }" +
-							"    }" +
-							"    callback({" +
-							"      ok: response.ok," +
-							"      status: response.status," +
-							"      statusText: statusText," +
-							"      contentType: contentType," +
-							"      url: response.url || " + toJsString(url) + "," +
-							"      method: " + toJsString(method) + "," +
-							"      body: text != null ? String(text) : ''" +
-							"    });" +
-							"  })" +
-							"  .catch(function(error) {" +
-							"    callback({" +
-							"      ok: false," +
-							"      status: 0," +
-							"      statusText: 'FETCH_ERROR'," +
-							"      contentType: ''," +
-							"      url: " + toJsString(url) + "," +
-							"      method: " + toJsString(method) + "," +
-							"      body: 'ERROR: ' + String(error)" +
-							"    });" +
-							"  });" +
+							" var parsedHeaders = JSON.parse(" + toJsString(finalHeadersJson) + ");" +
+							" fetch(" + toJsString(url) + ", {" +
+							"   method: " + toJsString(method) + "," +
+							"   headers: parsedHeaders," +
+							(body.isBlank() ? "" : " body: " + toJsString(body) + ",") +
+							"   credentials: 'include'" +
+							" })" +
+							" .then(async function(response) {" +
+							"   var text = '';" +
+							"   var contentType = response.headers.get('content-type') || '';" +
+							"   var statusText = response.statusText || '';" +
+							"   try {" +
+							"     text = await response.text();" +
+							"   } catch (readError) {" +
+							"     text = 'ERROR_READING_BODY: ' + String(readError);" +
+							"   }" +
+							"   if (text && contentType.toLowerCase().indexOf('application/json') >= 0) {" +
+							"     try {" +
+							"       text = JSON.stringify(JSON.parse(text), null, 2);" +
+							"     } catch (ignore) {" +
+							"     }" +
+							"   }" +
+							"   callback({" +
+							"     ok: response.ok," +
+							"     status: response.status," +
+							"     statusText: statusText," +
+							"     contentType: contentType," +
+							"     url: response.url || " + toJsString(url) + "," +
+							"     method: " + toJsString(method) + "," +
+							"     body: text != null ? String(text) : ''" +
+							"   });" +
+							" })" +
+							" .catch(function(error) {" +
+							"   callback({" +
+							"     ok: false," +
+							"     status: 0," +
+							"     statusText: 'FETCH_ERROR'," +
+							"     contentType: ''," +
+							"     url: " + toJsString(url) + "," +
+							"     method: " + toJsString(method) + "," +
+							"     body: 'ERROR: ' + String(error)" +
+							"   });" +
+							" });" +
 							"} catch (e) {" +
-							"  callback({" +
-							"    ok: false," +
-							"    status: 0," +
-							"    statusText: 'SCRIPT_ERROR'," +
-							"    contentType: ''," +
-							"    url: " + toJsString(url) + "," +
-							"    method: " + toJsString(method) + "," +
-							"    body: 'ERROR: ' + String(e)" +
-							"  });" +
+							" callback({" +
+							"   ok: false," +
+							"   status: 0," +
+							"   statusText: 'SCRIPT_ERROR'," +
+							"   contentType: ''," +
+							"   url: " + toJsString(url) + "," +
+							"   method: " + toJsString(method) + "," +
+							"   body: 'ERROR: ' + String(e)" +
+							" });" +
 							"}"
 			);
 
-			BackendExecutionResult result = new BackendExecutionResult();
-			result.requestName = requestName;
-			result.method      = method;
-			result.url         = url;
-			result.success     = true;
-			result.responseBody = "";
-			result.warnings    = new ArrayList<>(warnings);
-
 			if (raw instanceof Map<?, ?> map) {
 				Object methodObj = map.get("method");
-				Object urlObj    = map.get("url");
-				Object bodyObj   = map.get("body");
-				Object okObj     = map.get("ok");
+				Object urlObj = map.get("url");
+				Object bodyObj = map.get("body");
+				Object okObj = map.get("ok");
 				Object statusObj = map.get("status");
 
-				result.method       = methodObj != null ? String.valueOf(methodObj) : method;
-				result.url          = urlObj    != null ? String.valueOf(urlObj)    : url;
-				result.responseBody = bodyObj   != null ? String.valueOf(bodyObj)   : "";
-				result.success      = okObj instanceof Boolean ? (Boolean) okObj : true;
-				result.status       = statusObj instanceof Number n ? n.longValue() : 0L;
+				result.method = methodObj != null ? String.valueOf(methodObj) : method;
+				result.url = urlObj != null ? String.valueOf(urlObj) : url;
+				result.responseBody = bodyObj != null ? String.valueOf(bodyObj) : "";
+				result.success = okObj instanceof Boolean ? (Boolean) okObj : true;
+				result.status = statusObj instanceof Number n ? n.longValue() : 0L;
 
 				log.info(
 						"Backend request '{}' executed. method={}, url={}, status={}, ok={}, bodyLength={}, warningsCount={}",
-						requestName, result.method, result.url, result.status, result.success,
+						requestName,
+						result.method,
+						result.url,
+						result.status,
+						result.success,
 						result.responseBody != null ? result.responseBody.length() : 0,
 						result.warnings != null ? result.warnings.size() : 0
 				);
 
 				if (!result.success) {
-					log.warn("Backend request '{}' failed. method={}, url={}, status={}, body={}",
-							requestName, result.method, result.url, result.status, result.responseBody);
+					log.warn(
+							"Backend request '{}' failed. method={}, url={}, status={}, body={}",
+							requestName, result.method, result.url, result.status, result.responseBody
+					);
 				}
 			} else {
 				result.responseBody = raw != null ? String.valueOf(raw) : "";
+				result.success = true;
 				log.info("Backend request '{}' executed. Raw result={}", requestName, raw);
 			}
 
 			backendExecutionResults.add(result);
 
-			// Извлекаем переменные из JSON-ответа
-			extractResponseVariables(def, result.responseBody, nameToValue);
+			if (result.responseBody != null && !result.responseBody.isBlank()) {
+				extractResponseVariables(def, result.responseBody, nameToValue);
+			}
 
-			// УЛУЧШЕНИЕ 1: помечаем строку в таблице Actions цветом + tooltip
 			markBackendRow(currentRow, result);
 
-		} catch (Exception ex) {
-			BackendExecutionResult result = new BackendExecutionResult();
-			result.requestName  = requestName;
-			result.method       = method;
-			result.url          = url;
-			result.success      = false;
-			result.status       = 0L;
-			result.responseBody = "ERROR: " + ex.getMessage();
-			result.warnings     = new ArrayList<>(warnings);
-			backendExecutionResults.add(result);
+			if (!result.success) {
+				throw new RuntimeException(
+						"Backend request '" + requestName + "' failed with status " + result.status
+								+ ". Response: " + result.responseBody
+				);
+			}
 
-			// УЛУЧШЕНИЕ 1: помечаем строку красным даже при исключении
+		} catch (Exception ex) {
+			result.success = false;
+			result.status = result.status == 0L ? 0L : result.status;
+
+			if (result.responseBody == null || result.responseBody.isBlank()) {
+				result.responseBody = "ERROR: " + ex.getMessage();
+			}
+
+			if (!backendExecutionResults.contains(result)) {
+				backendExecutionResults.add(result);
+			}
+
 			markBackendRow(currentRow, result);
 
 			throw new RuntimeException(
@@ -1390,20 +1406,25 @@ public class PlayActionService {
 	private void extractResponseVariables(BackendRequestDef def,
 										  String responseBody,
 										  Map<String, String> nameToValue) {
-		if (def == null || responseBody == null || responseBody.isBlank()) return;
+		if (def == null || responseBody == null || responseBody.isBlank()) {
+			return;
+		}
 
 		List<ResponseFieldExtractor> extractors = getScenarioExtractors(def.getName());
 		if (extractors == null || extractors.isEmpty()) {
 			extractors = def.getResponseExtractors();
 		}
-		if (extractors == null || extractors.isEmpty()) return;
 
-		// УЛУЧШЕНИЕ 1: ищем последний result для данного запроса, чтобы записать извлечённые переменные
+		if (extractors == null || extractors.isEmpty()) {
+			return;
+		}
+
 		BackendExecutionResult lastResult = null;
 		synchronized (backendExecutionResults) {
 			for (int i = backendExecutionResults.size() - 1; i >= 0; i--) {
-				if (def.getName().equals(backendExecutionResults.get(i).requestName)) {
-					lastResult = backendExecutionResults.get(i);
+				BackendExecutionResult candidate = backendExecutionResults.get(i);
+				if (candidate != null && Objects.equals(def.getName(), candidate.requestName)) {
+					lastResult = candidate;
 					break;
 				}
 			}
@@ -1411,28 +1432,57 @@ public class PlayActionService {
 
 		try {
 			JsonElement root = JsonParser.parseString(responseBody);
+
+			boolean addedToVariables = false;
+
 			for (ResponseFieldExtractor extractor : extractors) {
-				if (extractor == null || extractor.getFieldPath() == null || extractor.getFieldPath().isBlank()) continue;
-				String value = extractJsonValue(root, extractor.getFieldPath());
-				if (value != null) {
-					String varName = (extractor.getVariableName() != null && !extractor.getVariableName().isBlank())
-							? extractor.getVariableName()
-							: def.getName() + "." + extractor.getFieldPath();
-					nameToValue.put(varName, value);
-					variablesService.addVariable(varName, value);
-					// УЛУЧШЕНИЕ 1: сохраняем в result для tooltip
-					if (lastResult != null) {
-						lastResult.extractedVars.put(varName, value);
-					}
-					log.info("Extracted response variable: {} = {}", varName, value);
+				if (extractor == null) {
+					continue;
 				}
+
+				String fieldPath = extractor.getFieldPath();
+				if (fieldPath == null || fieldPath.isBlank()) {
+					continue;
+				}
+
+				String varName = extractor.getVariableName();
+				if (varName == null || varName.isBlank()) {
+					varName = def.getName() + "." + fieldPath;
+				}
+
+				String value = extractJsonValue(root, fieldPath);
+				if (value == null) {
+					log.warn("Response field '{}' was not found for request '{}'", fieldPath, def.getName());
+					if (lastResult != null) {
+						lastResult.warnings.add("Field not found in response: " + fieldPath);
+					}
+					continue;
+				}
+
+				nameToValue.put(varName, value);
+
+				if (variablesService != null) {
+					variablesService.addVariable(varName, value);
+					addedToVariables = true;
+				}
+
+				if (lastResult != null) {
+					lastResult.extractedVars.put(varName, value);
+				}
+
+				log.info("Extracted response variable: {} = {}", varName, value);
 			}
-			// БАГ 2 FIX: обновляем UI-таблицу Variables
-			variablesService.refreshTableFromVariables();
+
+			if (addedToVariables && variablesService != null) {
+				variablesService.refreshTableFromVariables();
+			}
+
 		} catch (JsonSyntaxException ex) {
-			log.warn("Response body for '{}' is not valid JSON, cannot extract variables: {}", def.getName(), ex.getMessage());
+			log.warn("Response body for '{}' is not valid JSON, cannot extract variables: {}",
+					def.getName(), ex.getMessage());
 		} catch (Exception ex) {
-			log.warn("Failed to extract response variables for '{}': {}", def.getName(), ex.getMessage());
+			log.warn("Failed to extract response variables for '{}': {}",
+					def.getName(), ex.getMessage(), ex);
 		}
 	}
 

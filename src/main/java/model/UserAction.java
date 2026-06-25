@@ -2,36 +2,39 @@ package model;
 
 import lombok.Getter;
 
-/**
- * Action types that can be recorded by IDE for test generation
- */
+import java.util.Arrays;
+
 @Getter
 public enum UserAction {
 
-	CLICK("click", "Click element"),
-	FILL("fill", "Fill text field"),
-	SELECT_OPTION("selectOption", "Choose select or dropdown option"),
-	SELECT_OPTIONS("selectOptions", "Multi select options"),
-	SELECT_EXACT_OPTION("selectExactOption", "Choose select or dropdown option"),
-	FILL_DATE("fillDate", "Fill date picker"),
-	CLEAR("clear", "Clear select or fields"),
-	PAUSE("pause", "pause for n seconds"),
-	REFRESH_PAGE("refreshPage", "Refresh page"),
-	WAIT_LOADING_PAGE("waitLoadingPage", "Wait loading of page"),
-	FILL_DATA("fillData", "Filling all fields of form"),
-	ASSERT_EXISTS("assertExists", "Check element exists"),
-	ASSERT_NOT_EXISTS("assertNotExists", "Check element not exists"),
-	AUTH("auth", "Auth on platform with configured user"),
-	SPEC_ACTION("specialAction", "Action before test"),
-	SWITCH_TAB("switchTab", "Switch to tab"),
-	OPEN("open", "Open URL"),
-	CUSTOM_METHOD("customMethod", "Use ur custom method"),
-	USE_BACKEND_METHOD("useBackendMethod", "Use saved backend request");
+	CLICK(ActionGroup.COMMON, "click", "Click element"),
+	FILL(ActionGroup.COMMON, "fill", "Fill text field"),
+	SELECT_OPTION(ActionGroup.COMMON, "selectOption", "Choose select or dropdown option"),
+	SELECT_OPTIONS(ActionGroup.COMMON, "selectOptions", "Multi select options"),
+	SELECT_EXACT_OPTION(ActionGroup.COMMON, "selectExactOption", "Choose select or dropdown option"),
+	FILL_DATE(ActionGroup.COMMON, "fillDate", "Fill date picker"),
+	CLEAR(ActionGroup.COMMON, "clear", "Clear select or fields"),
 
+	PAUSE(ActionGroup.SPEC_ACTIONS, "pause", "pause for n seconds"),
+	REFRESH_PAGE(ActionGroup.SPEC_ACTIONS, "refreshPage", "Refresh page"),
+	WAIT_LOADING_PAGE(ActionGroup.SPEC_ACTIONS, "waitLoadingPage", "Wait loading of page"),
+	FILL_DATA(ActionGroup.SPEC_ACTIONS, "fillData", "Filling all fields of form"),
+	ASSERT_EXISTS(ActionGroup.SPEC_ACTIONS, "assertExists", "Check element exists"),
+	ASSERT_NOT_EXISTS(ActionGroup.SPEC_ACTIONS, "assertNotExists", "Check element not exists"),
+	AUTH(ActionGroup.SPEC_ACTIONS, "auth", "Auth on platform with configured user"),
+	SPEC_ACTION(ActionGroup.SPEC_ACTIONS, "specialAction", "Action before test"),
+	SWITCH_TAB(ActionGroup.SPEC_ACTIONS, "switchTab", "Switch to tab"),
+	OPEN(ActionGroup.SPEC_ACTIONS, "open", "Open URL"),
+
+	CUSTOM_METHOD(ActionGroup.CUSTOM_METHOD, "customMethod", "Use ur custom method"),
+	USE_BACKEND_METHOD(ActionGroup.BACKEND_METHOD, "useBackendMethod", "Use saved backend request");
+
+	private final ActionGroup group;
 	private final String code;
 	private final String description;
 
-	UserAction(String code, String description) {
+	UserAction(ActionGroup group, String code, String description) {
+		this.group = group;
 		this.code = code;
 		this.description = description;
 	}
@@ -43,6 +46,12 @@ public enum UserAction {
 			}
 		}
 		throw new IllegalArgumentException("Unknown user action: " + code);
+	}
+
+	public static UserAction[] byGroup(ActionGroup group) {
+		return Arrays.stream(values())
+				.filter(a -> a.group == group)
+				.toArray(UserAction[]::new);
 	}
 
 	@Override
