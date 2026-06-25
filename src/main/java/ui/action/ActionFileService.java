@@ -354,14 +354,13 @@ public class ActionFileService {
 
 				// ← НОВОЕ: сброс к системным запросам перед загрузкой тестовых
 				if (backendRequestsService != null) {
-					backendRequestsService.reloadFromSystem();
+					backendRequestsService.load(
+							scenario.getBackendRequests(),
+							scenario.getScenarioOverrides()
+					);
+
+					importBackendRequestsFromCustomMethods(records);
 				}
-
-				// Загружаем тестовые backend-запросы только в память
-				importBackendRequestsFromScenario(scenario.getBackendRequests());
-
-				// ← НОВОЕ: подтягиваем backendRequests из customMethod-файлов
-				importBackendRequestsFromCustomMethods(records);
 
 				if (scenario.getScenarioOverrides() != null && this.playActionServiceRef != null) {
 					this.playActionServiceRef.setCurrentScenarioOverrides(scenario.getScenarioOverrides());

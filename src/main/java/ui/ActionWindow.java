@@ -88,8 +88,6 @@ public class ActionWindow extends JFrame {
 		usersService = new UsersService(configService, config);
 		browserService = new BrowserService(configService, config);
 		customMethodsService = new CustomMethodsService(configService, config);
-		backendRequestsService = new BackendRequestsService(configService, config);
-		backendRequestsService.load();
 		this.customMethodsService.load();
 		proxyCaptureService = new ProxyCaptureService(config, configService);
 		driver = null;
@@ -111,6 +109,7 @@ public class ActionWindow extends JFrame {
 		initKeyBindings();
 
 		actionRecorder = new ActionRecorder(tableModel);
+		backendRequestsService = new BackendRequestsService(this, config);
 		playActionService = new PlayActionService(
 				tableModel,
 				usersService,
@@ -396,6 +395,39 @@ public class ActionWindow extends JFrame {
 				actionTable.getColumnModel().getColumn(index).setPreferredWidth(width);
 				actionTable.getColumnModel().getColumn(index).setWidth(width);
 			}
+		}
+	}
+
+	private void renameBackendMethodUsagesInActionTable(String oldName, String newName) {
+		if (oldName == null || newName == null || oldName.equals(newName)) {
+			return;
+		}
+
+		int updatedCount = 0;
+
+		for (int row = 0; row < tableModel.getRowCount(); row++) {
+			Object actionObj = tableModel.getValueAt(row, 1);
+			String actionCode = null;
+
+			if (actionObj instanceof UserAction ua) {
+				actionCode = ua.getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString();
+			}
+
+			if (!"useBackendMethod".equals(actionCode)) {
+				continue;
+			}
+
+			String currentValue = Objects.toString(tableModel.getValueAt(row, 3), "").trim();
+			if (Objects.equals(currentValue, oldName)) {
+				tableModel.setValueAt(newName, row, 3);
+				updatedCount++;
+			}
+		}
+
+		if (updatedCount > 0) {
+			repaintActionTable();
 		}
 	}
 
@@ -1715,7 +1747,6 @@ public class ActionWindow extends JFrame {
 	 * Аналог showCustomMethodChooser().
 	 */
 	private BackendRequestDef showBackendRequestChooser() {
-		backendRequestsService.load();
 		java.util.List<BackendRequestDef> methods = backendRequestsService.getRequests();
 		if (methods == null || methods.isEmpty()) {
 			JOptionPane.showMessageDialog(
@@ -1792,6 +1823,43 @@ public class ActionWindow extends JFrame {
 			rowTooltips.remove(modelRow);
 		} else {
 			rowTooltips.put(modelRow, tooltip);
+		}
+	}
+
+	public void renameBackendMethod(String oldName, String newName) {
+		String oldValue = oldName == null ? "" : oldName.trim();
+		String newValue = newName == null ? "" : newName.trim();
+
+		if (oldValue.isEmpty() || newValue.isEmpty() || oldValue.equals(newValue)) {
+			return;
+		}
+
+		int updatedCount = 0;
+
+		for (int row = 0; row < tableModel.getRowCount(); row++) {
+			Object actionObj = tableModel.getValueAt(row, 1);
+			String actionCode = "";
+
+			if (actionObj instanceof UserAction ua) {
+				actionCode = ua.getCode();
+			} else if (actionObj != null) {
+				actionCode = actionObj.toString().trim();
+			}
+
+			if (!"useBackendMethod".equals(actionCode)) {
+				continue;
+			}
+
+			String currentValue = Objects.toString(tableModel.getValueAt(row, 3), "").trim();
+			if (oldValue.equals(currentValue)) {
+				tableModel.setValueAt(newValue, row, 3);
+				updatedCount++;
+			}
+		}
+
+		if (updatedCount > 0) {
+			tableModel.fireTableDataChanged();
+			repaintActionTable();
 		}
 	}
 

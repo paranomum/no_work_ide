@@ -5,12 +5,10 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
-import dto.AppConfig;
-import dto.BackendRequestDef;
-import dto.DtoFieldOverride;
-import dto.ResponseFieldExtractor;
+import dto.*;
 import model.VariableAction;
 import ui.AbstractTableSettingsPanel;
+import ui.ActionWindow;
 
 import javax.swing.*;
 import javax.swing.event.UndoableEditEvent;
@@ -19,9 +17,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 
@@ -33,17 +28,23 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private JTable backendTable;
 	private DefaultTableModel backendTableModel;
 
-	private final ConfigService configService;
 	private final AppConfig config;
 	private final List<BackendRequestDef> requests = new ArrayList<>();
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-	private final Map<Integer, String> rowToOriginalName = new HashMap<>();
+	private volatile ActionWindow currentActionWindow;
+
+	/**
+	 * ВАЖНО:
+	 * таблица теперь держит ссылку на исходный объект,
+	 * а не "старое имя", чтобы rename работал как update.
+	 */
+	private final Map<Integer, BackendRequestDef> rowToRequestRef = new HashMap<>();
 
 	/** Прокидывается из ActionWindow после создания, нужен для выбора переменных */
 	private VariablesService variablesService;
 
-	public BackendRequestsService(ConfigService configService, AppConfig config) {
-		this.configService = configService;
+	public BackendRequestsService(ActionWindow currentActionWindow, AppConfig config) {
+		this.currentActionWindow = currentActionWindow;
 		this.config = config;
 	}
 
@@ -65,19 +66,19 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		this.backendTable = this.table;
 
-		// Заменяем дефолтную модель на нередактируемую
 		DefaultTableModel readOnlyModel = new DefaultTableModel(TABLE_COLUMNS, 0) {
 			@Override
 			public boolean isCellEditable(int row, int column) {
-				return false;  // запрет редактирования всех ячеек
+				return false;
 			}
 		};
+
 		this.backendTable.setModel(readOnlyModel);
 		this.backendTableModel = readOnlyModel;
 
-		// Убираем JComboBox-редактор для HTTP-метода — таблица read-only,
-		// редактирование только через Edit DTO
-		// (DefaultCellEditor от httpCombo больше не нужен)
+		// ВАЖНО: синхронизируем модель родительской панели,
+		// иначе кнопки add/remove из buildTablePanel работают со старой моделью
+		this.model = readOnlyModel;
 
 		JButton editDtoBtn = new JButton("Edit DTO");
 		editDtoBtn.addActionListener(e -> openEditDtoDialog(parentDialog));
@@ -87,63 +88,172 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			southPanel.add(editDtoBtn, 0);
 		}
 
-		load();
 		loadIntoTable();
 		return panel;
 	}
 
 	private void loadIntoTable() {
 		backendTableModel.setRowCount(0);
-		rowToOriginalName.clear();
+		rowToRequestRef.clear();
+
 		int row = 0;
 		for (BackendRequestDef r : requests) {
 			backendTableModel.addRow(new Object[]{r.getName(), r.getMethod(), r.getUrl()});
-			rowToOriginalName.put(row, r.getName());
+			rowToRequestRef.put(row, r);
 			row++;
 		}
 	}
 
 	private void saveFromTable(JDialog parentDialog) {
+		List<BackendRequestDef> oldRequests = new ArrayList<>(requests);
 		List<BackendRequestDef> updated = new ArrayList<>();
-		for (int row = 0; row < backendTableModel.getRowCount(); row++) {
-			String name    = Objects.toString(backendTableModel.getValueAt(row, 0), "").trim();
-			String method  = Objects.toString(backendTableModel.getValueAt(row, 1), "").trim();
-			String url     = Objects.toString(backendTableModel.getValueAt(row, 2), "").trim();
+		Map<String, BackendRequestDef> renamedRequests = new LinkedHashMap<>();
 
-			if (!name.isEmpty() || !url.isEmpty()) {
-				// Ищем по ИСХОДНОМУ имени (до переименования)
-				String originalName = rowToOriginalName.get(row);
-				BackendRequestDef original = (originalName != null) ? findByName(originalName) : null;
+		try {
+			for (int row = 0; row < backendTableModel.getRowCount(); row++) {
+				String name = safeTrim(Objects.toString(backendTableModel.getValueAt(row, 0), ""));
+				String method = safeTrim(Objects.toString(backendTableModel.getValueAt(row, 1), ""));
+				String url = safeTrim(Objects.toString(backendTableModel.getValueAt(row, 2), ""));
+
+				if (name.isEmpty() && url.isEmpty()) {
+					continue;
+				}
+
+				if (name.isEmpty()) {
+					JOptionPane.showMessageDialog(
+							parentDialog,
+							"Имя backend-метода не должно быть пустым.",
+							"Ошибка валидации",
+							JOptionPane.ERROR_MESSAGE
+					);
+					return;
+				}
+
+				BackendRequestDef original = rowToRequestRef.get(row);
 
 				if (original != null) {
-					original.setName(name);   // применяем новое имя
+					String oldName = safeTrim(original.getName());
+
+					original.setName(name);
 					original.setMethod(method);
 					original.setUrl(url);
 					updated.add(original);
+
+					if (!oldName.isEmpty() && !Objects.equals(oldName, name)) {
+						renamedRequests.put(oldName, original);
+					}
 				} else {
 					updated.add(new BackendRequestDef(name, url, method, "", "{}", null));
 				}
 			}
-		}
 
+			validateUniqueNames(updated, parentDialog);
+
+			List<BackendRequestDef> removedRequests = detectRemovedRequests(oldRequests, updated);
+
+			setRequests(updated);
+
+			if (variablesService != null) {
+				for (Map.Entry<String, BackendRequestDef> e : renamedRequests.entrySet()) {
+					String oldName = e.getKey();
+					BackendRequestDef renamedDef = e.getValue();
+					renameVariablesInService(oldName, renamedDef.getName(), renamedDef.getResponseExtractors());
+				}
+
+				for (BackendRequestDef removedReq : removedRequests) {
+					removeVariablesForRequest(removedReq);
+				}
+
+				variablesService.refreshTableFromVariables();
+			}
+
+			for (Map.Entry<String, BackendRequestDef> e : renamedRequests.entrySet()) {
+				String oldName = safeTrim(e.getKey());
+				String newName = safeTrim(e.getValue().getName());
+				renameBackendMethod(oldName, newName);
+			}
+
+			save();
+			loadIntoTable();
+
+			JOptionPane.showMessageDialog(
+					parentDialog,
+					"Backend requests saved",
+					"Saved",
+					JOptionPane.INFORMATION_MESSAGE
+			);
+		} catch (IllegalStateException ex) {
+			JOptionPane.showMessageDialog(
+					parentDialog,
+					ex.getMessage(),
+					"Ошибка",
+					JOptionPane.ERROR_MESSAGE
+			);
+		}
+	}
+
+	private void validateUniqueNames(List<BackendRequestDef> updated, JDialog parentDialog) {
 		Set<String> names = new HashSet<>();
+
 		for (BackendRequestDef r : updated) {
-			if (!names.add(r.getName())) {
+			String name = safeTrim(r.getName());
+			if (name.isEmpty()) {
+				continue;
+			}
+
+			if (!names.add(name)) {
 				JOptionPane.showMessageDialog(
 						parentDialog,
-						"Дублирующееся имя: '" + r.getName() + "'. Все имена должны быть уникальны.",
+						"Дублирующееся имя: '" + name + "'. Все имена должны быть уникальны.",
 						"Ошибка валидации",
 						JOptionPane.ERROR_MESSAGE
 				);
-				return;
+				throw new IllegalStateException("Duplicate backend request name: " + name);
 			}
 		}
+	}
 
-		setRequests(updated);
-		save();
-		// После сохранения перезагружаем маппинг оригинальных имён
-		loadIntoTable();
-		JOptionPane.showMessageDialog(parentDialog, "Backend requests saved", "Saved", JOptionPane.INFORMATION_MESSAGE);
+	private List<BackendRequestDef> detectRemovedRequests(List<BackendRequestDef> oldRequests,
+														  List<BackendRequestDef> updated) {
+		Set<BackendRequestDef> updatedRefs = Collections.newSetFromMap(new IdentityHashMap<>());
+		updatedRefs.addAll(updated);
+
+		List<BackendRequestDef> removedRequests = new ArrayList<>();
+		for (BackendRequestDef oldReq : oldRequests) {
+			if (oldReq != null && !updatedRefs.contains(oldReq)) {
+				removedRequests.add(oldReq);
+			}
+		}
+		return removedRequests;
+	}
+
+	private void removeVariablesForRequest(BackendRequestDef request) {
+		if (variablesService == null || request == null) {
+			return;
+		}
+
+		List<ResponseFieldExtractor> extractors = request.getResponseExtractors();
+		if (extractors == null || extractors.isEmpty()) {
+			return;
+		}
+
+		for (ResponseFieldExtractor ex : extractors) {
+			if (ex == null) {
+				continue;
+			}
+
+			String variableName = safeTrim(ex.getVariableName());
+			if (variableName.isEmpty()) {
+				String fieldPath = safeTrim(ex.getFieldPath());
+				if (!fieldPath.isEmpty()) {
+					variableName = safeTrim(request.getName()) + "." + fieldPath;
+				}
+			}
+
+			if (!variableName.isEmpty()) {
+				variablesService.removeVariable(variableName);
+			}
+		}
 	}
 
 	private void openEditDtoDialog(JDialog parentDialog) {
@@ -158,8 +268,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			return;
 		}
 
-		String name = Objects.toString(backendTableModel.getValueAt(row, 0), "").trim();
-		BackendRequestDef def = findByName(name);
+		BackendRequestDef def = rowToRequestRef.get(row);
 		if (def != null) {
 			openEditDtoDialogFor(parentDialog, def);
 		}
@@ -319,9 +428,9 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 							uniqueModel.setValueAt("use variable", editRow, 2);
 							uniqueModel.setValueAt("${" + varName + "}", editRow, 3);
 						}
-						super.cancelCellEditing();
-						return true;
 					}
+					super.cancelCellEditing();
+					return true;
 				}
 				return super.stopCellEditing();
 			}
@@ -416,8 +525,8 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		uniqueToolbar.add(parseBtn);
 
 		JLabel argHint = new JLabel(
-				"<html>Arg/Variable: для addUuid — дефолтный префикс; для «use variable» — вставляется ${varName}; " +
-						"оба варианта можно комбинировать (addUuid + ${var} тоже сработает).</html>"
+				"Arg/Variable: для addUuid — дефолтный префикс; для «use variable» — вставляется ${varName}; " +
+						"оба варианта можно комбинировать (addUuid + ${var} тоже сработает)."
 		);
 		argHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
 
@@ -468,12 +577,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			if (extractorTable.isEditing()) {
 				extractorTable.getCellEditor().stopCellEditing();
 			}
+
 			int row = extractorTable.getSelectedRow();
 			if (row >= 0) {
-				// Читаем имя переменной ДО удаления строки
 				String variableName = Objects.toString(extractorModel.getValueAt(row, 1), "").trim();
 				extractorModel.removeRow(row);
-				// Удаляем из VariablesService
+
 				if (!variableName.isEmpty() && variablesService != null) {
 					variablesService.removeVariable(variableName);
 					variablesService.refreshTableFromVariables();
@@ -559,63 +668,78 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		JButton cancelBtn = new JButton("Cancel");
 
 		saveBtn.addActionListener(e -> {
-			if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
-			if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+			try {
+				if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+				if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
 
-			// ← НОВОЕ: запоминаем старое имя
-			String oldDefName = def.getName();
+				String oldDefName = safeTrim(def.getName());
+				String newDefName = safeTrim(nameField.getText());
 
-			def.setName(nameField.getText().trim());
-			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
-			def.setUrl(urlField.getText().trim());
-			def.setRequestBody(bodyArea.getText());
-			def.setRequestHeaders(headersArea.getText());
-			def.setCapturedResponseBody(responseBodyArea.getText());
+				def.setName(newDefName);
+				def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
+				def.setUrl(urlField.getText().trim());
+				def.setRequestBody(bodyArea.getText());
+				def.setRequestHeaders(headersArea.getText());
+				def.setCapturedResponseBody(responseBodyArea.getText());
 
-			List<DtoFieldOverride> overrides = new ArrayList<>();
-			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
-				boolean isUnique  = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
-				String fieldPath  = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
-				String methodVal  = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
-				String arg        = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
-				if (fieldPath.isEmpty()) continue;
-				overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, isUnique));
-			}
-			def.setFieldOverrides(overrides);
+				List<DtoFieldOverride> overrides = new ArrayList<>();
+				for (int r = 0; r < uniqueModel.getRowCount(); r++) {
+					boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
+					String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
+					String methodVal = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+					String arg = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
 
-			List<ResponseFieldExtractor> extractors = collectResponseExtractors(extractorModel, def);
-			def.setResponseExtractors(extractors);
-			syncResponseExtractorsToVariables(extractors);
-
-			// ← НОВОЕ: синхронизируем имена переменных при переименовании
-			renameVariablesInService(oldDefName, def.getName(), extractors);
-
-			// Автодобавление новых leaf-путей из body в fieldOverrides (существующая логика)
-			List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
-			Set<String> existingPaths = new HashSet<>();
-			for (DtoFieldOverride ov : def.getFieldOverrides()) {
-				if (ov.getFieldPath() != null) existingPaths.add(ov.getFieldPath());
-			}
-			int added = 0;
-			for (String path : newPaths) {
-				if (!existingPaths.contains(path)) {
-					def.getFieldOverrides().add(
-							new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false)
-					);
-					added++;
+					if (fieldPath.isEmpty()) continue;
+					overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, isUnique));
 				}
-			}
+				def.setFieldOverrides(overrides);
 
-			save();
-			loadIntoTable();
-			dlg.dispose();
+				List<ResponseFieldExtractor> oldExtractors = cloneExtractors(def.getResponseExtractors());
+				List<ResponseFieldExtractor> newExtractors = collectResponseExtractors(extractorModel, def);
 
-			if (added > 0) {
+				syncExtractorVariablesAfterEdit(oldDefName, newDefName, oldExtractors, newExtractors);
+
+				def.setResponseExtractors(newExtractors);
+				if (!Objects.equals(oldDefName, newDefName)) {
+					renameBackendMethod(oldDefName, newDefName);
+				}
+
+				List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
+				Set<String> existingPaths = new HashSet<>();
+				for (DtoFieldOverride ov : def.getFieldOverrides()) {
+					if (ov.getFieldPath() != null) {
+						existingPaths.add(ov.getFieldPath());
+					}
+				}
+
+				int added = 0;
+				for (String path : newPaths) {
+					if (!existingPaths.contains(path)) {
+						def.getFieldOverrides().add(
+								new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false)
+						);
+						added++;
+					}
+				}
+
+				save();
+				loadIntoTable();
+				dlg.dispose();
+
+				if (added > 0) {
+					JOptionPane.showMessageDialog(
+							parent,
+							"Сохранено. Добавлено " + added + " новых полей в fieldOverrides.",
+							"Saved",
+							JOptionPane.INFORMATION_MESSAGE
+					);
+				}
+			} catch (IllegalStateException ex) {
 				JOptionPane.showMessageDialog(
-						parent,
-						"Сохранено. Добавлено " + added + " новых полей в fieldOverrides.",
-						"Saved",
-						JOptionPane.INFORMATION_MESSAGE
+						dlg,
+						ex.getMessage(),
+						"Ошибка",
+						JOptionPane.ERROR_MESSAGE
 				);
 			}
 		});
@@ -689,6 +813,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		if (raw == null || raw.isBlank()) {
 			return raw != null ? raw : "";
 		}
+
 		try {
 			JsonElement el = JsonParser.parseString(raw);
 			return gson.toJson(el);
@@ -702,11 +827,13 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		if (jsonText == null || jsonText.isBlank()) {
 			return paths;
 		}
+
 		try {
 			JsonElement root = JsonParser.parseString(jsonText);
 			collectLeafPaths(root, "", paths);
 		} catch (JsonSyntaxException ignored) {
 		}
+
 		return paths;
 	}
 
@@ -790,35 +917,55 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		return null;
 	}
 
-	private Path getFile() throws Exception {
-		return configService.getBackendRequestsFile(config);
+	public void load(List<BackendRequestDef> backendRequests,
+					 Map<String, ScenarioBackendConfig> scenarioOverrides) {
+		requests.clear();
+
+		if (backendRequests != null) {
+			for (BackendRequestDef def : backendRequests) {
+				if (def == null || def.getName() == null || def.getName().isBlank()) {
+					continue;
+				}
+				requests.add(def);
+			}
+		}
+
+		if (scenarioOverrides != null && !scenarioOverrides.isEmpty()) {
+			applyScenarioOverrides(scenarioOverrides);
+		}
+
+		if (backendTableModel != null) {
+			loadIntoTable();
+		}
 	}
 
-	public void load() {
-		requests.clear();
-		try {
-			Path file = getFile();
-			if (!Files.exists(file)) {
-				return;
+	private void applyScenarioOverrides(Map<String, ScenarioBackendConfig> scenarioOverrides) {
+		for (BackendRequestDef def : requests) {
+			if (def == null || def.getName() == null) {
+				continue;
 			}
-			String json = Files.readString(file);
-			BackendRequestDef[] arr = gson.fromJson(json, BackendRequestDef[].class);
-			if (arr != null) {
-				requests.addAll(Arrays.asList(arr));
+
+			ScenarioBackendConfig cfg = scenarioOverrides.get(def.getName());
+			if (cfg == null) {
+				continue;
 			}
-		} catch (Exception ex) {
-			ex.printStackTrace();
+
+			if (cfg.getFieldOverrides() != null) {
+				def.setFieldOverrides(new ArrayList<>(cfg.getFieldOverrides()));
+			}
+
+			if (cfg.getResponseExtractors() != null) {
+				def.setResponseExtractors(new ArrayList<>(cfg.getResponseExtractors()));
+			}
 		}
 	}
 
 	public void save() {
-		try {
-			Path file = getFile();
-			String json = gson.toJson(requests.toArray(new BackendRequestDef[0]));
-			Files.writeString(file, json, StandardCharsets.UTF_8);
-		} catch (Exception ex) {
-			ex.printStackTrace();
-		}
+		// бек-методы хранятся только в JSON-файлах тестов, не в системе
+	}
+
+	public void reloadFromSystem() {
+		requests.clear();
 	}
 
 	private void attachUndoRedo(JTextArea area) {
@@ -865,20 +1012,21 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				continue;
 			}
 
-			String variableName = ex.getVariableName();
-			if (variableName == null || variableName.isBlank()) {
+			String variableName = safeTrim(ex.getVariableName());
+			if (variableName.isEmpty()) {
 				continue;
 			}
 
-			String fieldPath = ex.getFieldPath() != null ? ex.getFieldPath().trim() : "";
+			String fieldPath = safeTrim(ex.getFieldPath());
 			String value = fieldPath.isEmpty() ? "" : "json(" + fieldPath + ")";
-			variablesService.addVariable(variableName.trim(), value);
+			variablesService.addVariable(variableName, value);
 		}
 
 		variablesService.refreshTableFromVariables();
 	}
 
-	private List<ResponseFieldExtractor> collectResponseExtractors(DefaultTableModel extractorModel, BackendRequestDef def) {
+	private List<ResponseFieldExtractor> collectResponseExtractors(DefaultTableModel extractorModel,
+																   BackendRequestDef def) {
 		List<ResponseFieldExtractor> extractors = new ArrayList<>();
 
 		for (int r = 0; r < extractorModel.getRowCount(); r++) {
@@ -890,7 +1038,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 
 			if (vn.isEmpty()) {
-				vn = def.getName() + "." + fp;
+				vn = safeTrim(def.getName()) + "." + fp;
 			}
 
 			extractors.add(new ResponseFieldExtractor(fp, vn));
@@ -899,35 +1047,114 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		return extractors;
 	}
 
-	/**
-	 * Переименовывает переменные в VariablesService при переименовании запроса.
-	 * Удаляет старые ключи oldName.fieldPath и добавляет newName.fieldPath.
-	 */
-	private void renameVariablesInService(String oldName, String newName, List<ResponseFieldExtractor> extractors) {
+	private List<ResponseFieldExtractor> cloneExtractors(List<ResponseFieldExtractor> extractors) {
+		List<ResponseFieldExtractor> copy = new ArrayList<>();
+		if (extractors == null) {
+			return copy;
+		}
+
+		for (ResponseFieldExtractor ex : extractors) {
+			if (ex == null) {
+				continue;
+			}
+			copy.add(new ResponseFieldExtractor(ex.getFieldPath(), ex.getVariableName()));
+		}
+		return copy;
+	}
+
+	private void syncExtractorVariablesAfterEdit(String oldRequestName,
+												 String newRequestName,
+												 List<ResponseFieldExtractor> oldExtractors,
+												 List<ResponseFieldExtractor> newExtractors) {
+		if (variablesService == null) {
+			return;
+		}
+
+		Set<String> oldNames = new HashSet<>();
+		if (oldExtractors != null) {
+			for (ResponseFieldExtractor ex : oldExtractors) {
+				String oldVar = resolveVariableName(oldRequestName, ex);
+				if (!oldVar.isEmpty()) {
+					oldNames.add(oldVar);
+				}
+			}
+		}
+
+		Set<String> newNames = new HashSet<>();
+		if (newExtractors != null) {
+			for (ResponseFieldExtractor ex : newExtractors) {
+				String finalVarName = resolveVariableName(newRequestName, ex);
+				if (finalVarName.isEmpty()) {
+					continue;
+				}
+
+				ex.setVariableName(finalVarName);
+				newNames.add(finalVarName);
+
+				String fieldPath = safeTrim(ex.getFieldPath());
+				String value = fieldPath.isEmpty() ? "" : "json(" + fieldPath + ")";
+				variablesService.addVariable(finalVarName, value);
+			}
+		}
+
+		for (String oldVar : oldNames) {
+			if (!newNames.contains(oldVar)) {
+				variablesService.removeVariable(oldVar);
+			}
+		}
+
+		variablesService.refreshTableFromVariables();
+	}
+
+	private void renameRequestVariables(String oldName,
+										String newName,
+										List<ResponseFieldExtractor> extractors) {
 		if (variablesService == null || extractors == null || extractors.isEmpty()) {
 			return;
 		}
+
 		if (Objects.equals(oldName, newName)) {
 			return;
 		}
+
 		for (ResponseFieldExtractor ex : extractors) {
 			if (ex == null) continue;
-			String fieldPath = ex.getFieldPath() != null ? ex.getFieldPath().trim() : "";
+
+			String fieldPath = safeTrim(ex.getFieldPath());
 			if (fieldPath.isEmpty()) continue;
 
 			String oldVarName = oldName + "." + fieldPath;
 			String newVarName = newName + "." + fieldPath;
-			String value = fieldPath.isEmpty() ? "" : "json(" + fieldPath + ")";
+			String value = "json(" + fieldPath + ")";
 
-			// Удаляем старую переменную
 			variablesService.removeVariable(oldVarName);
-			// Добавляем с новым именем
 			variablesService.addVariable(newVarName, value);
-
-			// Обновляем variableName в самом экстракторе
 			ex.setVariableName(newVarName);
 		}
+
 		variablesService.refreshTableFromVariables();
+	}
+
+	private String resolveVariableName(String requestName, ResponseFieldExtractor ex) {
+		if (ex == null) {
+			return "";
+		}
+
+		String variableName = safeTrim(ex.getVariableName());
+		if (!variableName.isEmpty()) {
+			return variableName;
+		}
+
+		String fieldPath = safeTrim(ex.getFieldPath());
+		if (fieldPath.isEmpty()) {
+			return "";
+		}
+
+		return safeTrim(requestName) + "." + fieldPath;
+	}
+
+	private String safeTrim(String value) {
+		return value == null ? "" : value.trim();
 	}
 
 	/**
@@ -940,21 +1167,66 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		if (defs == null || defs.isEmpty()) {
 			return;
 		}
+
 		for (BackendRequestDef def : defs) {
 			if (def == null || def.getName() == null || def.getName().isBlank()) {
 				continue;
 			}
+
 			if (findByName(def.getName()) == null) {
-				requests.add(def);  // только в память, без save()
+				requests.add(def);
 			}
+		}
+
+		if (backendTableModel != null) {
+			loadIntoTable();
 		}
 	}
 
-	/**
-	 * Перезагружает список запросов из системного файла (сбрасывает тестовые in-memory записи).
-	 * Вызывается при загрузке нового теста для изоляции между тестами.
-	 */
-	public void reloadFromSystem() {
-		load(); // существующий метод: читает из backendRequests.json
+	private void renameVariablesInService(String oldName, String newName, List<ResponseFieldExtractor> extractors) {
+		if (variablesService == null) {
+			return;
+		}
+		if (oldName == null || newName == null) {
+			return;
+		}
+		if (Objects.equals(oldName, newName)) {
+			return;
+		}
+		if (extractors == null || extractors.isEmpty()) {
+			return;
+		}
+
+		for (ResponseFieldExtractor ex : extractors) {
+			if (ex == null) {
+				continue;
+			}
+
+			String fieldPath = ex.getFieldPath() != null ? ex.getFieldPath().trim() : "";
+			if (fieldPath.isEmpty()) {
+				continue;
+			}
+
+			String oldVarName = oldName + "." + fieldPath;
+			String newVarName = newName + "." + fieldPath;
+			String value = "json(" + fieldPath + ")";
+
+			variablesService.removeVariable(oldVarName);
+			variablesService.addVariable(newVarName, value);
+			ex.setVariableName(newVarName);
+		}
+
+		variablesService.refreshTableFromVariables();
+	}
+
+	private void renameBackendMethod(String oldName, String newName) {
+		if (currentActionWindow == null) {
+			return;
+		}
+		if (oldName == null || newName == null || oldName.equals(newName)) {
+			return;
+		}
+
+		currentActionWindow.renameBackendMethod(oldName, newName);
 	}
 }
