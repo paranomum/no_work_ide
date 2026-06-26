@@ -21,5 +21,5 @@ public class DtoFieldOverride {
 	private String fieldPath;
 	private String method;
 	private String methodArg;
-	private boolean unique;
+	private String type;
 }

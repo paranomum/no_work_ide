@@ -1,9 +1,7 @@
 package ui.action;
 
 import com.codeborne.selenide.WebDriverRunner;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
+import com.google.gson.*;
 import dto.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -784,7 +782,7 @@ public class PlayActionService {
 				? def.getRequestHeaders()
 				: "{}";
 
-		body = applyUniqueFieldMethods(body, def, nameToValue, warnings);
+		body = applyFieldOverrides(body, def, nameToValue, warnings);
 		body = resolveBackendTemplate(body, nameToValue);
 		headers = resolveBackendTemplate(headers, nameToValue);
 
@@ -796,6 +794,8 @@ public class PlayActionService {
 		result.status = 0L;
 		result.responseBody = "";
 		result.warnings = new ArrayList<>(warnings);
+		result.requestBody = body;
+		result.step = getCurrentRow();
 
 		try {
 			driver.manage().timeouts().scriptTimeout(java.time.Duration.ofSeconds(30));
@@ -974,205 +974,306 @@ public class PlayActionService {
 		}
 	}
 
-	private String applyUniqueFieldMethods(
-			String body,
-			BackendRequestDef def,
-			Map<String, String> nameToValue,
-			List<String> warnings
-	) {
+	private String applyFieldOverrides(String body,
+									   BackendRequestDef def,
+									   Map<String, String> nameToValue,
+									   List<String> warnings) {
 		if (body == null || body.isBlank() || def == null) {
 			return body;
 		}
 
-		// Приоритет у сценарных overrides. Если они есть — используем их вместо глобальных.
-		List<DtoFieldOverride> scenarioFo = getScenarioFieldOverrides(def.getName());
-		if (scenarioFo != null && !scenarioFo.isEmpty()) {
-			String result = body;
-			for (DtoFieldOverride override : scenarioFo) {
-				if (override == null || !Boolean.TRUE.equals(override.isUnique())) {
-					continue;
-				}
-				String fieldPath = override.getFieldPath();
-				if (fieldPath == null || fieldPath.isBlank()) {
-					continue;
-				}
-				String methodExpr = buildMethodExpression(override);
-				if (methodExpr == null || methodExpr.isBlank()) {
-					continue;
-				}
-				try {
-					String generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
-					if (generatedValue == null || generatedValue.isBlank() || "null".equalsIgnoreCase(generatedValue.trim())) {
-						continue;
-					}
-					String replaced = replaceJsonFieldValue(result, fieldPath, generatedValue);
-					if (!Objects.equals(replaced, result)) {
-						result = replaced;
-					}
-				} catch (Exception ex) {
-					warnings.add("WARNING: scenario field '" + fieldPath + "' was not substituted: " + ex.getMessage());
-				}
+		List<DtoFieldOverride> overridesToApply = def.getFieldOverrides();
+
+		if (overridesToApply == null || overridesToApply.isEmpty()) {
+			List<DtoFieldOverride> scenarioFo = getScenarioFieldOverrides(def.getName());
+			if (scenarioFo != null && !scenarioFo.isEmpty()) {
+				overridesToApply = scenarioFo;
 			}
-			return result;
 		}
 
-		try {
-			Object fieldOverridesObj = def.getClass().getMethod("getFieldOverrides").invoke(def);
-			if (!(fieldOverridesObj instanceof List<?> overrides) || overrides.isEmpty()) {
-				return body;
-			}
-
-			String result = body;
-
-			for (Object override : overrides) {
-				if (override == null) {
-					continue;
-				}
-
-				Boolean unique = invokeBooleanGetter(override, "isUnique", "getUnique");
-				if (!Boolean.TRUE.equals(unique)) {
-					continue;
-				}
-
-				String fieldPath = invokeStringGetter(
-						override,
-						"getFieldPath", "getName", "getFieldName", "getJsonPath"
-				);
-				if (fieldPath == null || fieldPath.isBlank()) {
-					continue;
-				}
-
-				String methodExpr;
-				try {
-					methodExpr = resolveOverrideMethodExpression(override);
-				} catch (Exception ex) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: failed to build method expression, keeping original DTO value. Reason: "
-							+ ex.getMessage());
-					continue;
-				}
-
-				if (methodExpr == null || methodExpr.isBlank()) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: method expression is null/blank, keeping original DTO value.");
-					continue;
-				}
-
-				String generatedValue;
-				try {
-					generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
-				} catch (Exception ex) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: resolve error for expression '" + methodExpr
-							+ "', keeping original DTO value. Reason: " + ex.getMessage());
-					continue;
-				}
-
-				if (generatedValue == null) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: resolved value is null for expression '" + methodExpr
-							+ "', keeping original DTO value.");
-					continue;
-				}
-
-				String trimmedValue = generatedValue.trim();
-				if (trimmedValue.isEmpty()) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: resolved value is blank for expression '" + methodExpr
-							+ "', keeping original DTO value.");
-					continue;
-				}
-
-				if ("null".equalsIgnoreCase(trimmedValue)) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: resolved value is literal 'null' for expression '" + methodExpr
-							+ "', keeping original DTO value.");
-					continue;
-				}
-
-				try {
-					String replaced = replaceJsonFieldValue(result, fieldPath, generatedValue);
-					if (Objects.equals(replaced, result)) {
-						warnings.add("WARNING: field '" + fieldPath
-								+ "' was not substituted: field not found in DTO body, original DTO value kept.");
-						continue;
-					}
-					result = replaced;
-				} catch (Exception ex) {
-					warnings.add("WARNING: field '" + fieldPath
-							+ "' was not substituted: replace error, keeping original DTO value. Reason: "
-							+ ex.getMessage());
-				}
-			}
-
-			return result;
-		} catch (NoSuchMethodException ignored) {
-			return body;
-		} catch (Exception ex) {
-			warnings.add("WARNING: failed to apply DTO field overrides for request '"
-					+ (def.getName() != null ? def.getName() : "")
-					+ "', original DTO body kept. Reason: " + ex.getMessage());
-			log.warn("Failed to apply unique field methods for backend DTO '{}': {}",
-					def.getName(), ex.getMessage(), ex);
+		if (overridesToApply == null || overridesToApply.isEmpty()) {
 			return body;
 		}
+
+		String result = body;
+
+		for (DtoFieldOverride override : overridesToApply) {
+			if (override == null) continue;
+
+			String fieldPath = safeTrim(override.getFieldPath());
+			if (fieldPath.isEmpty()) continue;
+
+			String methodExpr;
+			try {
+				methodExpr = resolveOverrideMethodExpression(override);
+			} catch (Exception ex) {
+				warnings.add("WARNING: field " + fieldPath + " was not substituted: failed to build method expression. Reason: " + ex.getMessage());
+				continue;
+			}
+
+			if (methodExpr == null || methodExpr.isBlank()) {
+				warnings.add("WARNING: field " + fieldPath + " was not substituted: method expression is blank.");
+				continue;
+			}
+
+			String generatedValue;
+			try {
+				generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
+			} catch (Exception ex) {
+				warnings.add("WARNING: field " + fieldPath + " was not substituted: resolve error for expression " + methodExpr + ". Reason: " + ex.getMessage());
+				continue;
+			}
+
+			if (generatedValue == null) {
+				warnings.add("WARNING: field " + fieldPath + " was not substituted: resolved value is null for expression " + methodExpr + ".");
+				continue;
+			}
+
+			String type = safeTrim(override.getType());
+			if (type.isEmpty()) {
+				type = "string";
+			}
+
+			try {
+				String replaced = replaceJsonFieldValue(result, fieldPath, generatedValue, type);
+				if (Objects.equals(replaced, result)) {
+					warnings.add("WARNING: field " + fieldPath + " was not substituted: field not found in DTO body.");
+					continue;
+				}
+				result = replaced;
+			} catch (Exception ex) {
+				warnings.add("WARNING: field " + fieldPath + " was not substituted: replace error. Reason: " + ex.getMessage());
+			}
+		}
+
+		return result;
 	}
 
-	private String resolveOverrideMethodExpression(Object override) {
-		String method = invokeStringGetter(override, "getMethod", "getGeneratorMethod", "getAction");
-		if (method == null || method.isBlank()) {
+	private String resolveOverrideMethodExpression(DtoFieldOverride override) {
+		String method = safeTrim(override.getMethod());
+		if (method.isEmpty()) {
 			return null;
 		}
-		method = method.trim();
 
-		String arg = invokeStringGetter(override, "getMethodArg", "getArgument", "getArg");
-		if (arg == null) arg = "";
+		String arg = override.getMethodArg();
+		if (arg == null) {
+			arg = "";
+		}
 
-		// "use variable" — возвращаем arg напрямую (там уже лежит ${varName} или конкретное значение)
-		if ("use variable".equals(method)) {
+		if ("value".equals(method) || "use variable".equals(method)) {
 			return arg.isBlank() ? null : arg;
 		}
 
-		// addUuid(prefix) — если arg сам является ${varName}, то resolveValue его раскроет
 		if ("addUuid".equals(method)) {
 			return "addUuid(" + arg + ")";
 		}
 
-		// generateEmail / generatePhoneNumber / прочие
 		if (method.endsWith("()") || method.contains("(")) {
 			return method;
 		}
+
 		return method + "()";
 	}
 
-	private String replaceJsonFieldValue(String json, String fieldPath, String newValue) {
-		if (json == null || json.isBlank() || fieldPath == null || fieldPath.isBlank()) {
+	private String replaceJsonFieldValue(String json, String fieldPath, String newValue, String type) {
+		if (json == null || json.isBlank()) {
+			return json;
+		}
+		if (fieldPath == null || fieldPath.isBlank()) {
 			return json;
 		}
 
-		String fieldName = fieldPath;
-		int dotIndex = fieldPath.lastIndexOf('.');
-		if (dotIndex >= 0 && dotIndex + 1 < fieldPath.length()) {
-			fieldName = fieldPath.substring(dotIndex + 1);
+		try {
+			JsonElement root = JsonParser.parseString(json);
+			if (!root.isJsonObject() && !root.isJsonArray()) {
+				return json;
+			}
+
+			String[] parts = fieldPath.split("\\.");
+			JsonElement current = root;
+
+			for (int i = 0; i < parts.length - 1; i++) {
+				PathToken token = parsePathToken(parts[i]);
+				if (token == null) {
+					return json;
+				}
+
+				current = navigateToChild(current, token);
+				if (current == null || current.isJsonNull()) {
+					return json;
+				}
+			}
+
+			PathToken lastToken = parsePathToken(parts[parts.length - 1]);
+			if (lastToken == null) {
+				return json;
+			}
+
+			boolean replaced = replaceAtTarget(current, lastToken, buildJsonElement(newValue, type));
+			if (!replaced) {
+				return json;
+			}
+
+			return root.toString();
+		} catch (Exception e) {
+			log.debug("replaceJsonFieldValue failed for path {}, error: {}", fieldPath, e.getMessage());
+			return json;
+		}
+	}
+
+	private JsonElement buildJsonElement(String value, String type) {
+		String normalizedType = safeTrim(type).toLowerCase(Locale.ROOT);
+
+		if ("number".equals(normalizedType)) {
+			String trimmed = safeTrim(value);
+			if (trimmed.isEmpty()) {
+				return new JsonPrimitive(0);
+			}
+			try {
+				return new JsonPrimitive(Integer.parseInt(trimmed));
+			} catch (NumberFormatException ex) {
+				throw new IllegalArgumentException("Value " + value + " is not a valid integer");
+			}
 		}
 
-		String escapedFieldName = Pattern.quote(fieldName);
-		String escapedValue = Matcher.quoteReplacement(escapeJsonValue(newValue));
+		return new JsonPrimitive(value != null ? value : "");
+	}
 
-		String stringPattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*\\\")([^\\\"]*)(\\\")";
-		String replaced = json.replaceAll(stringPattern, "$1" + escapedValue + "$3");
-		if (!replaced.equals(json)) {
-			return replaced;
+	private JsonElement navigateToChild(JsonElement current, PathToken token) {
+		JsonElement next = current;
+
+		if (!token.key.isEmpty()) {
+			if (!next.isJsonObject()) {
+				return null;
+			}
+			next = next.getAsJsonObject().get(token.key);
+			if (next == null || next.isJsonNull()) {
+				return null;
+			}
 		}
 
-		String nullPattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*)null";
-		replaced = json.replaceAll(nullPattern, "$1\"" + escapedValue + "\"");
-		if (!replaced.equals(json)) {
-			return replaced;
+		if (token.index != null) {
+			if (!next.isJsonArray()) {
+				return null;
+			}
+			JsonArray arr = next.getAsJsonArray();
+			if (token.index < 0 || token.index >= arr.size()) {
+				return null;
+			}
+			next = arr.get(token.index);
 		}
 
-		String primitivePattern = "(\\\"" + escapedFieldName + "\\\"\\s*:\\s*)(true|false|-?\\d+(?:\\.\\d+)?)";
-		return json.replaceAll(primitivePattern, "$1\"" + escapedValue + "\"");
+		return next;
+	}
+
+	private boolean replaceAtTarget(JsonElement current, PathToken token, JsonElement replacement) {
+		if (current == null || current.isJsonNull()) {
+			return false;
+		}
+
+		if (!token.key.isEmpty()) {
+			if (!current.isJsonObject()) {
+				return false;
+			}
+
+			JsonObject obj = current.getAsJsonObject();
+			JsonElement child = obj.get(token.key);
+			if (child == null || child.isJsonNull()) {
+				return false;
+			}
+
+			if (token.index != null) {
+				if (!child.isJsonArray()) {
+					return false;
+				}
+				JsonArray arr = child.getAsJsonArray();
+				if (token.index < 0 || token.index >= arr.size()) {
+					return false;
+				}
+				arr.set(token.index, replacement);
+				return true;
+			}
+
+			obj.add(token.key, replacement);
+			return true;
+		}
+
+		if (token.index != null) {
+			if (!current.isJsonArray()) {
+				return false;
+			}
+			JsonArray arr = current.getAsJsonArray();
+			if (token.index < 0 || token.index >= arr.size()) {
+				return false;
+			}
+			arr.set(token.index, replacement);
+			return true;
+		}
+
+		return false;
+	}
+
+	private PathToken parsePathToken(String part) {
+		if (part == null || part.isBlank()) {
+			return null;
+		}
+
+		String trimmed = part.trim();
+
+		if (trimmed.contains("[")) {
+			int bracket = trimmed.indexOf('[');
+			int closeBracket = trimmed.indexOf(']', bracket);
+			if (closeBracket < 0) {
+				return null;
+			}
+
+			String key = trimmed.substring(0, bracket).trim();
+			String indexStr = trimmed.substring(bracket + 1, closeBracket).trim();
+			if (indexStr.isEmpty()) {
+				return null;
+			}
+
+			try {
+				return new PathToken(key, Integer.parseInt(indexStr));
+			} catch (NumberFormatException e) {
+				return null;
+			}
+		}
+
+		int splitPos = trimmed.length();
+		while (splitPos > 0 && Character.isDigit(trimmed.charAt(splitPos - 1))) {
+			splitPos--;
+		}
+
+		if (splitPos < trimmed.length() && splitPos > 0) {
+			String key = trimmed.substring(0, splitPos);
+			String indexStr = trimmed.substring(splitPos);
+			try {
+				return new PathToken(key, Integer.parseInt(indexStr));
+			} catch (NumberFormatException e) {
+				return new PathToken(trimmed, null);
+			}
+		}
+
+		return new PathToken(trimmed, null);
+	}
+
+	private String buildJsonLiteral(String value, String type) {
+		String normalizedType = safeTrim(type).toLowerCase(Locale.ROOT);
+
+		if ("number".equals(normalizedType)) {
+			String trimmed = safeTrim(value);
+			if (trimmed.isEmpty()) {
+				return "0";
+			}
+			try {
+				return String.valueOf(Integer.parseInt(trimmed));
+			} catch (NumberFormatException ex) {
+				throw new IllegalArgumentException("Value '" + value + "' is not a valid integer");
+			}
+		}
+
+		return "\"" + escapeJsonValue(value) + "\"";
 	}
 
 	private String resolveBackendTemplate(String raw, Map<String, String> nameToValue) {
@@ -1262,7 +1363,7 @@ public class PlayActionService {
 				return;
 			}
 
-			Object[] options = {"OK", "View backend answers"};
+			Object[] options = {"OK", "View backend responses"};
 			int choice = JOptionPane.showOptionDialog(
 					actionWindow,
 					message,
@@ -1281,58 +1382,33 @@ public class PlayActionService {
 	}
 
 	private void showBackendAnswersDialog(ActionWindow parent) {
-		StringBuilder sb = new StringBuilder();
+		JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
 
 		synchronized (backendExecutionResults) {
 			for (int i = 0; i < backendExecutionResults.size(); i++) {
 				BackendExecutionResult r = backendExecutionResults.get(i);
 
-				if (i > 0) {
-					sb.append("\n\n");
-				}
+				String requestName = r.requestName != null && !r.requestName.isBlank()
+						? r.requestName
+						: "backend";
 
-				sb.append("==================================================\n");
-				sb.append(r.method != null ? r.method : "UNKNOWN");
-				sb.append(" ");
-				sb.append(r.url != null ? r.url : "");
-				sb.append("\n");
-				sb.append("==================================================\n");
-				sb.append("status: ").append(r.status).append("\n");
-				sb.append("success: ").append(r.success).append("\n");
+				int stepNumber = r.step != null ? r.step : i;
+				String tabTitle = stepNumber + ". " + requestName;
 
-				if (r.requestName != null && !r.requestName.isBlank()) {
-					sb.append("requestName: ").append(r.requestName).append("\n");
-				}
+				JTextArea textArea = new JTextArea(buildBackendAnswerText(r), 28, 110);
+				textArea.setEditable(false);
+				textArea.setCaretPosition(0);
+				textArea.setLineWrap(false);
+				textArea.setWrapStyleWord(false);
+				textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
 
-				if (r.warnings != null && !r.warnings.isEmpty()) {
-					sb.append("\n");
-					sb.append("WARNINGS:\n");
-					for (String warning : r.warnings) {
-						sb.append("- ").append(warning).append("\n");
-					}
-				}
+				JScrollPane scrollPane = new JScrollPane(textArea);
+				scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+				scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-				sb.append("\n");
-
-				String responseBody = r.responseBody == null ? "" : r.responseBody.trim();
-				if (responseBody.isEmpty()) {
-					sb.append("<empty response>");
-				} else {
-					sb.append(responseBody);
-				}
+				tabs.addTab(tabTitle, scrollPane);
 			}
 		}
-
-		JTextArea textArea = new JTextArea(sb.toString(), 28, 110);
-		textArea.setEditable(false);
-		textArea.setCaretPosition(0);
-		textArea.setLineWrap(false);
-		textArea.setWrapStyleWord(false);
-		textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-
-		JScrollPane scrollPane = new JScrollPane(textArea);
-		scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-		scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
 		JDialog dialog = new JDialog(
 				SwingUtilities.getWindowAncestor(parent),
@@ -1353,12 +1429,66 @@ public class PlayActionService {
 		bottomPanel.add(closeButton);
 
 		dialog.add(title, BorderLayout.NORTH);
-		dialog.add(scrollPane, BorderLayout.CENTER);
+		dialog.add(tabs, BorderLayout.CENTER);
 		dialog.add(bottomPanel, BorderLayout.SOUTH);
 
 		dialog.setSize(1000, 700);
 		dialog.setLocationRelativeTo(parent);
 		dialog.setVisible(true);
+	}
+
+	private String buildBackendAnswerText(BackendExecutionResult r) {
+		StringBuilder sb = new StringBuilder();
+
+		sb.append("==================================================\n");
+		sb.append(r.method != null ? r.method : "UNKNOWN");
+		sb.append(" ");
+		sb.append(r.url != null ? r.url : "");
+		sb.append("\n");
+		sb.append("==================================================\n");
+		sb.append("status: ").append(r.status).append("\n");
+		sb.append("success: ").append(r.success).append("\n");
+
+		if (r.requestName != null && !r.requestName.isBlank()) {
+			sb.append("requestName: ").append(r.requestName).append("\n");
+		}
+
+		if (r.step != null) {
+			sb.append("stepNumber: ").append(r.step).append("\n");
+		}
+
+		if (r.warnings != null && !r.warnings.isEmpty()) {
+			sb.append("\nWARNINGS:\n");
+			for (String warning : r.warnings) {
+				sb.append("- ").append(warning).append("\n");
+			}
+		}
+
+		if (r.status >= 400 && r.status <= 599) {
+			sb.append("\nREQUEST BODY:\n");
+			sb.append("--------------------------------------------------\n");
+
+			String requestBody = r.requestBody == null ? "" : r.requestBody.trim();
+			if (requestBody.isEmpty()) {
+				sb.append("<empty request body>");
+			} else {
+				sb.append(requestBody);
+			}
+
+			sb.append("\n");
+		}
+
+		sb.append("\nRESPONSE BODY:\n");
+		sb.append("--------------------------------------------------\n");
+
+		String responseBody = r.responseBody == null ? "" : r.responseBody.trim();
+		if (responseBody.isEmpty()) {
+			sb.append("<empty response>");
+		} else {
+			sb.append(responseBody);
+		}
+
+		return sb.toString();
 	}
 
 	private String toJsString(String s) {
@@ -1516,6 +1646,10 @@ public class PlayActionService {
 		return method + "()";
 	}
 
+	private String safeTrim(String value) {
+		return value == null ? "" : value.trim();
+	}
+
 	private static class PlayStep {
 		int rowIndex;
 		String actionCode;
@@ -1535,11 +1669,13 @@ public class PlayActionService {
 		String method;
 		String url;
 		String responseBody;
+		String requestBody;
 		boolean success;
 		long status;
 		List<String> warnings = new ArrayList<>();
 		// УЛУЧШЕНИЕ 1: переменные, извлечённые из ответа — для tooltip в таблице Actions
 		Map<String, String> extractedVars = new LinkedHashMap<>();
+		Integer step;
 	}
 
 	private class Auth {
@@ -1551,6 +1687,16 @@ public class PlayActionService {
 			emailField.fill(username);
 			passwordField.fill(password);
 			authButton.click();
+		}
+	}
+
+	private static class PathToken {
+		private final String key;
+		private final Integer index;
+
+		private PathToken(String key, Integer index) {
+			this.key = key != null ? key : "";
+			this.index = index;
 		}
 	}
 }

@@ -275,25 +275,104 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	public void openEditDtoDialogFor(Component parent, BackendRequestDef def) {
 		JDialog dlg = new JDialog(
 				SwingUtilities.getWindowAncestor(parent),
-				"Edit DTO — " + def.getName(),
+				"Edit DTO: " + def.getName(),
 				Dialog.ModalityType.APPLICATION_MODAL
 		);
 		dlg.setSize(980, 920);
 		dlg.setLocationRelativeTo(parent);
 		dlg.setLayout(new BorderLayout(8, 8));
 
-		JPanel top = new JPanel(new GridLayout(3, 2, 6, 6));
-		top.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
-
 		JTextField nameField = new JTextField(def.getName());
-
 		JComboBox<String> httpMethodCombo = new JComboBox<>(HTTP_METHODS);
 		String currentMethod = def.getMethod() != null ? def.getMethod().toUpperCase() : "POST";
-		httpMethodCombo.setSelectedItem(
-				Arrays.asList(HTTP_METHODS).contains(currentMethod) ? currentMethod : HTTP_METHODS[0]
+		httpMethodCombo.setSelectedItem(Arrays.asList(HTTP_METHODS).contains(currentMethod) ? currentMethod : HTTP_METHODS[0]);
+		JTextField urlField = new JTextField(def.getUrl());
+
+		JPanel top = createTopPanel(nameField, httpMethodCombo, urlField);
+		dlg.add(top, BorderLayout.NORTH);
+
+		JTextField searchField = new JTextField(20);
+		JButton prevSearchBtn = new JButton("↑");
+		JButton nextSearchBtn = new JButton("↓");
+		JButton closeSearchBtn = new JButton("✕");
+		JLabel searchInfoLabel = new JLabel();
+
+		JPanel searchPanel = createSearchPanel(
+				searchField,
+				searchInfoLabel,
+				prevSearchBtn,
+				nextSearchBtn,
+				closeSearchBtn
 		);
 
-		JTextField urlField = new JTextField(def.getUrl());
+		JTextArea bodyArea = new JTextArea(beautifyJson(def.getRequestBody() != null ? def.getRequestBody() : ""));
+		bodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+
+		JTextArea headersArea = new JTextArea(beautifyJson(def.getRequestHeaders() != null ? def.getRequestHeaders() : ""));
+		headersArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+		headersArea.setRows(6);
+
+		JTextArea responseBodyArea = new JTextArea(beautifyJson(def.getCapturedResponseBody() != null ? def.getCapturedResponseBody() : ""));
+		responseBodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+
+		attachUndoRedo(bodyArea);
+		attachUndoRedo(headersArea);
+		attachUndoRedo(responseBodyArea);
+
+		JSplitPane dtoTopSplit = createEditorsPanel(bodyArea, headersArea);
+		JPanel fieldOverridesPanel = createFieldOverridesPanel(dlg, def, bodyArea);
+
+		JSplitPane dtoTabSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, dtoTopSplit, fieldOverridesPanel);
+		dtoTabSplit.setResizeWeight(0.65);
+		dtoTabSplit.setDividerLocation(430);
+
+		JPanel responseTab = createResponseTemplateTab(dlg, def, nameField, responseBodyArea);
+
+		installSearchShortcut(
+				dlg,
+				searchPanel,
+				searchField,
+				searchInfoLabel,
+				prevSearchBtn,
+				nextSearchBtn,
+				closeSearchBtn,
+				bodyArea,
+				headersArea,
+				responseBodyArea,
+				dtoTopSplit,
+				responseTab
+		);
+
+		JTabbedPane centerTabs = new JTabbedPane();
+		centerTabs.addTab("DTO Template", dtoTabSplit);
+		centerTabs.addTab("Response Template", responseTab);
+
+		dlg.add(centerTabs, BorderLayout.CENTER);
+
+		JPanel south = createButtonsPanel(
+				dlg,
+				def,
+				nameField,
+				httpMethodCombo,
+				urlField,
+				bodyArea,
+				headersArea,
+				responseBodyArea,
+				fieldOverridesPanel,
+				responseTab
+		);
+		dlg.add(south, BorderLayout.SOUTH);
+
+		dlg.setVisible(true);
+	}
+
+	private JPanel createTopPanel(
+			JTextField nameField,
+			JComboBox<String> httpMethodCombo,
+			JTextField urlField
+	) {
+		JPanel top = new JPanel(new GridLayout(3, 2, 6, 6));
+		top.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
 
 		top.add(new JLabel("Name:"));
 		top.add(nameField);
@@ -302,31 +381,39 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		top.add(new JLabel("URL:"));
 		top.add(urlField);
 
-		dlg.add(top, BorderLayout.NORTH);
+		return top;
+	}
 
-		String rawBody = def.getRequestBody() != null ? def.getRequestBody() : "";
-		String rawHeaders = def.getRequestHeaders() != null ? def.getRequestHeaders() : "{}";
-		String rawResponse = def.getCapturedResponseBody() != null ? def.getCapturedResponseBody() : "";
+	private JPanel createSearchPanel(
+			JTextField searchField,
+			JLabel searchInfoLabel,
+			JButton prevSearchBtn,
+			JButton nextSearchBtn,
+			JButton closeSearchBtn
+	) {
+		for (JButton btn : new JButton[]{prevSearchBtn, nextSearchBtn, closeSearchBtn}) {
+			btn.setMargin(new Insets(2, 8, 2, 8));
+			btn.setFocusable(false);
+		}
 
-		JTextArea bodyArea = new JTextArea(beautifyJson(rawBody));
-		bodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+		JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 6));
+		searchPanel.setBorder(BorderFactory.createEmptyBorder(6, 10, 0, 10));
+		searchPanel.add(new JLabel("Find:"));
+		searchPanel.add(searchField);
+		searchPanel.add(searchInfoLabel);
+		searchPanel.add(prevSearchBtn);
+		searchPanel.add(nextSearchBtn);
+		searchPanel.add(closeSearchBtn);
+		searchPanel.setVisible(false);
 
-		JTextArea headersArea = new JTextArea(beautifyJson(rawHeaders));
-		headersArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-		headersArea.setRows(6);
+		return searchPanel;
+	}
 
-		JTextArea responseBodyArea = new JTextArea(beautifyJson(rawResponse));
-		responseBodyArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-
-		attachUndoRedo(bodyArea);
-		attachUndoRedo(headersArea);
-		attachUndoRedo(responseBodyArea);
-
+	private JSplitPane createEditorsPanel(JTextArea bodyArea, JTextArea headersArea) {
 		JButton bodyBeautifyBtn = new JButton("Beautify");
 		JButton headersBeautifyBtn = new JButton("Beautify");
-		JButton responseBeautifyBtn = new JButton("Beautify");
 
-		for (JButton btn : new JButton[]{bodyBeautifyBtn, headersBeautifyBtn, responseBeautifyBtn}) {
+		for (JButton btn : new JButton[]{bodyBeautifyBtn, headersBeautifyBtn}) {
 			btn.setFont(btn.getFont().deriveFont(11f));
 			btn.setFocusable(false);
 		}
@@ -343,27 +430,33 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			headersArea.setCaretPosition(0);
 		});
 
-		responseBeautifyBtn.addActionListener(e -> {
-			String pretty = beautifyJson(responseBodyArea.getText());
-			responseBodyArea.setText(pretty);
-			responseBodyArea.setCaretPosition(0);
-		});
+		JPanel bodySearchHost = new JPanel(new BorderLayout());
+		bodySearchHost.setOpaque(false);
 
-		JPanel bodyToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		bodyToolbar.add(new JLabel("Request Body"));
-		bodyToolbar.add(bodyBeautifyBtn);
+		JPanel bodyToolbarLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		bodyToolbarLeft.setOpaque(false);
+		bodyToolbarLeft.add(new JLabel("Request Body"));
+		bodyToolbarLeft.add(bodyBeautifyBtn);
 
-		JPanel headersToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		headersToolbar.add(new JLabel("Headers"));
-		headersToolbar.add(headersBeautifyBtn);
-
-		JPanel responseToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-		responseToolbar.add(new JLabel("Response Body Template"));
-		responseToolbar.add(responseBeautifyBtn);
+		JPanel bodyToolbar = new JPanel(new BorderLayout());
+		bodyToolbar.add(bodyToolbarLeft, BorderLayout.WEST);
+		bodyToolbar.add(bodySearchHost, BorderLayout.EAST);
 
 		JPanel bodyPanel = new JPanel(new BorderLayout());
 		bodyPanel.add(bodyToolbar, BorderLayout.NORTH);
 		bodyPanel.add(new JScrollPane(bodyArea), BorderLayout.CENTER);
+
+		JPanel headersSearchHost = new JPanel(new BorderLayout());
+		headersSearchHost.setOpaque(false);
+
+		JPanel headersToolbarLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		headersToolbarLeft.setOpaque(false);
+		headersToolbarLeft.add(new JLabel("Headers"));
+		headersToolbarLeft.add(headersBeautifyBtn);
+
+		JPanel headersToolbar = new JPanel(new BorderLayout());
+		headersToolbar.add(headersToolbarLeft, BorderLayout.WEST);
+		headersToolbar.add(headersSearchHost, BorderLayout.EAST);
 
 		JPanel headersPanel = new JPanel(new BorderLayout());
 		headersPanel.add(headersToolbar, BorderLayout.NORTH);
@@ -373,11 +466,18 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		dtoTopSplit.setResizeWeight(0.78);
 		dtoTopSplit.setDividerLocation(360);
 
-		String[] cols = {"Unique", "Field Path", "Method", "Arg / Variable"};
+		dtoTopSplit.putClientProperty("bodySearchHost", bodySearchHost);
+		dtoTopSplit.putClientProperty("headersSearchHost", headersSearchHost);
+
+		return dtoTopSplit;
+	}
+
+	private DefaultTableModel createFieldOverridesModel(BackendRequestDef def) {
+		String[] cols = {"Field Path", "Method", "Arg / Variable", "Type"};
 		DefaultTableModel uniqueModel = new DefaultTableModel(cols, 0) {
 			@Override
 			public Class<?> getColumnClass(int col) {
-				return col == 0 ? Boolean.class : String.class;
+				return String.class;
 			}
 
 			@Override
@@ -389,28 +489,31 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		if (def.getFieldOverrides() != null) {
 			for (DtoFieldOverride ov : def.getFieldOverrides()) {
 				uniqueModel.addRow(new Object[]{
-						ov.isUnique(),
 						ov.getFieldPath() != null ? ov.getFieldPath() : "",
 						ov.getMethod() != null ? ov.getMethod() : VariableAction.GENERATE_EMAIL.getCode(),
-						ov.getMethodArg() != null ? ov.getMethodArg() : ""
+						ov.getMethodArg() != null ? ov.getMethodArg() : "",
+						"string"
 				});
 			}
 		}
 
+		return uniqueModel;
+	}
+
+	private JTable createFieldOverridesTable(JDialog dlg, DefaultTableModel uniqueModel) {
 		JTable uniqueTable = new JTable(uniqueModel);
 		uniqueTable.setRowHeight(28);
 		uniqueTable.setShowGrid(true);
 		uniqueTable.setGridColor(new Color(180, 180, 180));
 
-		uniqueTable.getColumnModel().getColumn(0).setPreferredWidth(55);
-		uniqueTable.getColumnModel().getColumn(0).setMaxWidth(60);
-		uniqueTable.getColumnModel().getColumn(1).setPreferredWidth(280);
-		uniqueTable.getColumnModel().getColumn(2).setPreferredWidth(180);
-		uniqueTable.getColumnModel().getColumn(3).setPreferredWidth(230);
+		uniqueTable.getColumnModel().getColumn(0).setPreferredWidth(280);
+		uniqueTable.getColumnModel().getColumn(1).setPreferredWidth(180);
+		uniqueTable.getColumnModel().getColumn(2).setPreferredWidth(230);
+		uniqueTable.getColumnModel().getColumn(3).setPreferredWidth(120);
 
 		String[] methodOptions = buildMethodOptions();
 		JComboBox<String> methodCombo = new JComboBox<>(methodOptions);
-		uniqueTable.getColumnModel().getColumn(2).setCellEditor(new DefaultCellEditor(methodCombo) {
+		uniqueTable.getColumnModel().getColumn(1).setCellEditor(new DefaultCellEditor(methodCombo) {
 			@Override
 			public boolean stopCellEditing() {
 				String selected = (String) methodCombo.getSelectedItem();
@@ -419,8 +522,8 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 					if (varName != null) {
 						int editRow = uniqueTable.getEditingRow();
 						if (editRow >= 0) {
-							uniqueModel.setValueAt("use variable", editRow, 2);
-							uniqueModel.setValueAt("${" + varName + "}", editRow, 3);
+							uniqueModel.setValueAt("use variable", editRow, 1);
+							uniqueModel.setValueAt("${" + varName + "}", editRow, 2);
 						}
 					}
 					super.cancelCellEditing();
@@ -430,7 +533,10 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 		});
 
-		uniqueTable.getColumnModel().getColumn(3).setCellRenderer(new DefaultTableCellRenderer() {
+		JComboBox<String> typeCombo = new JComboBox<>(new String[]{"string", "number"});
+		uniqueTable.getColumnModel().getColumn(3).setCellEditor(new DefaultCellEditor(typeCombo));
+
+		uniqueTable.getColumnModel().getColumn(2).setCellRenderer(new DefaultTableCellRenderer() {
 			@Override
 			public Component getTableCellRendererComponent(
 					JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col
@@ -456,13 +562,24 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 		});
 
+		return uniqueTable;
+	}
+
+	private JPanel createFieldOverridesPanel(
+			JDialog dlg,
+			BackendRequestDef def,
+			JTextArea bodyArea
+	) {
+		DefaultTableModel uniqueModel = createFieldOverridesModel(def);
+		JTable uniqueTable = createFieldOverridesTable(dlg, uniqueModel);
+
 		JButton addUniqueRow = new JButton("+");
 		JButton removeUniqueRow = new JButton("-");
 		JButton parseBtn = new JButton("⬇ Parse fields from Body");
 		parseBtn.setFont(parseBtn.getFont().deriveFont(11f));
 
 		addUniqueRow.addActionListener(e ->
-				uniqueModel.addRow(new Object[]{false, "", VariableAction.GENERATE_EMAIL.getCode(), ""})
+				uniqueModel.addRow(new Object[]{"", VariableAction.GENERATE_EMAIL.getCode(), "", "string"})
 		);
 
 		removeUniqueRow.addActionListener(e -> {
@@ -493,13 +610,13 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 			Set<String> existing = new HashSet<>();
 			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
-				existing.add(Objects.toString(uniqueModel.getValueAt(r, 1), "").trim());
+				existing.add(Objects.toString(uniqueModel.getValueAt(r, 0), "").trim());
 			}
 
 			int added = 0;
 			for (String path : paths) {
 				if (!existing.contains(path)) {
-					uniqueModel.addRow(new Object[]{false, path, VariableAction.GENERATE_EMAIL.getCode(), ""});
+					uniqueModel.addRow(new Object[]{path, VariableAction.GENERATE_EMAIL.getCode(), "", "string"});
 					added++;
 				}
 			}
@@ -519,8 +636,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		uniqueToolbar.add(parseBtn);
 
 		JLabel argHint = new JLabel(
-				"Arg/Variable: для addUuid — дефолтный префикс; для «use variable» — вставляется ${varName}; " +
-						"оба варианта можно комбинировать (addUuid + ${var} тоже сработает)."
+				"Arg / Variable: для value — просто введи значение; для use variable — вставляется ${varName}."
 		);
 		argHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
 
@@ -529,12 +645,41 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		uniquePanel.add(new JScrollPane(uniqueTable), BorderLayout.CENTER);
 		uniquePanel.add(argHint, BorderLayout.SOUTH);
 
-		JSplitPane dtoTabSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, dtoTopSplit, uniquePanel);
-		dtoTabSplit.setResizeWeight(0.65);
-		dtoTabSplit.setDividerLocation(430);
+		uniquePanel.putClientProperty("uniqueModel", uniqueModel);
+		uniquePanel.putClientProperty("uniqueTable", uniqueTable);
+
+		return uniquePanel;
+	}
+
+	private JPanel createResponseTemplateTab(JDialog dlg, BackendRequestDef def, JTextField nameField, JTextArea responseBodyArea) {
+		JButton responseBeautifyBtn = new JButton("Beautify");
+		responseBeautifyBtn.setFont(responseBeautifyBtn.getFont().deriveFont(11f));
+		responseBeautifyBtn.setFocusable(false);
+		responseBeautifyBtn.addActionListener(e -> {
+			String pretty = beautifyJson(responseBodyArea.getText());
+			responseBodyArea.setText(pretty);
+			responseBodyArea.setCaretPosition(0);
+		});
+
+		JPanel responseSearchHost = new JPanel(new BorderLayout());
+		responseSearchHost.setOpaque(false);
+
+		JPanel responseToolbarLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		responseToolbarLeft.setOpaque(false);
+		responseToolbarLeft.add(new JLabel("Response Body Template"));
+		responseToolbarLeft.add(responseBeautifyBtn);
+
+		JPanel responseToolbar = new JPanel(new BorderLayout());
+		responseToolbar.add(responseToolbarLeft, BorderLayout.WEST);
+		responseToolbar.add(responseSearchHost, BorderLayout.EAST);
+
+		JPanel responseBodyPanel = new JPanel(new BorderLayout());
+		responseBodyPanel.add(responseToolbar, BorderLayout.NORTH);
+		responseBodyPanel.add(new JScrollPane(responseBodyArea), BorderLayout.CENTER);
 
 		DefaultTableModel extractorModel = new DefaultTableModel(
-				new String[]{"JSON путь (fieldPath)", "Имя переменной"}, 0
+				new String[]{"JSON fieldPath", "Variable"},
+				0
 		) {
 			@Override
 			public boolean isCellEditable(int r, int c) {
@@ -557,7 +702,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		JButton addExtRow = new JButton("+");
 		JButton removeExtRow = new JButton("-");
-		JButton parseResponseBtn = new JButton("⬇ Parse fields from Response");
+		JButton parseResponseBtn = new JButton("Parse fields from Response");
 		parseResponseBtn.setFont(parseResponseBtn.getFont().deriveFont(11f));
 
 		addExtRow.addActionListener(e -> {
@@ -571,12 +716,10 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			if (extractorTable.isEditing()) {
 				extractorTable.getCellEditor().stopCellEditing();
 			}
-
 			int row = extractorTable.getSelectedRow();
 			if (row >= 0) {
 				String variableName = Objects.toString(extractorModel.getValueAt(row, 1), "").trim();
 				extractorModel.removeRow(row);
-
 				if (!variableName.isEmpty() && variablesService != null) {
 					variablesService.removeVariable(variableName);
 					variablesService.refreshTableFromVariables();
@@ -591,12 +734,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 			List<String> paths = extractJsonLeafPaths(responseBodyArea.getText().trim());
 			if (paths.isEmpty()) {
-				JOptionPane.showMessageDialog(
-						dlg,
-						"Не удалось разобрать JSON ответа или шаблон ответа пустой.",
-						"Parse error",
-						JOptionPane.WARNING_MESSAGE
-				);
+				JOptionPane.showMessageDialog(dlg, "Response JSON is empty or invalid.", "Parse error", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
 
@@ -619,29 +757,17 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 
 			syncResponseExtractorsToVariables(addedExtractors);
-
-			JOptionPane.showMessageDialog(
-					dlg,
-					"Добавлено " + added + " полей из ответа в extractors и variables (дубликаты пропущены).",
-					"Done",
-					JOptionPane.INFORMATION_MESSAGE
-			);
+			JOptionPane.showMessageDialog(dlg, added + " extractors and variables added.", "Done", JOptionPane.INFORMATION_MESSAGE);
 		});
 
 		JPanel extractorTopBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-		extractorTopBar.add(new JLabel("Response Extractors:"));
+		extractorTopBar.add(new JLabel("Response Extractors"));
 		extractorTopBar.add(addExtRow);
 		extractorTopBar.add(removeExtRow);
 		extractorTopBar.add(parseResponseBtn);
 
-		JLabel extHint = new JLabel(
-				"Переменная доступна как ${requestName.fieldPath} — отображается как json(fieldPath)"
-		);
+		JLabel extHint = new JLabel("Variable = requestName.fieldPath from json fieldPath.");
 		extHint.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-
-		JPanel responseBodyPanel = new JPanel(new BorderLayout());
-		responseBodyPanel.add(responseToolbar, BorderLayout.NORTH);
-		responseBodyPanel.add(new JScrollPane(responseBodyArea), BorderLayout.CENTER);
 
 		JPanel extractorPanel = new JPanel(new BorderLayout(2, 2));
 		extractorPanel.add(extractorTopBar, BorderLayout.NORTH);
@@ -652,91 +778,42 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		responseTabSplit.setResizeWeight(0.58);
 		responseTabSplit.setDividerLocation(430);
 
-		JTabbedPane centerTabs = new JTabbedPane();
-		centerTabs.addTab("DTO Template", dtoTabSplit);
-		centerTabs.addTab("Response Template", responseTabSplit);
+		JPanel responseTab = new JPanel(new BorderLayout());
+		responseTab.add(responseTabSplit, BorderLayout.CENTER);
+		responseTab.putClientProperty("extractorModel", extractorModel);
+		responseTab.putClientProperty("extractorTable", extractorTable);
+		responseTab.putClientProperty("responseSearchHost", responseSearchHost);
 
-		dlg.add(centerTabs, BorderLayout.CENTER);
+		return responseTab;
+	}
 
+	private JPanel createButtonsPanel(
+			JDialog dlg,
+			BackendRequestDef def,
+			JTextField nameField,
+			JComboBox<String> httpMethodCombo,
+			JTextField urlField,
+			JTextArea bodyArea,
+			JTextArea headersArea,
+			JTextArea responseBodyArea,
+			JPanel fieldOverridesPanel,
+			JPanel responseTab
+	) {
 		JButton saveBtn = new JButton("Save");
 		JButton cancelBtn = new JButton("Cancel");
 
-		saveBtn.addActionListener(e -> {
-			try {
-				if (uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
-				if (extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
-
-				String oldDefName = safeTrim(def.getName());
-				String newDefName = safeTrim(nameField.getText());
-
-				def.setName(newDefName);
-				def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
-				def.setUrl(urlField.getText().trim());
-				def.setRequestBody(bodyArea.getText());
-				def.setRequestHeaders(headersArea.getText());
-				def.setCapturedResponseBody(responseBodyArea.getText());
-
-				List<DtoFieldOverride> overrides = new ArrayList<>();
-				for (int r = 0; r < uniqueModel.getRowCount(); r++) {
-					boolean isUnique = Boolean.TRUE.equals(uniqueModel.getValueAt(r, 0));
-					String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
-					String methodVal = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
-					String arg = Objects.toString(uniqueModel.getValueAt(r, 3), "").trim();
-
-					if (fieldPath.isEmpty()) continue;
-					overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, isUnique));
-				}
-				def.setFieldOverrides(overrides);
-
-				List<ResponseFieldExtractor> oldExtractors = cloneExtractors(def.getResponseExtractors());
-				List<ResponseFieldExtractor> newExtractors = collectResponseExtractors(extractorModel, def);
-
-				syncExtractorVariablesAfterEdit(oldDefName, newDefName, oldExtractors, newExtractors);
-
-				def.setResponseExtractors(newExtractors);
-				if (!Objects.equals(oldDefName, newDefName)) {
-					renameBackendMethod(oldDefName, newDefName);
-				}
-
-				List<String> newPaths = extractJsonLeafPaths(bodyArea.getText().trim());
-				Set<String> existingPaths = new HashSet<>();
-				for (DtoFieldOverride ov : def.getFieldOverrides()) {
-					if (ov.getFieldPath() != null) {
-						existingPaths.add(ov.getFieldPath());
-					}
-				}
-
-				int added = 0;
-				for (String path : newPaths) {
-					if (!existingPaths.contains(path)) {
-						def.getFieldOverrides().add(
-								new DtoFieldOverride(path, VariableAction.GENERATE_EMAIL.getCode(), "", false)
-						);
-						added++;
-					}
-				}
-
-				save();
-				loadIntoTable();
-				dlg.dispose();
-
-				if (added > 0) {
-					JOptionPane.showMessageDialog(
-							parent,
-							"Сохранено. Добавлено " + added + " новых полей в fieldOverrides.",
-							"Saved",
-							JOptionPane.INFORMATION_MESSAGE
-					);
-				}
-			} catch (IllegalStateException ex) {
-				JOptionPane.showMessageDialog(
-						dlg,
-						ex.getMessage(),
-						"Ошибка",
-						JOptionPane.ERROR_MESSAGE
-				);
-			}
-		});
+		saveBtn.addActionListener(e -> saveDtoChanges(
+				dlg,
+				def,
+				nameField,
+				httpMethodCombo,
+				urlField,
+				bodyArea,
+				headersArea,
+				responseBodyArea,
+				fieldOverridesPanel,
+				responseTab
+		));
 
 		cancelBtn.addActionListener(e -> dlg.dispose());
 
@@ -748,8 +825,81 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		south.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
 		south.add(buttons, BorderLayout.EAST);
 
-		dlg.add(south, BorderLayout.SOUTH);
-		dlg.setVisible(true);
+		return south;
+	}
+
+	private void saveDtoChanges(
+			JDialog dlg,
+			BackendRequestDef def,
+			JTextField nameField,
+			JComboBox<String> httpMethodCombo,
+			JTextField urlField,
+			JTextArea bodyArea,
+			JTextArea headersArea,
+			JTextArea responseBodyArea,
+			JPanel fieldOverridesPanel,
+			JPanel responseTab
+	) {
+		try {
+			DefaultTableModel uniqueModel = (DefaultTableModel) fieldOverridesPanel.getClientProperty("uniqueModel");
+			JTable uniqueTable = (JTable) fieldOverridesPanel.getClientProperty("uniqueTable");
+
+			DefaultTableModel extractorModel = (DefaultTableModel) responseTab.getClientProperty("extractorModel");
+			JTable extractorTable = (JTable) responseTab.getClientProperty("extractorTable");
+
+			if (uniqueTable != null && uniqueTable.isEditing()) {
+				uniqueTable.getCellEditor().stopCellEditing();
+			}
+			if (extractorTable != null && extractorTable.isEditing()) {
+				extractorTable.getCellEditor().stopCellEditing();
+			}
+
+			String oldDefName = safeTrim(def.getName());
+			String newDefName = safeTrim(nameField.getText());
+
+			def.setName(newDefName);
+			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
+			def.setUrl(urlField.getText().trim());
+			def.setRequestBody(bodyArea.getText());
+			def.setRequestHeaders(headersArea.getText());
+			def.setCapturedResponseBody(responseBodyArea.getText());
+
+			List<DtoFieldOverride> overrides = new ArrayList<>();
+			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
+				String fieldPath = Objects.toString(uniqueModel.getValueAt(r, 0), "").trim();
+				String methodVal = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
+				String arg = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
+				String typeVal = Objects.toString(uniqueModel.getValueAt(r, 3), "string").trim();
+
+				if (fieldPath.isEmpty()) {
+					continue;
+				}
+
+				overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, typeVal));
+			}
+			def.setFieldOverrides(overrides);
+
+			List<ResponseFieldExtractor> oldExtractors = cloneExtractors(def.getResponseExtractors());
+			List<ResponseFieldExtractor> newExtractors = collectResponseExtractors(extractorModel, def);
+
+			syncExtractorVariablesAfterEdit(oldDefName, newDefName, oldExtractors, newExtractors);
+
+			def.setResponseExtractors(newExtractors);
+			if (!Objects.equals(oldDefName, newDefName)) {
+				renameBackendMethod(oldDefName, newDefName);
+			}
+
+			save();
+			loadIntoTable();
+			dlg.dispose();
+		} catch (IllegalStateException ex) {
+			JOptionPane.showMessageDialog(
+					dlg,
+					ex.getMessage(),
+					"Ошибка",
+					JOptionPane.ERROR_MESSAGE
+			);
+		}
 	}
 
 	// ──────────────────────────────────────────────────────────────────────
@@ -794,7 +944,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		for (VariableAction a : VariableAction.values()) {
 			options.add(a.getCode());
 		}
-		options.add("──────────");
+		options.add("value");
 		options.add("use variable");
 		return options.toArray(new String[0]);
 	}
@@ -965,17 +1115,18 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private void attachUndoRedo(JTextArea area) {
 		UndoManager undoManager = new UndoManager();
 		undoManager.setLimit(100);
-
-		area.getDocument().addUndoableEditListener(
-				(UndoableEditEvent e) -> undoManager.addEdit(e.getEdit())
-		);
+		area.getDocument().addUndoableEditListener((UndoableEditEvent e) -> undoManager.addEdit(e.getEdit()));
 
 		InputMap im = area.getInputMap(JComponent.WHEN_FOCUSED);
 		ActionMap am = area.getActionMap();
 
 		im.put(KeyStroke.getKeyStroke("control Z"), "undo");
+		im.put(KeyStroke.getKeyStroke("meta Z"), "undo");
+
 		im.put(KeyStroke.getKeyStroke("control Y"), "redo");
 		im.put(KeyStroke.getKeyStroke("control shift Z"), "redo");
+		im.put(KeyStroke.getKeyStroke("meta shift Z"), "redo");
+		im.put(KeyStroke.getKeyStroke("meta Y"), "redo");
 
 		am.put("undo", new AbstractAction("undo") {
 			@Override
@@ -1211,6 +1362,176 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		}
 
 		variablesService.refreshTableFromVariables();
+	}
+
+	private void installSearchShortcut(
+			JDialog dlg,
+			JPanel searchPanel,
+			JTextField searchField,
+			JLabel searchInfoLabel,
+			JButton prevSearchBtn,
+			JButton nextSearchBtn,
+			JButton closeSearchBtn,
+			JTextArea bodyArea,
+			JTextArea headersArea,
+			JTextArea responseBodyArea,
+			JSplitPane dtoTopSplit,
+			JPanel responseTab
+	) {
+		JPanel bodySearchHost = (JPanel) dtoTopSplit.getClientProperty("bodySearchHost");
+		JPanel headersSearchHost = (JPanel) dtoTopSplit.getClientProperty("headersSearchHost");
+		JPanel responseSearchHost = (JPanel) responseTab.getClientProperty("responseSearchHost");
+
+		Runnable closeSearch = () -> {
+			searchField.setText("");
+			searchInfoLabel.setText("");
+			searchPanel.setVisible(false);
+			dlg.revalidate();
+			dlg.repaint();
+		};
+
+		java.util.function.Supplier<JTextArea> currentAreaSupplier = () -> {
+			Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+			if (focusOwner == headersArea || SwingUtilities.isDescendingFrom(focusOwner, headersArea)) {
+				return headersArea;
+			}
+			if (focusOwner == responseBodyArea || SwingUtilities.isDescendingFrom(focusOwner, responseBodyArea)) {
+				return responseBodyArea;
+			}
+			return bodyArea;
+		};
+
+		Runnable focusSearch = () -> {
+			Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+
+			JPanel targetHost = bodySearchHost;
+			if (focusOwner == headersArea || SwingUtilities.isDescendingFrom(focusOwner, headersArea)) {
+				targetHost = headersSearchHost;
+			} else if (focusOwner == responseBodyArea || SwingUtilities.isDescendingFrom(focusOwner, responseBodyArea)) {
+				targetHost = responseSearchHost;
+			}
+
+			moveSearchPanel(searchPanel, targetHost, dlg);
+			searchPanel.setVisible(true);
+			searchField.requestFocusInWindow();
+			searchField.selectAll();
+			dlg.revalidate();
+			dlg.repaint();
+		};
+
+		Runnable findNext = () -> {
+			String query = searchField.getText();
+			if (query == null || query.isBlank()) {
+				searchInfoLabel.setText("");
+				return;
+			}
+
+			JTextArea area = currentAreaSupplier.get();
+			String text = area.getText();
+			String lowerText = text.toLowerCase();
+			String lowerQuery = query.toLowerCase();
+
+			int startIndex = area.getSelectionEnd();
+			int index = lowerText.indexOf(lowerQuery, startIndex);
+			if (index < 0) {
+				index = lowerText.indexOf(lowerQuery, 0);
+			}
+
+			if (index >= 0) {
+				area.requestFocusInWindow();
+				area.select(index, index + query.length());
+				searchInfoLabel.setText((index + 1) + "/" + text.length());
+			} else {
+				searchInfoLabel.setText("not found");
+			}
+		};
+
+		Runnable findPrev = () -> {
+			String query = searchField.getText();
+			if (query == null || query.isBlank()) {
+				searchInfoLabel.setText("");
+				return;
+			}
+
+			JTextArea area = currentAreaSupplier.get();
+			String text = area.getText();
+			String lowerText = text.toLowerCase();
+			String lowerQuery = query.toLowerCase();
+
+			int startIndex = Math.max(area.getSelectionStart() - 1, 0);
+			int index = lowerText.lastIndexOf(lowerQuery, startIndex);
+			if (index < 0) {
+				index = lowerText.lastIndexOf(lowerQuery);
+			}
+
+			if (index >= 0) {
+				area.requestFocusInWindow();
+				area.select(index, index + query.length());
+				searchInfoLabel.setText((index + 1) + "/" + text.length());
+			} else {
+				searchInfoLabel.setText("not found");
+			}
+		};
+
+		JRootPane rootPane = dlg.getRootPane();
+		InputMap im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+		ActionMap am = rootPane.getActionMap();
+
+		im.put(KeyStroke.getKeyStroke("control F"), "showSearch");
+		im.put(KeyStroke.getKeyStroke("meta F"), "showSearch");
+		im.put(KeyStroke.getKeyStroke("ESCAPE"), "hideSearch");
+		im.put(KeyStroke.getKeyStroke("F3"), "findNext");
+		im.put(KeyStroke.getKeyStroke("shift F3"), "findPrev");
+
+		am.put("showSearch", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				focusSearch.run();
+			}
+		});
+
+		am.put("hideSearch", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				closeSearch.run();
+			}
+		});
+
+		am.put("findNext", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				findNext.run();
+			}
+		});
+
+		am.put("findPrev", new AbstractAction() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				findPrev.run();
+			}
+		});
+
+		searchField.addActionListener(e -> findNext.run());
+		nextSearchBtn.addActionListener(e -> findNext.run());
+		prevSearchBtn.addActionListener(e -> findPrev.run());
+		closeSearchBtn.addActionListener(e -> closeSearch.run());
+	}
+
+	private void moveSearchPanel(JPanel searchPanel, JPanel targetHost, JDialog dlg) {
+		Container parent = searchPanel.getParent();
+		if (parent != null) {
+			parent.remove(searchPanel);
+			parent.revalidate();
+			parent.repaint();
+		}
+
+		targetHost.removeAll();
+		targetHost.add(searchPanel, BorderLayout.CENTER);
+		targetHost.revalidate();
+		targetHost.repaint();
+
+		dlg.revalidate();
+		dlg.repaint();
 	}
 
 	private void renameBackendMethod(String oldName, String newName) {
