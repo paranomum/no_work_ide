@@ -66,24 +66,24 @@ public class ActionFileService {
 		if (tableModel.getRowCount() == 0) {
 			JOptionPane.showMessageDialog(
 					parent,
-					"Table is empty, nothing to save.",
-					"Save Table",
+					"Таблица шагов пуста.",
+					"Сохранить тест план",
 					JOptionPane.INFORMATION_MESSAGE
 			);
 			return;
 		}
 
 		String[] options = {
-				"Test plan (JSON)",                 // 0 — как сейчас (без разворачивания)
-				"Generated auto test (.java)",      // 1
-				"Full test plan JSON (inline)",     // 2 — НОВОЕ
-				"Cancel"                            // 3
+				"Тест план (JSON)",                 // 0 — как сейчас (без разворачивания)
+				"Сгенерировать шаблон автотеста (.java)",      // 1
+				"Развернутый тест план (если есть кастомные методы) (JSON)",     // 2 — НОВОЕ
+				"Отмена"                            // 3
 		};
 
 		int choice = JOptionPane.showOptionDialog(
 				parent,
 				"Что сохранить?",
-				"Save",
+				"Сохранение",
 				JOptionPane.DEFAULT_OPTION,
 				JOptionPane.QUESTION_MESSAGE,
 				null,
@@ -133,13 +133,13 @@ public class ActionFileService {
 			gson.toJson(scenario, writer);
 			writer.flush();
 			JOptionPane.showMessageDialog(parent,
-					"Table saved to:\n" + file.getAbsolutePath(),
+					"Тест план сохранен:\n" + file.getAbsolutePath(),
 					"Save Successful",
 					JOptionPane.INFORMATION_MESSAGE);
 		} catch (Exception ex) {
-			TestRecorderErrorLogger.logError("Failed to save table\n", ex);
+			TestRecorderErrorLogger.logError("Ошибка при сохранении\n", ex);
 			JOptionPane.showMessageDialog(parent,
-					"Failed to save table: " + ex.getMessage(),
+					"Не удалось сохранить тест план: " + ex.getMessage(),
 					"Error",
 					JOptionPane.ERROR_MESSAGE);
 		}
@@ -280,18 +280,18 @@ public class ActionFileService {
 			Files.writeString(file.toPath(), content, StandardCharsets.UTF_8);
 			JOptionPane.showMessageDialog(
 					parent,
-					"Generated test saved to:\n" + file.getAbsolutePath(),
+					"Автотест сгенерирован:\n" + file.getAbsolutePath(),
 					"Save Successful",
 					JOptionPane.INFORMATION_MESSAGE
 			);
 		} catch (Exception ex) {
 			TestRecorderErrorLogger.logError(
-					"Failed to save generated test\n", ex
+					"Ошибка при генерации автотеста\n", ex
 			);
 			ex.printStackTrace();
 			JOptionPane.showMessageDialog(
 					parent,
-					"Failed to save generated test: " + ex.getMessage(),
+					"Не удалось сгенерировать автотест: " + ex.getMessage(),
 					"Error",
 					JOptionPane.ERROR_MESSAGE
 			);
