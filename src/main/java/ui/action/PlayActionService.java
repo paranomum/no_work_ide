@@ -352,7 +352,7 @@ public class PlayActionService {
 				|| action.contains("specialAction")
 				|| action.contains("waitLoadingPage")
 				|| action.contains("pause")
-				|| action.contains("auth")
+//				|| action.contains("auth")
 				|| action.contains("open")
 				|| action.contains("customMethod")
 				|| action.contains("useBackendMethod")

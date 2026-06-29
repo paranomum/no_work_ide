@@ -21,7 +21,7 @@ public enum UserAction {
 	FILL_DATA(ActionGroup.SPEC_ACTIONS, "fillData", "Filling all fields of form"),
 	ASSERT_EXISTS(ActionGroup.SPEC_ACTIONS, "assertExists", "Check element exists"),
 	ASSERT_NOT_EXISTS(ActionGroup.SPEC_ACTIONS, "assertNotExists", "Check element not exists"),
-	AUTH(ActionGroup.SPEC_ACTIONS, "auth", "Auth on platform with configured user"),
+//	AUTH(ActionGroup.SPEC_ACTIONS, "auth", "Auth on platform with configured user"),
 	SPEC_ACTION(ActionGroup.SPEC_ACTIONS, "specialAction", "Action before test"),
 	SWITCH_TAB(ActionGroup.SPEC_ACTIONS, "switchTab", "Switch to tab"),
 	OPEN(ActionGroup.SPEC_ACTIONS, "open", "Open URL"),

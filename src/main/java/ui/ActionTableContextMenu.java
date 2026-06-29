@@ -19,31 +19,36 @@ public class ActionTableContextMenu {
 	private void install() {
 		JPopupMenu popup = new JPopupMenu();
 
-		JMenuItem deleteItem = new JMenuItem("Delete");
+		JMenuItem deleteItem = new JMenuItem("Удалить");
 		deleteItem.addActionListener(e -> callback.deleteSelectedRow());
 		popup.add(deleteItem);
 
-		JMenuItem markItem = new JMenuItem("Mark / Unmark");
+		JMenuItem markItem = new JMenuItem("Отметить / снять отметку");
 		markItem.addActionListener(e -> callback.toggleMarkSelectedRow());
 		popup.add(markItem);
 
-		JMenuItem startFromHereItem = new JMenuItem("Start scenario from this step");
+		JMenuItem startFromHereItem =
+				new JMenuItem("Запустить сценарий с этого шага");
 		startFromHereItem.addActionListener(e -> callback.startScenarioFromSelectedRow());
 		popup.add(startFromHereItem);
 
-		JMenuItem playOnlyThisStep = new JMenuItem("Play only this step");
+		JMenuItem playOnlyThisStep =
+				new JMenuItem("Выполнить только этот шаг");
 		playOnlyThisStep.addActionListener(e -> callback.playOnlyStep());
 		popup.add(playOnlyThisStep);
 
-		JMenuItem createMethodItem = new JMenuItem("Create method from steps");
+		JMenuItem createMethodItem =
+				new JMenuItem("Создать метод из шагов");
 		createMethodItem.addActionListener(e -> callback.createMethodFromSelectedSteps());
 		popup.add(createMethodItem);
 
-		JMenuItem editCustomMethodItem = new JMenuItem("Edit custom method");
+		JMenuItem editCustomMethodItem =
+				new JMenuItem("Изменить пользовательский метод");
 		editCustomMethodItem.addActionListener(e -> callback.editCustomMethod());
 		popup.add(editCustomMethodItem);
 
-		JMenuItem saveCollapseItem = new JMenuItem("Save & collapse custom method");
+		JMenuItem saveCollapseItem =
+				new JMenuItem("Сохранить и свернуть пользовательский метод");
 		saveCollapseItem.addActionListener(e -> callback.saveAndCollapseCustomMethod());
 		popup.add(saveCollapseItem);
 
