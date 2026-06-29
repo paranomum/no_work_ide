@@ -156,7 +156,7 @@ public class ActionWindow extends JFrame {
 
 		JPopupMenu menuPopup = new JPopupMenu();
 
-		JMenuItem openItem = new JMenuItem("Open..");
+		JMenuItem openItem = new JMenuItem("Открыть тест план..");
 		openItem.addActionListener(e -> {
 			if (fileService != null) {
 				fileService.loadFromJsonFile();
@@ -173,11 +173,11 @@ public class ActionWindow extends JFrame {
 //		);
 //		menuPopup.add(generateApiClientItem);
 
-		JMenuItem settingsItem = new JMenuItem("Settings");
+		JMenuItem settingsItem = new JMenuItem("Настройки");
 		settingsItem.addActionListener(e -> openSettingsDialog());
 		menuPopup.add(settingsItem);
 
-		JMenuItem exitItem = new JMenuItem("Exit");
+		JMenuItem exitItem = new JMenuItem("Выйти из приложения");
 		exitItem.addActionListener(e -> dispose());
 		menuPopup.add(exitItem);
 
