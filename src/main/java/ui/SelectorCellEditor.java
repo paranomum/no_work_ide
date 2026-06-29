@@ -18,6 +18,9 @@ public class SelectorCellEditor extends AbstractCellEditor implements TableCellE
 	private LocatorHighlighter locatorHighlighter;
 
 	public SelectorCellEditor() {
+		pickButton.setToolTipText("Определить локатор кликом на выделенный элемент");
+		highlightButton.setToolTipText("Подсветить элемент на странице");
+
 		JPanel buttons = new JPanel(new GridLayout(1, 2, 3, 0));
 		buttons.add(pickButton);
 		buttons.add(highlightButton);

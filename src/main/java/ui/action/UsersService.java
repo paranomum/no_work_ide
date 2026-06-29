@@ -60,7 +60,9 @@ public class UsersService {
 
 		JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		JButton addBtn = new JButton("+");
+		addBtn.setToolTipText("Добавить пользователя");
 		JButton removeBtn = new JButton("-");
+		removeBtn.setToolTipText("Удалить пользователя");
 
 		addBtn.addActionListener(e -> usersTableModel.addRow(new Object[]{"", "", ""}));
 		removeBtn.addActionListener(e -> {
@@ -70,13 +72,13 @@ public class UsersService {
 			}
 		});
 
-		top.add(new JLabel("Users:"));
+		top.add(new JLabel("Пользователи:"));
 		top.add(addBtn);
 		top.add(removeBtn);
 		panel.add(top, BorderLayout.NORTH);
 
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-		JButton saveBtn = new JButton("Save");
+		JButton saveBtn = new JButton("Сохранить");
 		saveBtn.addActionListener(e -> {
 			if (usersTable.isEditing()) {
 				usersTable.getCellEditor().stopCellEditing();

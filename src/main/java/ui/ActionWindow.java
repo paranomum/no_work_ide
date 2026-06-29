@@ -152,7 +152,7 @@ public class ActionWindow extends JFrame {
 		// --- Menu button ---
 		menuButton = new JButton("☰");
 		menuButton.setFocusable(false);
-		menuButton.setToolTipText("Menu");
+		menuButton.setToolTipText("Меню");
 
 		JPopupMenu menuPopup = new JPopupMenu();
 
@@ -188,17 +188,17 @@ public class ActionWindow extends JFrame {
 		// --- Add action button ---
 		addActionButton = new JButton("+");
 		addActionButton.setFont(new Font("Arial", Font.BOLD, 16));
-		addActionButton.setToolTipText("Add action");
+		addActionButton.setToolTipText("Добавить шаг");
 		addActionButton.addActionListener(e -> addNewAction());
 
 		// --- Open browser button ---
-		openBrowserButton = new JButton("🌐 Open Browser");
-		openBrowserButton.setToolTipText("Open Chrome for Testing browser");
+		openBrowserButton = new JButton("🌐 Открыть браузер");
+		openBrowserButton.setToolTipText("Открыть Chrome for Testing");
 		openBrowserButton.addActionListener(e -> openBrowserAsync());
 
 		// --- Play button ---
 		playButton = new JButton("▶");
-		playButton.setToolTipText("Run actions from table in browser");
+		playButton.setToolTipText("Запустить воспроизведение шагов в браузере");
 		playButton.addActionListener(e -> {
 			javax.swing.table.TableModel model = actionTable.getModel();
 			int rowCount = model.getRowCount();
@@ -244,8 +244,8 @@ public class ActionWindow extends JFrame {
 		});
 
 		// --- Recording button ---
-		recordingButton = new JButton("⏺ Start Recording");
-		recordingButton.setToolTipText("Start/Stop recording");
+		recordingButton = new JButton("⏺ Начать запись");
+		recordingButton.setToolTipText("Начать/Остановить запись действий");
 		recordingButton.addActionListener(e -> toggleRecording());
 		// Кнопка "Захватить"
 		captureButton = new JButton("📡 Захватить");
@@ -309,7 +309,7 @@ public class ActionWindow extends JFrame {
 		leftButtons.add(separator);
 
 		JButton saveVarButton = new JButton("💾");
-		saveVarButton.setToolTipText("Save table to file");
+		saveVarButton.setToolTipText("Сохранить таблицу как тест-план");
 		saveVarButton.addActionListener(e -> saveTableToFile());
 		leftButtons.add(saveVarButton);
 
@@ -994,8 +994,8 @@ public class ActionWindow extends JFrame {
 		if (driver == null) {
 			JOptionPane.showMessageDialog(
 					this,
-					"Browser is not open. Please open browser first.",
-					"Browser Required",
+					"Браузер не открыт. Для начала нажмите на кнопку \"Открыть браузер\".",
+					"Требуется запуск браузера",
 					JOptionPane.WARNING_MESSAGE
 			);
 			return;
@@ -1033,8 +1033,8 @@ public class ActionWindow extends JFrame {
 		settingsPanelTop.add(new JLabel("ChromeDriver Path:"));
 		settingsPanelTop.add(driverPathField);
 
-		JButton browseButton = new JButton("Browse...");
-		browseButton.setToolTipText("Select ChromeDriver executable");
+		JButton browseButton = new JButton("Обзор");
+		browseButton.setToolTipText("Выбрать chromedriver (windows/linux) или Chrome for Testing.app (macOs)");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		browseButton.addActionListener(e -> browserService.selectChromeDriver(this, driverPathField));
 		settingsPanelTop.add(browseButton);
@@ -1043,7 +1043,7 @@ public class ActionWindow extends JFrame {
 		settingsPanelBot.add(new JLabel("TrustStore:"));
 		settingsPanelBot.add(trustStorePathField);
 
-		JButton trustStoreBrowseButton = new JButton("Browse...");
+		JButton trustStoreBrowseButton = new JButton("Обзор");
 		trustStoreBrowseButton.addActionListener(e ->
 				proxyCaptureService.selectTrustStore(
 						this,
@@ -1053,7 +1053,7 @@ public class ActionWindow extends JFrame {
 				)
 		);
 		settingsPanelBot.add(trustStoreBrowseButton);
-		settingsPanelBot.add(new JLabel("Pass:"));
+		settingsPanelBot.add(new JLabel("Password:"));
 		settingsPanelBot.add(trustStorePasswordField);
 		settingsPanelBot.add(new JLabel("Type:"));
 		settingsPanelBot.add(trustStoreTypeField);
@@ -1126,7 +1126,7 @@ public class ActionWindow extends JFrame {
 	}
 
 	private void openSettingsDialog() {
-		JDialog dialog = new JDialog(this, "Settings", true);
+		JDialog dialog = new JDialog(this, "Настройки", true);
 		dialog.setSize(600, 400);
 		dialog.setLocationRelativeTo(this);
 		dialog.setLayout(new BorderLayout());
@@ -1135,26 +1135,26 @@ public class ActionWindow extends JFrame {
 
 		JPanel mainPanel = new JPanel();
 		mainPanel.add(new JLabel("Main settings (TODO move theme/chromeDriver here)"));
-		tabs.addTab("Main", mainPanel);
+//		tabs.addTab("Main", mainPanel);
 
 		JPanel customMethods = customMethodsService.createCustomMethodsSettingsPanel(dialog);
-		tabs.addTab("CustomMethods", customMethods);
+		tabs.addTab("Методы", customMethods);
 
 		JPanel variables = variablesService.createVariablesSettingsPanel(dialog);
-		tabs.addTab("Variables", variables);
+		tabs.addTab("Переменные", variables);
 
-		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
-		tabs.addTab("Users", usersPanel);
+//		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
+//		tabs.addTab("Users", usersPanel);
 
 		JPanel backendPanel = backendRequestsService.createBackendRequestsSettingsPanel(dialog);
-		tabs.addTab("BackendRequests", backendPanel);
+		tabs.addTab("Бек запросы", backendPanel);
 
 //		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
 //		tabs.addTab("OpenApi", openApiPanel);
 
 		dialog.add(tabs, BorderLayout.CENTER);
 
-		JButton closeBtn = new JButton("Close");
+		JButton closeBtn = new JButton("Закрыть");
 		closeBtn.addActionListener(e -> dialog.dispose());
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		bottom.add(closeBtn);
@@ -1320,7 +1320,7 @@ public class ActionWindow extends JFrame {
 
 	private CustomMethodSaveData askCustomMethodNameAndFile() {
 		JTextField nameField = new JTextField(20);
-		JButton browseBtn = new JButton("Browse...");
+		JButton browseBtn = new JButton("Обзор");
 		JTextField pathField = new JTextField(25);
 
 		JPanel panel = new JPanel(new GridBagLayout());

@@ -65,7 +65,7 @@ public abstract class AbstractTableSettingsPanel {
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
 		if (onBrowse != null) {              // кнопка только если передан колбэк
-			JButton browseBtn = new JButton("Browse");
+			JButton browseBtn = new JButton("Выбрать файл");
 			browseBtn.addActionListener(e -> {
 				if (table.isEditing()) {
 					table.getCellEditor().stopCellEditing();
@@ -75,7 +75,7 @@ public abstract class AbstractTableSettingsPanel {
 			bottom.add(browseBtn);
 		}
 
-		JButton saveBtn = new JButton("Save");
+		JButton saveBtn = new JButton("Сохранить");
 		saveBtn.addActionListener(e -> {
 			if (table.isEditing()) {
 				table.getCellEditor().stopCellEditing();

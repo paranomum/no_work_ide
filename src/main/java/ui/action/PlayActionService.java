@@ -91,8 +91,8 @@ public class PlayActionService {
 			log.warn("playActionsFromTable: WebDriver is null, showing browser-required dialog");
 			JOptionPane.showMessageDialog(
 					actionWindow,
-					"Browser is not open. Please open browser first.",
-					"Browser Required",
+					"Браузер не открыт. Для начала нажмите на кнопку \"Открыть браузер\".",
+					"Требуется запуск браузера",
 					JOptionPane.WARNING_MESSAGE
 			);
 			return;
@@ -1422,7 +1422,7 @@ public class PlayActionService {
 		title.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 		title.setFont(title.getFont().deriveFont(Font.BOLD, 14f));
 
-		JButton closeButton = new JButton("Close");
+		JButton closeButton = new JButton("Закрыть");
 		closeButton.addActionListener(e -> dialog.dispose());
 
 		JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));

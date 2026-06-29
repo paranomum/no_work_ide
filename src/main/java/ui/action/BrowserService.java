@@ -60,8 +60,8 @@ public class BrowserService {
 			if (!nowDriver) {
 				JOptionPane.showMessageDialog(
 						parent,
-						"Browser is already open",
-						"Browser Running",
+						"Браузер уже открыт",
+						"Браузер уже открыт",
 						JOptionPane.INFORMATION_MESSAGE
 				);
 				return (ChromeDriver) driver;

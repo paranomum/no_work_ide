@@ -146,7 +146,9 @@ public class CaptureResultDialog extends JDialog {
 		extractorTable.getColumnModel().getColumn(1).setPreferredWidth(280);
 
 		JButton addExtractorBtn = new JButton("+");
+		addExtractorBtn.setToolTipText("Добавить переопределение значения для поля");
 		JButton removeExtractorBtn = new JButton("-");
+		addExtractorBtn.setToolTipText("Удалить переопределение значения для поля");
 		JButton parseResponseBtn = new JButton("⬇ Разобрать поля из ответа");
 		parseResponseBtn.setFont(parseResponseBtn.getFont().deriveFont(11f));
 		parseResponseBtn.setToolTipText("Разобрать JSON ответа и предложить все листовые поля");

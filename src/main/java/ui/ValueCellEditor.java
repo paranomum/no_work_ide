@@ -21,6 +21,9 @@ public class ValueCellEditor extends AbstractCellEditor implements TableCellEdit
 	private JTable table;
 
 	public ValueCellEditor(JTable table, VariablesService variablesService) {
+		pickVariableButton.setToolTipText("Использовать переменную");
+		createVariable.setToolTipText("Добавить переменную из значения");
+		applyMethod.setToolTipText("Использовать метод");
 		this.variablesService = variablesService;
 		this.table = table;
 
@@ -75,8 +78,8 @@ public class ValueCellEditor extends AbstractCellEditor implements TableCellEdit
 			// 1. имя переменной
 			String name = JOptionPane.showInputDialog(
 					panel,
-					"Variable name:",
-					"Create variable",
+					"Название переменной:",
+					"Создание переменной",
 					JOptionPane.PLAIN_MESSAGE
 			);
 			if (name == null || name.isBlank()) {

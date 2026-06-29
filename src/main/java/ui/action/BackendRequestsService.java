@@ -74,7 +74,8 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		// иначе кнопки add/remove из buildTablePanel работают со старой моделью
 		this.model = readOnlyModel;
 
-		JButton editDtoBtn = new JButton("Edit DTO");
+		JButton editDtoBtn = new JButton("Редактировать метод");
+		editDtoBtn.setToolTipText("Редактировать название, url, тип метода и request/response body");
 		editDtoBtn.addActionListener(e -> openEditDtoDialog(parentDialog));
 
 		Component southComp = ((BorderLayout) panel.getLayout()).getLayoutComponent(BorderLayout.SOUTH);
@@ -574,8 +575,10 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		JTable uniqueTable = createFieldOverridesTable(dlg, uniqueModel);
 
 		JButton addUniqueRow = new JButton("+");
+		addUniqueRow.setToolTipText("Добавить переопределение значения для поля");
 		JButton removeUniqueRow = new JButton("-");
-		JButton parseBtn = new JButton("⬇ Parse fields from Body");
+		removeUniqueRow.setToolTipText("Удалить переопределение значения для поля");
+		JButton parseBtn = new JButton("⬇ Разобрать поля из ответа");
 		parseBtn.setFont(parseBtn.getFont().deriveFont(11f));
 
 		addUniqueRow.addActionListener(e ->
