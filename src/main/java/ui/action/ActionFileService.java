@@ -11,10 +11,12 @@ import ui.frameworkmeta.PageObjectRegistry;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
+import java.awt.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.List;
 import java.util.regex.Pattern;
 
 public class ActionFileService {
@@ -67,41 +69,99 @@ public class ActionFileService {
 			JOptionPane.showMessageDialog(
 					parent,
 					"Таблица шагов пуста.",
-					"Сохранить тест план",
+					"Сохранить тест-план",
 					JOptionPane.INFORMATION_MESSAGE
 			);
 			return;
 		}
 
-		String[] options = {
-				"Тест план (JSON)",                 // 0 — как сейчас (без разворачивания)
-				"Сгенерировать шаблон автотеста (.java)",      // 1
-				"Развернутый тест план (если есть кастомные методы) (JSON)",     // 2 — НОВОЕ
-				"Отмена"                            // 3
-		};
+		int choice = showSaveModeDialog();
 
-		int choice = JOptionPane.showOptionDialog(
-				parent,
-				"Что сохранить?",
-				"Сохранение",
-				JOptionPane.DEFAULT_OPTION,
-				JOptionPane.QUESTION_MESSAGE,
-				null,
-				options,
-				options[0]
-		);
-
-		if (choice == 3 || choice == JOptionPane.CLOSED_OPTION) {
+		if (choice == 3 || choice == -1) {
 			return;
 		}
 
 		if (choice == 1) {
 			saveGeneratedJava();
 		} else if (choice == 0) {
-			saveJsonPlan();             // как было
+			saveJsonPlan();
 		} else if (choice == 2) {
-			saveJsonPlanWithInlinedCustomMethods(); // НОВЫЙ метод
+			saveJsonPlanWithInlinedCustomMethods();
 		}
+	}
+
+	private int showSaveModeDialog() {
+		final int[] result = {-1};
+
+		JDialog dialog = new JDialog(parent, "Сохранение", true);
+		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+		JPanel root = new JPanel();
+		root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+		root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+
+		JLabel label = new JLabel("Что сохранить?");
+		label.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+
+		JPanel buttonsPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+		buttonsPanel.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+
+		JButton jsonButton = new JButton("Тест");
+		JButton javaButton = new JButton("Шаблон автотеста");
+		JButton fullJsonButton = new JButton("Развернутый тест");
+		JButton cancelButton = new JButton("Отмена");
+
+		jsonButton.setToolTipText("Сохранить тест-план в JSON");
+		javaButton.setToolTipText("Сгенерировать шаблон автотеста в .java");
+		fullJsonButton.setToolTipText("Сохранить развернутый тест-план с подстановкой кастомных методов");
+		cancelButton.setToolTipText("Закрыть окно без сохранения");
+
+		java.awt.Insets compactInsets = new java.awt.Insets(3, 8, 3, 8);
+		java.awt.Dimension compactSize = new java.awt.Dimension(170, 30);
+
+		for (JButton button : new JButton[]{cancelButton, javaButton, fullJsonButton, jsonButton}) {
+			button.setMargin(compactInsets);
+			button.setFocusPainted(false);
+			button.setPreferredSize(compactSize);
+			button.setFont(button.getFont().deriveFont(14f));
+		}
+
+		jsonButton.addActionListener(e -> {
+			result[0] = 0;
+			dialog.dispose();
+		});
+
+		javaButton.addActionListener(e -> {
+			result[0] = 1;
+			dialog.dispose();
+		});
+
+		fullJsonButton.addActionListener(e -> {
+			result[0] = 2;
+			dialog.dispose();
+		});
+
+		cancelButton.addActionListener(e -> {
+			result[0] = 3;
+			dialog.dispose();
+		});
+
+		buttonsPanel.add(cancelButton);
+		buttonsPanel.add(javaButton);
+		buttonsPanel.add(fullJsonButton);
+		buttonsPanel.add(jsonButton);
+
+		root.add(label);
+		root.add(Box.createVerticalStrut(10));
+		root.add(buttonsPanel);
+
+		dialog.setContentPane(root);
+		dialog.pack();
+		dialog.setResizable(false);
+		dialog.setLocationRelativeTo(parent);
+		dialog.setVisible(true);
+
+		return result[0];
 	}
 
 	// --------- Java test ---------
