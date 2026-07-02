@@ -18,7 +18,7 @@ import java.util.*;
 
 public class BackendRequestsService extends AbstractTableSettingsPanel {
 
-	private static final String[] TABLE_COLUMNS = {"Name", "Method", "URL"};
+	private static final String[] TABLE_COLUMNS = {"Name", "Method", "URL", "Body type"};
 	private static final String[] HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"};
 	private final AppConfig config;
 	private final List<BackendRequestDef> requests = new ArrayList<>();
@@ -93,7 +93,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		int row = 0;
 		for (BackendRequestDef r : requests) {
-			backendTableModel.addRow(new Object[]{r.getName(), r.getMethod(), r.getUrl()});
+			backendTableModel.addRow(new Object[]{
+					r.getName(),
+					r.getMethod(),
+					r.getUrl(),
+					r.getBodyType() != null ? r.getBodyType() : "JSON"
+			});
 			rowToRequestRef.put(row, r);
 			row++;
 		}
@@ -138,7 +143,11 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 						renamedRequests.put(oldName, original);
 					}
 				} else {
-					updated.add(new BackendRequestDef(name, url, method, "", "{}", null));
+					BackendRequestDef created = new BackendRequestDef(name, url, method, "", "{}", null);
+					created.setBodyType("JSON");
+					created.setFormData(new ArrayList<>());
+					created.setToken("");
+					updated.add(created);
 				}
 			}
 
@@ -288,8 +297,11 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		String currentMethod = def.getMethod() != null ? def.getMethod().toUpperCase() : "POST";
 		httpMethodCombo.setSelectedItem(Arrays.asList(HTTP_METHODS).contains(currentMethod) ? currentMethod : HTTP_METHODS[0]);
 		JTextField urlField = new JTextField(def.getUrl());
+		JComboBox<String> bodyTypeCombo = new JComboBox<>(new String[]{"JSON", "FORM_URLENCODED"});
+		bodyTypeCombo.setSelectedItem(def.getBodyType() != null ? def.getBodyType() : "JSON");
+		JTextField tokenField = new JTextField(def.getToken() != null ? def.getToken() : "");
 
-		JPanel top = createTopPanel(nameField, httpMethodCombo, urlField);
+		JPanel top = createTopPanel(nameField, httpMethodCombo, urlField, bodyTypeCombo, tokenField);
 		dlg.add(top, BorderLayout.NORTH);
 
 		JTextField searchField = new JTextField(20);
@@ -320,8 +332,16 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		attachUndoRedo(headersArea);
 		attachUndoRedo(responseBodyArea);
 
-		JSplitPane dtoTopSplit = createEditorsPanel(bodyArea, headersArea);
-		JPanel fieldOverridesPanel = createFieldOverridesPanel(dlg, def, bodyArea);
+		JPanel formDataPanel = createFormDataEditorPanel(def);
+		JSplitPane dtoTopSplit = createEditorsPanel(bodyArea, headersArea, formDataPanel, bodyTypeCombo);
+		JPanel fieldOverridesPanel = createFieldOverridesPanel(
+				dlg,
+				def,
+				bodyArea,
+				responseBodyArea,
+				bodyTypeCombo,
+				formDataPanel
+		);
 
 		JSplitPane dtoTabSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, dtoTopSplit, fieldOverridesPanel);
 		dtoTabSplit.setResizeWeight(0.65);
@@ -356,9 +376,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				nameField,
 				httpMethodCombo,
 				urlField,
+				bodyTypeCombo,
+				tokenField,
 				bodyArea,
 				headersArea,
 				responseBodyArea,
+				formDataPanel,
 				fieldOverridesPanel,
 				responseTab
 		);
@@ -370,17 +393,23 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private JPanel createTopPanel(
 			JTextField nameField,
 			JComboBox<String> httpMethodCombo,
-			JTextField urlField
+			JTextField urlField,
+			JComboBox<String> bodyTypeCombo,
+			JTextField tokenField
 	) {
-		JPanel top = new JPanel(new GridLayout(3, 2, 6, 6));
+		JPanel top = new JPanel(new GridLayout(5, 2, 6, 6));
 		top.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
 
-		top.add(new JLabel("Name:"));
+		top.add(new JLabel("Name"));
 		top.add(nameField);
-		top.add(new JLabel("Method:"));
+		top.add(new JLabel("Method"));
 		top.add(httpMethodCombo);
-		top.add(new JLabel("URL:"));
+		top.add(new JLabel("Path"));
 		top.add(urlField);
+		top.add(new JLabel("Body type"));
+		top.add(bodyTypeCombo);
+		top.add(new JLabel("Token"));
+		top.add(tokenField);
 
 		return top;
 	}
@@ -410,7 +439,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		return searchPanel;
 	}
 
-	private JSplitPane createEditorsPanel(JTextArea bodyArea, JTextArea headersArea) {
+	private JSplitPane createEditorsPanel(
+			JTextArea bodyArea,
+			JTextArea headersArea,
+			JPanel formDataPanel,
+			JComboBox<String> bodyTypeCombo
+	) {
 		JButton bodyBeautifyBtn = new JButton("Beautify");
 		JButton headersBeautifyBtn = new JButton("Beautify");
 
@@ -443,9 +477,13 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		bodyToolbar.add(bodyToolbarLeft, BorderLayout.WEST);
 		bodyToolbar.add(bodySearchHost, BorderLayout.EAST);
 
-		JPanel bodyPanel = new JPanel(new BorderLayout());
-		bodyPanel.add(bodyToolbar, BorderLayout.NORTH);
-		bodyPanel.add(new JScrollPane(bodyArea), BorderLayout.CENTER);
+		JPanel jsonBodyPanel = new JPanel(new BorderLayout());
+		jsonBodyPanel.add(bodyToolbar, BorderLayout.NORTH);
+		jsonBodyPanel.add(new JScrollPane(bodyArea), BorderLayout.CENTER);
+
+		JPanel bodyCardPanel = new JPanel(new CardLayout());
+		bodyCardPanel.add(jsonBodyPanel, "JSON");
+		bodyCardPanel.add(formDataPanel, "FORM_URLENCODED");
 
 		JPanel headersSearchHost = new JPanel(new BorderLayout());
 		headersSearchHost.setOpaque(false);
@@ -463,12 +501,22 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		headersPanel.add(headersToolbar, BorderLayout.NORTH);
 		headersPanel.add(new JScrollPane(headersArea), BorderLayout.CENTER);
 
-		JSplitPane dtoTopSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, bodyPanel, headersPanel);
+		JSplitPane dtoTopSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, bodyCardPanel, headersPanel);
 		dtoTopSplit.setResizeWeight(0.78);
 		dtoTopSplit.setDividerLocation(360);
 
 		dtoTopSplit.putClientProperty("bodySearchHost", bodySearchHost);
 		dtoTopSplit.putClientProperty("headersSearchHost", headersSearchHost);
+		dtoTopSplit.putClientProperty("bodyCardPanel", bodyCardPanel);
+
+		CardLayout cardLayout = (CardLayout) bodyCardPanel.getLayout();
+		String selectedBodyType = Objects.toString(bodyTypeCombo.getSelectedItem(), "JSON");
+		cardLayout.show(bodyCardPanel, selectedBodyType);
+
+		bodyTypeCombo.addActionListener(e -> {
+			String bodyType = Objects.toString(bodyTypeCombo.getSelectedItem(), "JSON");
+			cardLayout.show(bodyCardPanel, bodyType);
+		});
 
 		return dtoTopSplit;
 	}
@@ -569,7 +617,10 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 	private JPanel createFieldOverridesPanel(
 			JDialog dlg,
 			BackendRequestDef def,
-			JTextArea bodyArea
+			JTextArea bodyArea,
+			JTextArea responseBodyArea,
+			JComboBox<String> bodyTypeCombo,
+			JPanel formDataPanel
 	) {
 		DefaultTableModel uniqueModel = createFieldOverridesModel(def);
 		JTable uniqueTable = createFieldOverridesTable(dlg, uniqueModel);
@@ -600,15 +651,51 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				uniqueTable.getCellEditor().stopCellEditing();
 			}
 
-			List<String> paths = extractJsonLeafPaths(bodyArea.getText().trim());
-			if (paths.isEmpty()) {
-				JOptionPane.showMessageDialog(
-						dlg,
-						"Не удалось разобрать JSON или тело пустое.",
-						"Parse error",
-						JOptionPane.WARNING_MESSAGE
-				);
-				return;
+			String bodyType = Objects.toString(bodyTypeCombo.getSelectedItem(), "JSON");
+			List<String> paths = new ArrayList<>();
+
+			if ("FORM_URLENCODED".equals(bodyType)) {
+				DefaultTableModel formModel = (DefaultTableModel) formDataPanel.getClientProperty("formModel");
+				if (formModel != null) {
+					for (int r = 0; r < formModel.getRowCount(); r++) {
+						String key = Objects.toString(formModel.getValueAt(r, 0), "").trim();
+						if (!key.isEmpty()) {
+							paths.add(key);
+						}
+					}
+				}
+
+				if (paths.isEmpty()) {
+					JOptionPane.showMessageDialog(
+							dlg,
+							"Не удалось разобрать form-data: список полей пуст.",
+							"Parse error",
+							JOptionPane.WARNING_MESSAGE
+					);
+					return;
+				}
+			} else {
+				String responseText = responseBodyArea.getText().trim();
+				if (!responseText.isEmpty()) {
+					paths = extractJsonLeafPaths(responseText);
+				}
+
+				if (paths.isEmpty()) {
+					String requestText = bodyArea.getText().trim();
+					if (!requestText.isEmpty()) {
+						paths = extractJsonLeafPaths(requestText);
+					}
+				}
+
+				if (paths.isEmpty()) {
+					JOptionPane.showMessageDialog(
+							dlg,
+							"Не удалось разобрать JSON ответа или request body пуст/невалиден.",
+							"Parse error",
+							JOptionPane.WARNING_MESSAGE
+					);
+					return;
+				}
 			}
 
 			Set<String> existing = new HashSet<>();
@@ -796,9 +883,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			JTextField nameField,
 			JComboBox<String> httpMethodCombo,
 			JTextField urlField,
+			JComboBox<String> bodyTypeCombo,
+			JTextField tokenField,
 			JTextArea bodyArea,
 			JTextArea headersArea,
 			JTextArea responseBodyArea,
+			JPanel formDataPanel,
 			JPanel fieldOverridesPanel,
 			JPanel responseTab
 	) {
@@ -811,9 +901,12 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				nameField,
 				httpMethodCombo,
 				urlField,
+				bodyTypeCombo,
+				tokenField,
 				bodyArea,
 				headersArea,
 				responseBodyArea,
+				formDataPanel,
 				fieldOverridesPanel,
 				responseTab
 		));
@@ -837,35 +930,48 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			JTextField nameField,
 			JComboBox<String> httpMethodCombo,
 			JTextField urlField,
+			JComboBox<String> bodyTypeCombo,
+			JTextField tokenField,
 			JTextArea bodyArea,
 			JTextArea headersArea,
 			JTextArea responseBodyArea,
+			JPanel formDataPanel,
 			JPanel fieldOverridesPanel,
 			JPanel responseTab
 	) {
 		try {
 			DefaultTableModel uniqueModel = (DefaultTableModel) fieldOverridesPanel.getClientProperty("uniqueModel");
 			JTable uniqueTable = (JTable) fieldOverridesPanel.getClientProperty("uniqueTable");
-
 			DefaultTableModel extractorModel = (DefaultTableModel) responseTab.getClientProperty("extractorModel");
 			JTable extractorTable = (JTable) responseTab.getClientProperty("extractorTable");
+			JTable formTable = (JTable) formDataPanel.getClientProperty("formTable");
+			DefaultTableModel formModel = (DefaultTableModel) formDataPanel.getClientProperty("formModel");
 
-			if (uniqueTable != null && uniqueTable.isEditing()) {
-				uniqueTable.getCellEditor().stopCellEditing();
-			}
-			if (extractorTable != null && extractorTable.isEditing()) {
-				extractorTable.getCellEditor().stopCellEditing();
-			}
+			if (uniqueTable != null && uniqueTable.isEditing()) uniqueTable.getCellEditor().stopCellEditing();
+			if (extractorTable != null && extractorTable.isEditing()) extractorTable.getCellEditor().stopCellEditing();
+			if (formTable != null && formTable.isEditing()) formTable.getCellEditor().stopCellEditing();
 
 			String oldDefName = safeTrim(def.getName());
 			String newDefName = safeTrim(nameField.getText());
 
 			def.setName(newDefName);
 			def.setMethod(Objects.toString(httpMethodCombo.getSelectedItem(), "GET"));
-			def.setUrl(urlField.getText().trim());
-			def.setRequestBody(bodyArea.getText());
+			def.setUrl(normalizeUrlToPath(urlField.getText()));
 			def.setRequestHeaders(headersArea.getText());
 			def.setCapturedResponseBody(responseBodyArea.getText());
+			def.setToken(safeTrim(tokenField.getText()));
+
+			String bodyType = Objects.toString(bodyTypeCombo.getSelectedItem(), "JSON");
+			def.setBodyType(bodyType);
+
+			if ("FORM_URLENCODED".equals(bodyType)) {
+				List<FormDataParam> formData = collectFormData(formModel);
+				def.setFormData(formData);
+				def.setRequestBody(buildFormUrlencodedBody(formData));
+			} else {
+				def.setRequestBody(bodyArea.getText());
+				def.setFormData(new ArrayList<>());
+			}
 
 			List<DtoFieldOverride> overrides = new ArrayList<>();
 			for (int r = 0; r < uniqueModel.getRowCount(); r++) {
@@ -873,21 +979,16 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				String methodVal = Objects.toString(uniqueModel.getValueAt(r, 1), "").trim();
 				String arg = Objects.toString(uniqueModel.getValueAt(r, 2), "").trim();
 				String typeVal = Objects.toString(uniqueModel.getValueAt(r, 3), "string").trim();
-
-				if (fieldPath.isEmpty()) {
-					continue;
-				}
-
+				if (fieldPath.isEmpty()) continue;
 				overrides.add(new DtoFieldOverride(fieldPath, methodVal, arg, typeVal));
 			}
 			def.setFieldOverrides(overrides);
 
 			List<ResponseFieldExtractor> oldExtractors = cloneExtractors(def.getResponseExtractors());
 			List<ResponseFieldExtractor> newExtractors = collectResponseExtractors(extractorModel, def);
-
 			syncExtractorVariablesAfterEdit(oldDefName, newDefName, oldExtractors, newExtractors);
-
 			def.setResponseExtractors(newExtractors);
+
 			if (!Objects.equals(oldDefName, newDefName)) {
 				renameBackendMethod(oldDefName, newDefName);
 			}
@@ -896,12 +997,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			loadIntoTable();
 			dlg.dispose();
 		} catch (IllegalStateException ex) {
-			JOptionPane.showMessageDialog(
-					dlg,
-					ex.getMessage(),
-					"Ошибка",
-					JOptionPane.ERROR_MESSAGE
-			);
+			JOptionPane.showMessageDialog(dlg, ex.getMessage(), "Ошибка", JOptionPane.ERROR_MESSAGE);
 		}
 	}
 
@@ -1546,5 +1642,101 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		}
 
 		currentActionWindow.renameBackendMethod(oldName, newName);
+	}
+
+	private String normalizeUrlToPath(String rawUrl) {
+		String value = safeTrim(rawUrl);
+		if (value.isEmpty()) {
+			return value;
+		}
+
+		if (value.startsWith("http://") || value.startsWith("https://")) {
+			try {
+				java.net.URI uri = java.net.URI.create(value);
+				String path = uri.getRawPath() != null ? uri.getRawPath() : "";
+				String query = uri.getRawQuery() != null ? "?" + uri.getRawQuery() : "";
+				String result = path + query;
+				return result.isBlank() ? "/" : result;
+			} catch (Exception ignored) {
+			}
+		}
+
+		if (!value.startsWith("/")) {
+			value = "/" + value;
+		}
+		return value;
+	}
+
+	private JPanel createFormDataEditorPanel(BackendRequestDef def) {
+		DefaultTableModel formModel = new DefaultTableModel(new String[]{"Key", "Value"}, 0) {
+			@Override
+			public boolean isCellEditable(int row, int column) {
+				return true;
+			}
+		};
+
+		for (FormDataParam param : def.getFormData()) {
+			formModel.addRow(new Object[]{param.getKey(), param.getValue()});
+		}
+
+		JTable formTable = new JTable(formModel);
+		formTable.setRowHeight(24);
+
+		JButton addBtn = new JButton("+");
+		addBtn.addActionListener(e -> formModel.addRow(new Object[]{"", ""}));
+
+		JButton removeBtn = new JButton("-");
+		removeBtn.addActionListener(e -> {
+			int row = formTable.getSelectedRow();
+			if (row >= 0) {
+				if (formTable.isEditing()) {
+					formTable.getCellEditor().stopCellEditing();
+				}
+				formModel.removeRow(row);
+			}
+		});
+
+		JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		top.add(new JLabel("Form Data"));
+		top.add(addBtn);
+		top.add(removeBtn);
+
+		JPanel panel = new JPanel(new BorderLayout());
+		panel.add(top, BorderLayout.NORTH);
+		panel.add(new JScrollPane(formTable), BorderLayout.CENTER);
+		panel.putClientProperty("formTable", formTable);
+		panel.putClientProperty("formModel", formModel);
+		return panel;
+	}
+
+	private List<FormDataParam> collectFormData(DefaultTableModel model) {
+		List<FormDataParam> result = new ArrayList<>();
+		for (int row = 0; row < model.getRowCount(); row++) {
+			String key = Objects.toString(model.getValueAt(row, 0), "").trim();
+			String value = Objects.toString(model.getValueAt(row, 1), "");
+			if (key.isEmpty()) {
+				continue;
+			}
+			result.add(new FormDataParam(key, value));
+		}
+		return result;
+	}
+
+	private String buildFormUrlencodedBody(List<FormDataParam> params) {
+		if (params == null || params.isEmpty()) {
+			return "";
+		}
+		StringBuilder sb = new StringBuilder();
+		for (FormDataParam param : params) {
+			if (param == null) continue;
+			String key = param.getKey() != null ? param.getKey().trim() : "";
+			if (key.isEmpty()) continue;
+			String value = param.getValue() != null ? param.getValue() : "";
+			if (!sb.isEmpty()) sb.append("&");
+			sb.append(java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8));
+			sb.append("=");
+			sb.append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+		}
+		return sb.toString();
 	}
 }

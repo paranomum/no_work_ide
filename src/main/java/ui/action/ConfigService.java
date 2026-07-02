@@ -74,38 +74,30 @@ public class ConfigService {
 		try {
 			Path file = getConfigFile();
 			if (!Files.exists(file)) {
-				// первый запуск: создаём файл с дефолтами
 				AppConfig cfg = new AppConfig();
 				save(cfg);
 				return cfg;
 			}
 			try (Reader r = Files.newBufferedReader(file)) {
 				AppConfig cfg = gson.fromJson(r, AppConfig.class);
-				Gson dbgGson = new GsonBuilder().setPrettyPrinting().create();
-				System.out.println("=== CONFIG AFTER LOAD ===");
-				System.out.println(dbgGson.toJson(cfg));
 
-				if (cfg == null) {
-					cfg = new AppConfig();
-				}
-				// на всякий случай подстрахуем поля
+				if (cfg == null) cfg = new AppConfig();
 				if (cfg.theme == null) cfg.theme = "Light";
 				if (cfg.chromeDriverPath == null) cfg.chromeDriverPath = "";
 				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
 				if (cfg.customMethodsPath == null) cfg.customMethodsPath = "";
 				if (cfg.usersSpecsPath == null) cfg.usersSpecsPath = "";
 				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
+				// НОВОЕ: защита от null для полей доменов
+				if (cfg.domains == null) cfg.domains = new java.util.ArrayList<>();
+				if (cfg.selectedDomain == null) cfg.selectedDomain = "";
 
 				return cfg;
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
-			// при любой ошибке работаем с дефолтами
 			AppConfig cfg = new AppConfig();
-			try {
-				save(cfg);
-			} catch (Exception ignored) {
-			}
+			try { save(cfg); } catch (Exception ignored) {}
 			return cfg;
 		}
 	}

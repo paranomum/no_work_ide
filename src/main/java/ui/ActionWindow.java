@@ -56,7 +56,9 @@ public class ActionWindow extends JFrame {
 	private JTable actionTable;
 	private DefaultTableModel tableModel;
 	private JButton addActionButton;
+	private JButton slowDownButton;
 	private JButton menuButton;
+	private JComboBox<String> domainCombo;
 	private JButton openBrowserButton;
 	private JButton playButton;
 	private JComboBox<String> themeSelect;
@@ -156,7 +158,7 @@ public class ActionWindow extends JFrame {
 
 		JPopupMenu menuPopup = new JPopupMenu();
 
-		JMenuItem openItem = new JMenuItem("Открыть тест план..");
+		JMenuItem openItem = new JMenuItem("Открыть сценарий...");
 		openItem.addActionListener(e -> {
 			if (fileService != null) {
 				fileService.loadFromJsonFile();
@@ -190,6 +192,11 @@ public class ActionWindow extends JFrame {
 		addActionButton.setFont(new Font("Arial", Font.BOLD, 16));
 		addActionButton.setToolTipText("Добавить шаг");
 		addActionButton.addActionListener(e -> addNewAction());
+
+		// --- Slow Down button ---
+		slowDownButton = new JButton("Замедлить");
+		slowDownButton.setToolTipText("Добавить задержку перед каждым шагом");
+		slowDownButton.addActionListener(e -> toggleSlowDown());
 
 		// --- Open browser button ---
 		openBrowserButton = new JButton("🌐 Открыть браузер");
@@ -268,6 +275,25 @@ public class ActionWindow extends JFrame {
 		captureButton.addActionListener(e ->
 				capturePopup.show(captureButton, 0, captureButton.getHeight())
 		);
+
+		// --- Domain ComboBox ---
+		domainCombo = new JComboBox<>();
+		domainCombo.setToolTipText("Выбрать доменное имя");
+		domainCombo.setPreferredSize(new Dimension(220, 25));
+		refreshDomainCombo();
+
+		domainCombo.addActionListener(e -> {
+			Object selected = domainCombo.getSelectedItem();
+			String value = selected instanceof String ? ((String) selected).trim() : "";
+
+			config.selectedDomain = value;
+
+			try {
+				configService.save(config);
+			} catch (IOException ex) {
+				ex.printStackTrace();
+			}
+		});
 	}
 
 	private void loadCustomMethodBackendRequestsFromTable() {
@@ -299,28 +325,27 @@ public class ActionWindow extends JFrame {
 		JPanel topBar = new JPanel(new BorderLayout());
 		topBar.setBorder(new EmptyBorder(5, 5, 5, 5));
 
-		// левая часть: меню, добавление, сохранение
 		JPanel leftButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
 		leftButtons.add(menuButton);
 		leftButtons.add(addActionButton);
-
-		JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
-		separator.setPreferredSize(new Dimension(1, 25));
-		leftButtons.add(separator);
+		leftButtons.add(slowDownButton);
 
 		JButton saveVarButton = new JButton("💾");
 		saveVarButton.setToolTipText("Сохранить таблицу как тест-план");
 		saveVarButton.addActionListener(e -> saveTableToFile());
 		leftButtons.add(saveVarButton);
 
-		// правая часть: play, запись
+		JPanel centerPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+		centerPanel.add(domainCombo);        // из доработки 1
+		centerPanel.add(openBrowserButton);
+
 		JPanel rightButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
 		rightButtons.add(playButton);
 		rightButtons.add(recordingButton);
 		rightButtons.add(captureButton);
 
 		topBar.add(leftButtons, BorderLayout.WEST);
-		topBar.add(openBrowserButton, BorderLayout.CENTER);
+		topBar.add(centerPanel, BorderLayout.CENTER);
 		topBar.add(rightButtons, BorderLayout.EAST);
 
 		return topBar;
@@ -1133,33 +1158,31 @@ public class ActionWindow extends JFrame {
 
 		JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
 
-		JPanel mainPanel = new JPanel();
-		mainPanel.add(new JLabel("Main settings (TODO move theme/chromeDriver here)"));
-//		tabs.addTab("Main", mainPanel);
+		DomainsSettingsPanel domainsPanel = new DomainsSettingsPanel(
+				config,
+				configService,
+				this::refreshDomainCombo
+		);
+		tabs.addTab("Домены", domainsPanel);
 
 		JPanel customMethods = customMethodsService.createCustomMethodsSettingsPanel(dialog);
-		tabs.addTab("Методы", customMethods);
+		tabs.addTab("Кастомные методы", customMethods);
 
 		JPanel variables = variablesService.createVariablesSettingsPanel(dialog);
 		tabs.addTab("Переменные", variables);
 
-//		JPanel usersPanel = usersService.createUsersSettingsPanel(dialog);
-//		tabs.addTab("Users", usersPanel);
-
 		JPanel backendPanel = backendRequestsService.createBackendRequestsSettingsPanel(dialog);
-		tabs.addTab("Бек запросы", backendPanel);
-
-//		JPanel openApiPanel = openApiService.createOpenApiSettingsPanel(dialog);
-//		tabs.addTab("OpenApi", openApiPanel);
+		tabs.addTab("Backend", backendPanel);
 
 		dialog.add(tabs, BorderLayout.CENTER);
 
 		JButton closeBtn = new JButton("Закрыть");
 		closeBtn.addActionListener(e -> dialog.dispose());
+
 		JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		bottom.add(closeBtn);
-		dialog.add(bottom, BorderLayout.SOUTH);
 
+		dialog.add(bottom, BorderLayout.SOUTH);
 		dialog.setVisible(true);
 	}
 
@@ -1502,7 +1525,23 @@ public class ActionWindow extends JFrame {
 						driver = newDriver;
 						driver.manage().window().maximize();
 						WebDriverRunner.setWebDriver(driver);
-						open("https://test-iqhr.rt.ru/");
+
+						String startUrl = "https://test-iqhr.rt.ru/";
+						Object selectedDomainObj = domainCombo != null ? domainCombo.getSelectedItem() : null;
+
+						if (selectedDomainObj instanceof String selectedDomain) {
+							selectedDomain = selectedDomain.trim();
+
+							if (!selectedDomain.isEmpty()) {
+								if (!selectedDomain.startsWith("http://") && !selectedDomain.startsWith("https://")) {
+									selectedDomain = "https://" + selectedDomain;
+								}
+								startUrl = selectedDomain;
+							}
+						}
+
+						open(startUrl);
+
 						actionRecorder.setDriver(driver);
 						playActionService.setDriver(driver);
 
@@ -1512,6 +1551,7 @@ public class ActionWindow extends JFrame {
 						System.out.println(
 								"ChromeDriver initialized successfully with: "
 										+ driverPathField.getText().trim()
+										+ ", startUrl=" + startUrl
 						);
 					}
 				} catch (Throwable ex) {
@@ -1943,6 +1983,90 @@ public class ActionWindow extends JFrame {
 			return actionVal instanceof UserAction ua &&
 					ua == UserAction.CUSTOM_METHOD &&
 					Objects.equals(getValueAt(row, 3), currentEditedMethodName);
+		}
+	}
+
+	private void refreshDomainCombo() {
+		if (domainCombo == null) {
+			return;
+		}
+
+		List<String> normalizedDomains = new ArrayList<>();
+		if (config.domains != null) {
+			for (String domain : config.domains) {
+				if (domain == null) {
+					continue;
+				}
+
+				String trimmed = domain.trim();
+				if (trimmed.isEmpty()) {
+					continue;
+				}
+
+				if (!normalizedDomains.contains(trimmed)) {
+					normalizedDomains.add(trimmed);
+				}
+			}
+		} else {
+			config.domains = new ArrayList<>();
+		}
+
+		config.domains.clear();
+		config.domains.addAll(normalizedDomains);
+
+		String selected = config.selectedDomain != null ? config.selectedDomain.trim() : "";
+		if (!selected.isEmpty() && !normalizedDomains.contains(selected)) {
+			selected = "";
+		}
+
+		if (selected.isEmpty() && !normalizedDomains.isEmpty()) {
+			selected = normalizedDomains.get(0);
+		}
+
+		config.selectedDomain = selected;
+
+		domainCombo.removeAllItems();
+		domainCombo.addItem("");
+		for (String domain : normalizedDomains) {
+			domainCombo.addItem(domain);
+		}
+		domainCombo.setSelectedItem(selected);
+
+		try {
+			configService.save(config);
+		} catch (IOException ex) {
+			ex.printStackTrace();
+		}
+	}
+
+	private void toggleSlowDown() {
+		if (playActionService.getStepDelayMs() > 0) {
+			// Замедление уже включено — выключаем
+			playActionService.setStepDelayMs(0);
+			slowDownButton.setText("🐢 Замедлить тест");
+			slowDownButton.setToolTipText("Добавить задержку перед каждым шагом");
+		} else {
+			// Замедление выключено — спрашиваем задержку и включаем
+			SpinnerNumberModel spinnerModel = new SpinnerNumberModel(2, 1, 60, 1);
+			JSpinner spinner = new JSpinner(spinnerModel);
+			JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+			panel.add(new JLabel("Задержка (секунд):"));
+			panel.add(spinner);
+
+			int result = JOptionPane.showConfirmDialog(
+					this,
+					panel,
+					"Настройка замедления",
+					JOptionPane.OK_CANCEL_OPTION,
+					JOptionPane.PLAIN_MESSAGE
+			);
+
+			if (result == JOptionPane.OK_OPTION) {
+				int seconds = (int) spinner.getValue();
+				playActionService.setStepDelayMs(seconds * 1000L);
+				slowDownButton.setText("Убрать замедление");
+				slowDownButton.setToolTipText("Сейчас задержка " + seconds + " сек. Нажмите, чтобы убрать.");
+			}
 		}
 	}
 }

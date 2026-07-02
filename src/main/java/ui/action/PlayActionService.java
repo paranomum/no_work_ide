@@ -62,6 +62,11 @@ public class PlayActionService {
 	private volatile int currentRow = -1;
 	private volatile ActionWindow currentActionWindow;
 
+	// НОВОЕ: задержка перед каждым шагом в миллисекундах (0 = выключено)
+	@Getter
+	@Setter
+	private volatile long stepDelayMs = 0;
+
 	public PlayActionService(DefaultTableModel tableModel,
 							 UsersService usersService,
 							 CustomMethodsService customMethodsService,
@@ -317,6 +322,16 @@ public class PlayActionService {
 			if (stopRequested) {
 				log.info("Playback stopped by user before step {}", step.rowIndex + 1);
 				break;
+			}
+
+			if (stepDelayMs > 0) {
+				try {
+					Thread.sleep(stepDelayMs);
+				} catch (InterruptedException e) {
+					log.warn("Step delay interrupted before row {}", step.rowIndex + 1, e);
+				} catch (Exception e) {
+					log.warn("Failed to apply step delay before row {}", step.rowIndex + 1, e);
+				}
 			}
 
 			currentRow = step.rowIndex;
@@ -775,16 +790,27 @@ public class PlayActionService {
 
 		List<String> warnings = new ArrayList<>();
 
-		String url = resolveBackendTemplate(def.getUrl(), nameToValue);
-		String method = def.getMethod() != null ? def.getMethod().toUpperCase() : "GET";
-		String body = def.getRequestBody() != null ? def.getRequestBody() : "";
+		String url = buildFinalBackendUrl(def.getUrl());
+		url = resolveBackendTemplate(url, nameToValue);
+
+		String method = def.getMethod() != null ? def.getMethod().toUpperCase(Locale.ROOT) : "GET";
+		String bodyType = safeTrim(def.getBodyType()).isEmpty() ? "JSON" : def.getBodyType().trim().toUpperCase(Locale.ROOT);
+
 		String headers = def.getRequestHeaders() != null && !def.getRequestHeaders().isBlank()
 				? def.getRequestHeaders()
 				: "{}";
 
-		body = applyFieldOverrides(body, def, nameToValue, warnings);
-		body = resolveBackendTemplate(body, nameToValue);
+		String body;
+		if ("FORM_URLENCODED".equals(bodyType)) {
+			body = buildResolvedFormBodyWithOverrides(def, nameToValue, warnings);
+		} else {
+			body = def.getRequestBody() != null ? def.getRequestBody() : "";
+			body = applyFieldOverrides(body, def, nameToValue, warnings);
+			body = resolveBackendTemplate(body, nameToValue);
+		}
+
 		headers = resolveBackendTemplate(headers, nameToValue);
+		String resolvedToken = resolveBackendTemplate(def.getToken(), nameToValue);
 
 		BackendExecutionResult result = new BackendExecutionResult();
 		result.requestName = requestName;
@@ -800,36 +826,40 @@ public class PlayActionService {
 		try {
 			driver.manage().timeouts().scriptTimeout(java.time.Duration.ofSeconds(30));
 
-			Map<String, Object> mergedHeaders = new LinkedHashMap<>();
+			Map<String, String> mergedHeaders = new LinkedHashMap<>();
 
 			try {
 				java.lang.reflect.Type headersType =
-						new com.google.gson.reflect.TypeToken<Map<String, Object>>() {
-						}.getType();
-				Map<String, Object> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
+						new com.google.gson.reflect.TypeToken<Map<String, String>>() {}.getType();
+				Map<String, String> parsed = new com.google.gson.Gson().fromJson(headers, headersType);
 				if (parsed != null) {
 					mergedHeaders.putAll(parsed);
 				}
 			} catch (Exception ex) {
-				warnings.add("WARNING: request headers JSON parse failed, original headers text was ignored. Reason: "
-						+ ex.getMessage());
+				warnings.add(
+						"WARNING: request headers JSON parse failed, original headers text was ignored. Reason: "
+								+ ex.getMessage()
+				);
 				log.warn("Failed to parse backend request headers JSON for '{}': {}", requestName, ex.getMessage());
 			}
 
-			String cookieHeader = driver.manage().getCookies().stream()
-					.filter(Objects::nonNull)
-					.filter(c -> c.getName() != null && !c.getName().isBlank())
-					.map(c -> c.getName() + "=" + (c.getValue() != null ? c.getValue() : ""))
-					.reduce((a, b) -> a + "; " + b)
-					.orElse("");
-
-			if (!cookieHeader.isBlank()) {
-				mergedHeaders.put("Cookie", cookieHeader);
-			} else {
+			Map<String, String> cookieMap = readBrowserCookies();
+			if (cookieMap.isEmpty()) {
 				warnings.add("WARNING: browser cookies were not found, backend request may return 401.");
 			}
 
-			if (!mergedHeaders.containsKey("Content-Type") && !body.isBlank()) {
+			if (resolvedToken != null && !resolvedToken.isBlank()) {
+				cookieMap.put("token", resolvedToken);
+			}
+
+			String cookieHeader = buildCookieHeader(cookieMap);
+			if (!cookieHeader.isBlank()) {
+				mergedHeaders.put("Cookie", cookieHeader);
+			}
+
+			if ("FORM_URLENCODED".equals(bodyType)) {
+				mergedHeaders.put("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+			} else if (!mergedHeaders.containsKey("Content-Type") && !body.isBlank()) {
 				mergedHeaders.put("Content-Type", "application/json;charset=UTF-8");
 			}
 
@@ -837,69 +867,71 @@ public class PlayActionService {
 			result.warnings = new ArrayList<>(warnings);
 
 			log.info(
-					"Executing backend request '{}'. method={}, url={}, cookieCount={}, warningsCount={}",
-					requestName, method, url,
-					driver.manage().getCookies().size(),
+					"Executing backend request '{}'. method={}, url={}, bodyType={}, cookieCount={}, warningsCount={}",
+					requestName,
+					method,
+					url,
+					bodyType,
+					cookieMap.size(),
 					warnings.size()
 			);
 
 			Object raw = ((JavascriptExecutor) driver).executeAsyncScript(
-					"var callback = arguments[arguments.length - 1];" +
-							"try {" +
-							" var parsedHeaders = JSON.parse(" + toJsString(finalHeadersJson) + ");" +
-							" fetch(" + toJsString(url) + ", {" +
-							"   method: " + toJsString(method) + "," +
-							"   headers: parsedHeaders," +
-							(body.isBlank() ? "" : " body: " + toJsString(body) + ",") +
-							"   credentials: 'include'" +
-							" })" +
-							" .then(async function(response) {" +
-							"   var text = '';" +
-							"   var contentType = response.headers.get('content-type') || '';" +
-							"   var statusText = response.statusText || '';" +
-							"   try {" +
-							"     text = await response.text();" +
-							"   } catch (readError) {" +
-							"     text = 'ERROR_READING_BODY: ' + String(readError);" +
-							"   }" +
-							"   if (text && contentType.toLowerCase().indexOf('application/json') >= 0) {" +
-							"     try {" +
-							"       text = JSON.stringify(JSON.parse(text), null, 2);" +
-							"     } catch (ignore) {" +
-							"     }" +
-							"   }" +
-							"   callback({" +
-							"     ok: response.ok," +
-							"     status: response.status," +
-							"     statusText: statusText," +
-							"     contentType: contentType," +
-							"     url: response.url || " + toJsString(url) + "," +
-							"     method: " + toJsString(method) + "," +
-							"     body: text != null ? String(text) : ''" +
-							"   });" +
-							" })" +
-							" .catch(function(error) {" +
-							"   callback({" +
-							"     ok: false," +
-							"     status: 0," +
-							"     statusText: 'FETCH_ERROR'," +
-							"     contentType: ''," +
-							"     url: " + toJsString(url) + "," +
-							"     method: " + toJsString(method) + "," +
-							"     body: 'ERROR: ' + String(error)" +
-							"   });" +
-							" });" +
-							"} catch (e) {" +
-							" callback({" +
-							"   ok: false," +
-							"   status: 0," +
-							"   statusText: 'SCRIPT_ERROR'," +
-							"   contentType: ''," +
-							"   url: " + toJsString(url) + "," +
-							"   method: " + toJsString(method) + "," +
-							"   body: 'ERROR: ' + String(e)" +
-							" });" +
-							"}"
+					"var callback = arguments[arguments.length - 1];"
+							+ "try {"
+							+ " var parsedHeaders = JSON.parse(" + toJsString(finalHeadersJson) + ");"
+							+ " fetch(" + toJsString(url) + ", {"
+							+ "   method: " + toJsString(method) + ","
+							+ "   headers: parsedHeaders,"
+							+ (body.isBlank() ? "" : "   body: " + toJsString(body) + ",")
+							+ "   credentials: 'include'"
+							+ " })"
+							+ " .then(async function(response) {"
+							+ "   var text = '';"
+							+ "   var contentType = response.headers.get('content-type') || '';"
+							+ "   var statusText = response.statusText || '';"
+							+ "   try {"
+							+ "     text = await response.text();"
+							+ "   } catch (readError) {"
+							+ "     text = 'ERROR_READING_BODY: ' + String(readError);"
+							+ "   }"
+							+ "   if (text && contentType.toLowerCase().indexOf('application/json') >= 0) {"
+							+ "     try {"
+							+ "       text = JSON.stringify(JSON.parse(text), null, 2);"
+							+ "     } catch (ignore) {}"
+							+ "   }"
+							+ "   callback({"
+							+ "     ok: response.ok,"
+							+ "     status: response.status,"
+							+ "     statusText: statusText,"
+							+ "     contentType: contentType,"
+							+ "     url: response.url || " + toJsString(url) + ","
+							+ "     method: " + toJsString(method) + ","
+							+ "     body: text != null ? String(text) : ''"
+							+ "   });"
+							+ " })"
+							+ " .catch(function(error) {"
+							+ "   callback({"
+							+ "     ok: false,"
+							+ "     status: 0,"
+							+ "     statusText: 'FETCH_ERROR',"
+							+ "     contentType: '',"
+							+ "     url: " + toJsString(url) + ","
+							+ "     method: " + toJsString(method) + ","
+							+ "     body: 'ERROR: ' + String(error)"
+							+ "   });"
+							+ " });"
+							+ "} catch (e) {"
+							+ " callback({"
+							+ "   ok: false,"
+							+ "   status: 0,"
+							+ "   statusText: 'SCRIPT_ERROR',"
+							+ "   contentType: '',"
+							+ "   url: " + toJsString(url) + ","
+							+ "   method: " + toJsString(method) + ","
+							+ "   body: 'ERROR: ' + String(e)"
+							+ " });"
+							+ "}"
 			);
 
 			if (raw instanceof Map<?, ?> map) {
@@ -955,8 +987,6 @@ public class PlayActionService {
 
 		} catch (Exception ex) {
 			result.success = false;
-			result.status = result.status == 0L ? 0L : result.status;
-
 			if (result.responseBody == null || result.responseBody.isBlank()) {
 				result.responseBody = "ERROR: " + ex.getMessage();
 			}
@@ -972,6 +1002,143 @@ public class PlayActionService {
 					ex
 			);
 		}
+	}
+
+	private Map<String, String> readBrowserCookies() {
+		Map<String, String> cookieMap = new LinkedHashMap<>();
+
+		driver.manage().getCookies().stream()
+				.filter(Objects::nonNull)
+				.filter(c -> c.getName() != null && !c.getName().isBlank())
+				.forEach(c -> cookieMap.put(c.getName(), c.getValue() != null ? c.getValue() : ""));
+
+		return cookieMap;
+	}
+
+	private String buildCookieHeader(Map<String, String> cookieMap) {
+		if (cookieMap == null || cookieMap.isEmpty()) {
+			return "";
+		}
+
+		StringBuilder sb = new StringBuilder();
+		for (Map.Entry<String, String> entry : cookieMap.entrySet()) {
+			String key = entry.getKey();
+			if (key == null || key.isBlank()) {
+				continue;
+			}
+
+			if (!sb.isEmpty()) {
+				sb.append("; ");
+			}
+			sb.append(key).append("=").append(entry.getValue() != null ? entry.getValue() : "");
+		}
+
+		return sb.toString();
+	}
+
+	private String buildResolvedFormBodyWithOverrides(BackendRequestDef def,
+													  Map<String, String> nameToValue,
+													  List<String> warnings) {
+		if (def == null || def.getFormData() == null || def.getFormData().isEmpty()) {
+			return "";
+		}
+
+		List<FormDataParam> source = def.getFormData();
+		List<DtoFieldOverride> overridesToApply = def.getFieldOverrides();
+
+		if ((overridesToApply == null || overridesToApply.isEmpty()) && def.getName() != null) {
+			List<DtoFieldOverride> scenarioFo = getScenarioFieldOverrides(def.getName());
+			if (scenarioFo != null && !scenarioFo.isEmpty()) {
+				overridesToApply = scenarioFo;
+			}
+		}
+
+		Map<String, String> overrideValues = new LinkedHashMap<>();
+		if (overridesToApply != null) {
+			for (DtoFieldOverride override : overridesToApply) {
+				if (override == null) {
+					continue;
+				}
+
+				String fieldPath = safeTrim(override.getFieldPath());
+				if (fieldPath.isEmpty()) {
+					continue;
+				}
+
+				String methodExpr;
+				try {
+					methodExpr = resolveOverrideMethodExpression(override);
+				} catch (Exception ex) {
+					warnings.add("WARNING form field " + fieldPath
+							+ " was not substituted: failed to build method expression. Reason: "
+							+ ex.getMessage());
+					continue;
+				}
+
+				if (methodExpr == null || methodExpr.isBlank()) {
+					warnings.add("WARNING form field " + fieldPath
+							+ " was not substituted: method expression is blank.");
+					continue;
+				}
+
+				String generatedValue;
+				try {
+					generatedValue = variablesService.resolveValue(methodExpr, nameToValue);
+				} catch (Exception ex) {
+					warnings.add("WARNING form field " + fieldPath
+							+ " was not substituted: resolve error for expression "
+							+ methodExpr + ". Reason: " + ex.getMessage());
+					continue;
+				}
+
+				if (generatedValue == null) {
+					warnings.add("WARNING form field " + fieldPath
+							+ " was not substituted: resolved value is null for expression "
+							+ methodExpr + ".");
+					continue;
+				}
+
+				overrideValues.put(fieldPath, generatedValue);
+			}
+		}
+
+		StringBuilder sb = new StringBuilder();
+		Set<String> seenKeys = new HashSet<>();
+
+		for (FormDataParam param : source) {
+			if (param == null) {
+				continue;
+			}
+
+			String key = param.getKey() != null ? param.getKey().trim() : "";
+			if (key.isEmpty()) {
+				continue;
+			}
+
+			seenKeys.add(key);
+
+			String rawValue = overrideValues.containsKey(key)
+					? overrideValues.get(key)
+					: (param.getValue() != null ? param.getValue() : "");
+
+			String resolvedValue = variablesService.resolveValue(rawValue, nameToValue);
+
+			if (!sb.isEmpty()) {
+				sb.append("&");
+			}
+			sb.append(java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8));
+			sb.append("=");
+			sb.append(java.net.URLEncoder.encode(resolvedValue, java.nio.charset.StandardCharsets.UTF_8));
+		}
+
+		for (String overrideKey : overrideValues.keySet()) {
+			if (!seenKeys.contains(overrideKey)) {
+				warnings.add("WARNING form field " + overrideKey
+						+ " was not substituted: field not found in form-data.");
+			}
+		}
+
+		return sb.toString();
 	}
 
 	private String applyFieldOverrides(String body,
@@ -1644,6 +1811,14 @@ public class PlayActionService {
 			return method;
 		}
 		return method + "()";
+	}
+
+	private String buildFinalBackendUrl(String storedPathOrUrl) {
+		String value = storedPathOrUrl != null ? storedPathOrUrl.trim() : "";
+		if (value.isEmpty()) {
+			throw new IllegalStateException("URL backend-метода пустой.");
+		}
+		return value;
 	}
 
 	private String safeTrim(String value) {

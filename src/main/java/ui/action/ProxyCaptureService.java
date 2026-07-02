@@ -122,16 +122,21 @@ public class ProxyCaptureService {
 			}
 
 			String method = req.getMethod() != null
-					? req.getMethod().toUpperCase()
+					? req.getMethod().toUpperCase(Locale.ROOT)
 					: "UNKNOWN";
 
 			if (!isFetchOrXhrLike(entry, req, method, url)) {
 				continue;
 			}
 
-			String body = extractBody(req);
+			String bodyType = detectBodyType(req);
+			List<dto.FormDataParam> formData = "FORM_URLENCODED".equals(bodyType)
+					? extractFormData(req)
+					: new ArrayList<>();
+			String body = extractBody(req, bodyType, formData);
 			String headersJson = extractHeaders(req);
 			String responseBody = extractResponseBody(entry);
+			String token = extractTokenFromCookies(req);
 
 			String dedupeKey = method + "|" + url + "|" + body;
 			if (!seen.add(dedupeKey)) {
@@ -147,17 +152,114 @@ public class ProxyCaptureService {
 					LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 			);
 			def.setCapturedResponseBody(responseBody);
+			def.setBodyType(bodyType);
+			def.setFormData(formData);
+			def.setToken(token);
 			result.add(def);
 
-			log.info("Captured request: method={}, url={}, requestBodyLength={}, responseBodyLength={}",
+			log.info(
+					"Captured request: method={}, url={}, bodyType={}, requestBodyLength={}, responseBodyLength={}, formDataSize={}, tokenPresent={}",
 					method,
 					url,
+					bodyType,
 					body != null ? body.length() : 0,
-					responseBody != null ? responseBody.length() : 0);
+					responseBody != null ? responseBody.length() : 0,
+					formData != null ? formData.size() : 0,
+					token != null && !token.isBlank()
+			);
 		}
 
 		log.info("Capture finished. Total backend-like requests captured: {}", result.size());
 		return result;
+	}
+
+	private String extractBody(HarRequest req, String bodyType, List<dto.FormDataParam> formData) {
+		try {
+			if (req.getPostData() == null) {
+				return "";
+			}
+
+			if ("FORM_URLENCODED".equals(bodyType)) {
+				String text = req.getPostData().getText();
+				if (text != null && !text.isBlank()) {
+					return text;
+				}
+				return buildFormUrlencodedBody(formData);
+			}
+
+			if (req.getPostData().getText() != null && !req.getPostData().getText().isBlank()) {
+				return req.getPostData().getText();
+			}
+
+			if (req.getPostData().getParams() != null && !req.getPostData().getParams().isEmpty()) {
+				Map<String, String> paramsMap = new LinkedHashMap<>();
+				req.getPostData().getParams().forEach(p -> {
+					String name = p.getName() != null ? p.getName() : "";
+					String value = p.getValue() != null ? p.getValue() : "";
+					paramsMap.put(name, value);
+				});
+				return gson.toJson(paramsMap);
+			}
+
+			if (req.getPostData().getMimeType() != null && !req.getPostData().getMimeType().isBlank()) {
+				return "[body captured without text, mimeType=" + req.getPostData().getMimeType() + "]";
+			}
+		} catch (Exception ignored) {
+		}
+		return "";
+	}
+
+	private String buildFormUrlencodedBody(List<dto.FormDataParam> params) {
+		if (params == null || params.isEmpty()) {
+			return "";
+		}
+
+		StringBuilder sb = new StringBuilder();
+		for (dto.FormDataParam param : params) {
+			if (param == null) {
+				continue;
+			}
+
+			String key = param.getKey() != null ? param.getKey().trim() : "";
+			if (key.isEmpty()) {
+				continue;
+			}
+
+			String value = param.getValue() != null ? param.getValue() : "";
+
+			if (!sb.isEmpty()) {
+				sb.append("&");
+			}
+			sb.append(java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8));
+			sb.append("=");
+			sb.append(java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+		}
+
+		return sb.toString();
+	}
+
+	private String extractTokenFromCookies(HarRequest req) {
+		String cookieHeader = getHeaderIgnoreCase(req, "Cookie");
+		if (cookieHeader == null || cookieHeader.isBlank()) {
+			return "";
+		}
+
+		String[] parts = cookieHeader.split(";");
+		for (String part : parts) {
+			if (part == null || part.isBlank()) {
+				continue;
+			}
+
+			String[] kv = part.trim().split("=", 2);
+			String key = kv.length > 0 ? kv[0].trim() : "";
+			String value = kv.length > 1 ? kv[1].trim() : "";
+
+			if ("token".equalsIgnoreCase(key)) {
+				return value;
+			}
+		}
+
+		return "";
 	}
 
 	private boolean isFetchOrXhrLike(HarEntry entry, HarRequest req, String method, String url) {
@@ -298,6 +400,53 @@ public class ProxyCaptureService {
 
 	public BrowserMobProxy getProxy() {
 		return proxy;
+	}
+
+	private String detectBodyType(HarRequest req) {
+		String mimeType = getPostMimeType(req);
+		if (mimeType == null || mimeType.isBlank()) {
+			return "JSON";
+		}
+
+		String lower = mimeType.toLowerCase(Locale.ROOT);
+		if (lower.contains("application/x-www-form-urlencoded")) {
+			return "FORM_URLENCODED";
+		}
+
+		return "JSON";
+	}
+
+	private List<dto.FormDataParam> extractFormData(HarRequest req) {
+		List<dto.FormDataParam> result = new ArrayList<>();
+		try {
+			if (req.getPostData() == null) {
+				return result;
+			}
+
+			if (req.getPostData().getParams() != null && !req.getPostData().getParams().isEmpty()) {
+				req.getPostData().getParams().forEach(p -> {
+					String key = p.getName() != null ? p.getName() : "";
+					String value = p.getValue() != null ? p.getValue() : "";
+					result.add(new dto.FormDataParam(key, value));
+				});
+				return result;
+			}
+
+			String text = req.getPostData().getText();
+			if (text != null && !text.isBlank()) {
+				for (String pair : text.split("&")) {
+					if (pair.isBlank()) continue;
+					String[] parts = pair.split("=", 2);
+					String key = java.net.URLDecoder.decode(parts[0], java.nio.charset.StandardCharsets.UTF_8);
+					String value = parts.length > 1
+							? java.net.URLDecoder.decode(parts[1], java.nio.charset.StandardCharsets.UTF_8)
+							: "";
+					result.add(new dto.FormDataParam(key, value));
+				}
+			}
+		} catch (Exception ignored) {
+		}
+		return result;
 	}
 
 	private String extractBody(HarRequest req) {
