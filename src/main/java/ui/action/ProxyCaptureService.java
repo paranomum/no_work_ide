@@ -116,16 +116,22 @@ public class ProxyCaptureService {
 			}
 
 			HarRequest req = entry.getRequest();
-			String url = req.getUrl();
-			if (url == null || url.isBlank()) {
+			String fullUrl = req.getUrl();
+			if (fullUrl == null || fullUrl.isBlank()) {
 				continue;
 			}
+
+			if (!matchesSelectedDomain(fullUrl)) {
+				continue;
+			}
+
+			String url = extractPathWithQuery(fullUrl);
 
 			String method = req.getMethod() != null
 					? req.getMethod().toUpperCase(Locale.ROOT)
 					: "UNKNOWN";
 
-			if (!isFetchOrXhrLike(entry, req, method, url)) {
+			if (!isFetchOrXhrLike(entry, req, method, fullUrl)) {
 				continue;
 			}
 
@@ -263,7 +269,7 @@ public class ProxyCaptureService {
 	}
 
 	private boolean isFetchOrXhrLike(HarEntry entry, HarRequest req, String method, String url) {
-		String lowerUrl = url.toLowerCase();
+		String lowerUrl = url.toLowerCase(Locale.ROOT);
 
 		if (isStaticResource(lowerUrl)) {
 			return false;
@@ -627,6 +633,53 @@ public class ProxyCaptureService {
 		} catch (Exception ex) {
 			log.warn("Failed to extract response body: {}", ex.getMessage(), ex);
 			return "";
+		}
+	}
+
+	private String extractPathWithQuery(String fullUrl) {
+		try {
+			java.net.URI uri = java.net.URI.create(fullUrl);
+
+			String path = uri.getRawPath();
+			String query = uri.getRawQuery();
+
+			if (path == null || path.isBlank()) {
+				path = "/";
+			}
+
+			return (query != null && !query.isBlank())
+					? path + "?" + query
+					: path;
+		} catch (Exception ex) {
+			log.warn("Failed to extract path from url={}", fullUrl, ex);
+			return fullUrl;
+		}
+	}
+
+	private boolean matchesSelectedDomain(String fullUrl) {
+		String selectedDomain = config != null && config.selectedDomain != null
+				? config.selectedDomain.trim()
+				: "";
+
+		if (selectedDomain.isEmpty()) {
+			return true;
+		}
+
+		try {
+			java.net.URI uri = java.net.URI.create(fullUrl);
+			String host = uri.getHost();
+
+			if (host == null || host.isBlank()) {
+				return false;
+			}
+
+			host = host.trim().toLowerCase(Locale.ROOT);
+			selectedDomain = selectedDomain.toLowerCase(Locale.ROOT);
+
+			return host.equals(selectedDomain);
+		} catch (Exception ex) {
+			log.warn("Failed to match selected domain for url={}", fullUrl, ex);
+			return false;
 		}
 	}
 }

@@ -1135,19 +1135,6 @@ public class ActionWindow extends JFrame {
 				}
 			}
 		});
-
-//		// Ctrl+Y -> redo
-//		im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, KeyEvent.CTRL_DOWN_MASK), "redo");
-//		am.put("redo", new AbstractAction() {
-//			@Override
-//			public void actionPerformed(ActionEvent e) {
-//				if (!redoStack.isEmpty()) {
-//					Runnable redo = redoStack.pop();
-//					redo.run();
-//					// и обратно в undoStack, если нужно
-//				}
-//			}
-//		});
 	}
 
 	private void openSettingsDialog() {
@@ -2026,11 +2013,16 @@ public class ActionWindow extends JFrame {
 		config.selectedDomain = selected;
 
 		domainCombo.removeAllItems();
-		domainCombo.addItem("");
-		for (String domain : normalizedDomains) {
-			domainCombo.addItem(domain);
+
+		if (normalizedDomains.isEmpty()) {
+			domainCombo.addItem("");
+			domainCombo.setSelectedItem("");
+		} else {
+			for (String domain : normalizedDomains) {
+				domainCombo.addItem(domain);
+			}
+			domainCombo.setSelectedItem(selected);
 		}
-		domainCombo.setSelectedItem(selected);
 
 		try {
 			configService.save(config);
