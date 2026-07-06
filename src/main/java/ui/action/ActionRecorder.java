@@ -12,6 +12,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import static com.codeborne.selenide.Selenide.$x;
 
 public class ActionRecorder {
 
@@ -454,6 +457,8 @@ public class ActionRecorder {
 					", url=" + currentUrl);
 
 			driver.switchTo().window(targetHandle);
+			TimeUnit.MILLISECONDS.sleep(150);
+			waitForPageLoad();
 			injectScriptsIntoCurrentTab();
 
 		} catch (Exception e) {
@@ -525,5 +530,55 @@ public class ActionRecorder {
 			}
 			return new String(in.readAllBytes(), StandardCharsets.UTF_8);
 		}
+	}
+
+	private void waitForPageLoad() {
+		if (!(driver instanceof JavascriptExecutor js)) {
+			return;
+		}
+
+		String sidebar = "//mat-sidenav/div/div[contains(@class,'logo')] | //iqhr-frontend-menu-account | //iqhr-frontend-cabinet-menu";
+		String loginPage = "//mat-toolbar[contains(text(), 'Авторизация')]";
+		String platformMarker = "(" + sidebar + "|" + loginPage + ")";
+
+		String elLoaderReact = "//*[@data-testid='loader' or contains(@class,'ant-btn-loading-icon')]";
+		String elLoadingAngular = "//mat-toolbar[contains(., 'Загрузка..')] | //mat-spinner[@role='progressbar']";
+		String loader = "(" + elLoaderReact + "|" + elLoadingAngular + ")";
+
+		String chunkError = "//*[contains(text(),'ChunkLoadError')]";
+
+		long timeoutMs = 5000;
+		long pollMs = 250;
+		long waitedMs = 0;
+
+		while (waitedMs < timeoutMs) {
+			try {
+				Object state = js.executeScript("return document.readyState");
+
+				boolean domReady = "complete".equals(state);
+				boolean platformReady = $x(platformMarker).exists();
+				boolean loaderVisible = $x(loader).is(com.codeborne.selenide.Condition.visible);
+				boolean chunkVisible = $x(chunkError).exists();
+
+				if (chunkVisible) {
+					return;
+				}
+
+				if (domReady && platformReady && !loaderVisible) {
+					System.out.println("[TAB] page ready after " + waitedMs + "ms");
+					return;
+				}
+
+				Thread.sleep(pollMs);
+				waitedMs += pollMs;
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return;
+			} catch (Exception e) {
+				return;
+			}
+		}
+
+		System.out.println("[TAB] page load timeout, injecting anyway");
 	}
 }
