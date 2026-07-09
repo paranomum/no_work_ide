@@ -36,6 +36,9 @@ public class JagaBugReportsService {
 	private final AppConfig config;
 	private JagaUserSettings jagaUserSettings;
 
+	private JagaTaskTypeDetailsResponse loadedTaskTypeResponse;
+	private List<JagaTaskAttributeResponse> requiredTaskTypeFields = new ArrayList<>();
+
 	public JagaBugReportsService(DefaultTableModel tableModel, ConfigService configService, AppConfig config) {
 		this.tableModel = tableModel;
 		this.configService = configService;
@@ -474,8 +477,440 @@ public class JagaBugReportsService {
 	}
 
 	public void createBugReport() {
-		String reportText = buildBugReportText();
-		showBugReportDialog(reportText);
+		reloadJagaSettings();
+		showJagaCreateBugDialog();
+//		String reportText = buildBugReportText();
+//		showBugReportDialog(reportText);
+	}
+
+	private void showJagaCreateBugDialog() {
+		String reportText = buildJagaDescriptionTemplate();
+
+		JDialog dialog = new JDialog((Frame) null, "Создание бага в Jaga", true);
+		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+		JPanel root = new JPanel(new BorderLayout(10, 10));
+		root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+		JPanel topPanel = new JPanel(new GridBagLayout());
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.insets = new Insets(6, 6, 6, 6);
+		gbc.anchor = GridBagConstraints.WEST;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
+
+		JLabel taskTypeLabel = new JLabel("Тип задачи");
+		JComboBox<TaskTypeOption> taskTypeComboBox = new JComboBox<>();
+		taskTypeComboBox.setEnabled(false);
+
+		JLabel statusLabel = new JLabel(" ");
+		statusLabel.setForeground(Color.GRAY);
+
+		JPanel fieldsContainer = new JPanel(new GridBagLayout());
+		JScrollPane fieldsScrollPane = new JScrollPane(fieldsContainer);
+		fieldsScrollPane.setPreferredSize(new Dimension(800, 500));
+
+		JButton closeButton = new JButton("Закрыть");
+		closeButton.addActionListener(e -> dialog.dispose());
+
+		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		buttons.add(closeButton);
+
+		int y = 0;
+
+		gbc.gridx = 0; gbc.gridy = y; gbc.weightx = 0;
+		topPanel.add(taskTypeLabel, gbc);
+		gbc.gridx = 1; gbc.gridy = y++; gbc.weightx = 1;
+		topPanel.add(taskTypeComboBox, gbc);
+
+		gbc.gridx = 1; gbc.gridy = y++;
+		topPanel.add(statusLabel, gbc);
+
+		root.add(topPanel, BorderLayout.NORTH);
+		root.add(fieldsScrollPane, BorderLayout.CENTER);
+		root.add(buttons, BorderLayout.SOUTH);
+
+		dialog.setContentPane(root);
+
+		taskTypeComboBox.addActionListener(e -> {
+			if (!taskTypeComboBox.isEnabled()) {
+				return;
+			}
+
+			TaskTypeOption selected = (TaskTypeOption) taskTypeComboBox.getSelectedItem();
+			if (selected == null || selected.getId() == null) {
+				clearDynamicFields(fieldsContainer);
+				statusLabel.setText("Выберите тип задачи");
+				statusLabel.setForeground(Color.GRAY);
+				return;
+			}
+
+			loadTaskTypeFieldsAsync(selected, fieldsContainer, statusLabel, reportText);
+		});
+
+		initTaskTypeSelection(taskTypeComboBox, fieldsContainer, statusLabel, reportText);
+
+		dialog.pack();
+		dialog.setLocationRelativeTo(null);
+		dialog.setVisible(true);
+	}
+
+	private void initTaskTypeSelection(
+			JComboBox<TaskTypeOption> taskTypeComboBox,
+			JPanel fieldsContainer,
+			JLabel statusLabel,
+			String reportText
+	) {
+		clearTaskTypeState();
+		clearDynamicFields(fieldsContainer);
+
+		Map<Long, String> configuredTaskTypes = jagaUserSettings.getTaskTypes();
+
+		if (configuredTaskTypes != null && !configuredTaskTypes.isEmpty()) {
+			List<TaskTypeOption> options = configuredTaskTypes.entrySet().stream()
+					.filter(entry -> entry.getKey() != null)
+					.map(entry -> new TaskTypeOption(entry.getKey(), safe(entry.getValue())))
+					.filter(option -> !option.getLabel().isBlank())
+					.toList();
+
+			fillTaskTypeCombo(taskTypeComboBox, options);
+
+			if (options.isEmpty()) {
+				statusLabel.setText("В настройках нет доступных типов задач");
+				statusLabel.setForeground(Color.RED);
+				taskTypeComboBox.setEnabled(false);
+				return;
+			}
+
+			if (options.size() == 1) {
+				taskTypeComboBox.setSelectedIndex(0);
+				taskTypeComboBox.setEnabled(false);
+				statusLabel.setText("Тип задачи выбран автоматически");
+				statusLabel.setForeground(new Color(0, 128, 0));
+				loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText);
+			} else {
+				taskTypeComboBox.setEnabled(true);
+				statusLabel.setText("Выберите тип задачи");
+				statusLabel.setForeground(Color.GRAY);
+			}
+
+			return;
+		}
+
+		Long projectId = jagaUserSettings.getProjectId();
+		if (projectId == null) {
+			statusLabel.setText("Укажите projectId в настройках перед использованием интеграции");
+			statusLabel.setForeground(Color.RED);
+			taskTypeComboBox.setEnabled(false);
+			return;
+		}
+
+		String username = safe(jagaUserSettings.getEmail());
+		String password;
+		try {
+			password = resolveJagaPassword();
+		} catch (Exception ex) {
+			log.error("Не удалось получить пароль Jaga", ex);
+			statusLabel.setText("Не удалось получить пароль из настроек");
+			statusLabel.setForeground(Color.RED);
+			taskTypeComboBox.setEnabled(false);
+			return;
+		}
+
+		if (username.isBlank()) {
+			statusLabel.setText("Укажите email в настройках");
+			statusLabel.setForeground(Color.RED);
+			taskTypeComboBox.setEnabled(false);
+			return;
+		}
+
+		if (password == null || password.isBlank()) {
+			statusLabel.setText("Укажите пароль в настройках");
+			statusLabel.setForeground(Color.RED);
+			taskTypeComboBox.setEnabled(false);
+			return;
+		}
+
+		statusLabel.setText("Загружаю типы задач...");
+		statusLabel.setForeground(Color.GRAY);
+		taskTypeComboBox.setEnabled(false);
+
+		new SwingWorker<LinkedHashMap<String, Long>, Void>() {
+			@Override
+			protected LinkedHashMap<String, Long> doInBackground() throws Exception {
+				return loadTaskLabelToId(projectId, username, password);
+			}
+
+			@Override
+			protected void done() {
+				try {
+					LinkedHashMap<String, Long> taskLabelToId = get();
+
+					List<TaskTypeOption> options = taskLabelToId.entrySet().stream()
+							.filter(entry -> entry.getValue() != null)
+							.map(entry -> new TaskTypeOption(entry.getValue(), safe(entry.getKey())))
+							.filter(option -> !option.getLabel().isBlank())
+							.toList();
+
+					fillTaskTypeCombo(taskTypeComboBox, options);
+
+					if (options.isEmpty()) {
+						statusLabel.setText("Типы задач не найдены");
+						statusLabel.setForeground(Color.RED);
+						taskTypeComboBox.setEnabled(false);
+						return;
+					}
+
+					if (options.size() == 1) {
+						taskTypeComboBox.setSelectedIndex(0);
+						taskTypeComboBox.setEnabled(false);
+						statusLabel.setText("Тип задачи выбран автоматически");
+						statusLabel.setForeground(new Color(0, 128, 0));
+						loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText);
+					} else {
+						taskTypeComboBox.setEnabled(true);
+						statusLabel.setText("Выберите тип задачи");
+						statusLabel.setForeground(Color.GRAY);
+					}
+				} catch (Exception ex) {
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.error("Ошибка загрузки типов задач Jaga", cause);
+					statusLabel.setText("Не удалось загрузить типы задач");
+					statusLabel.setForeground(Color.RED);
+					taskTypeComboBox.setEnabled(false);
+				}
+			}
+		}.execute();
+	}
+
+	private void loadTaskTypeFieldsAsync(
+			TaskTypeOption selectedTaskType,
+			JPanel fieldsContainer,
+			JLabel statusLabel,
+			String reportText
+	) {
+		clearTaskTypeState();
+		clearDynamicFields(fieldsContainer);
+
+		Long projectId = jagaUserSettings.getProjectId();
+		if (projectId == null) {
+			statusLabel.setText("Укажите projectId в настройках");
+			statusLabel.setForeground(Color.RED);
+			return;
+		}
+
+		String username = safe(jagaUserSettings.getEmail());
+		final String password;
+		try {
+			password = resolveJagaPassword();
+		} catch (Exception ex) {
+			log.error("Не удалось получить пароль Jaga", ex);
+			statusLabel.setText("Не удалось получить пароль");
+			statusLabel.setForeground(Color.RED);
+			return;
+		}
+
+		if (username.isBlank() || password == null || password.isBlank()) {
+			statusLabel.setText("Не заполнены учетные данные Jaga");
+			statusLabel.setForeground(Color.RED);
+			return;
+		}
+
+		statusLabel.setText("Загружаю поля...");
+		statusLabel.setForeground(Color.GRAY);
+
+		new SwingWorker<JagaTaskTypeDetailsResponse, Void>() {
+			@Override
+			protected JagaTaskTypeDetailsResponse doInBackground() {
+				return new JagaControllerApi(
+						getApiClient("https://jaga.rt.ru", username, password)
+				).getProjectTaskType(projectId, selectedTaskType.getId()).block();
+			}
+
+			@Override
+			protected void done() {
+				try {
+					JagaTaskTypeDetailsResponse response = get();
+
+					loadedTaskTypeResponse = response;
+					requiredTaskTypeFields = extractRequiredFields(response);
+
+					statusLabel.setText("Поля загружены: " + requiredTaskTypeFields.size());
+					statusLabel.setForeground(new Color(0, 128, 0));
+
+					renderTemporaryRequiredFieldsPreview(fieldsContainer, requiredTaskTypeFields, reportText);
+				} catch (Exception ex) {
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.error("Ошибка загрузки полей типа задачи {}", selectedTaskType.getId(), cause);
+
+					clearTaskTypeState();
+					clearDynamicFields(fieldsContainer);
+
+					statusLabel.setText("Не удалось загрузить поля");
+					statusLabel.setForeground(Color.RED);
+				}
+			}
+		}.execute();
+	}
+
+	private List<JagaTaskAttributeResponse> extractRequiredFields(JagaTaskTypeDetailsResponse response) {
+		if (response == null || response.getGroups() == null || response.getGroups().isEmpty()) {
+			return List.of();
+		}
+
+		return response.getGroups().stream()
+				.filter(Objects::nonNull)
+				.filter(group -> !Boolean.TRUE.equals(group.getDeleted()))
+				.flatMap(group -> group.getAttributes() == null
+						? java.util.stream.Stream.empty()
+						: group.getAttributes().stream())
+				.filter(Objects::nonNull)
+				.filter(field -> !Boolean.TRUE.equals(field.getDeleted()))
+				.filter(field -> Boolean.TRUE.equals(field.getRequired()))
+				.filter(field -> !shouldSkipField(field))
+				.toList();
+	}
+
+	private boolean shouldSkipField(JagaTaskAttributeResponse field) {
+		String objectTypeNameM = safe(field.getObjectTypeNameM());
+		return "task.type_id".equals(objectTypeNameM)
+				|| "task.project_id".equals(objectTypeNameM);
+	}
+
+	private void renderTemporaryRequiredFieldsPreview(
+			JPanel fieldsContainer,
+			List<JagaTaskAttributeResponse> fields,
+			String reportText
+	) {
+		fieldsContainer.removeAll();
+
+		GridBagConstraints gbc = new GridBagConstraints();
+		gbc.insets = new Insets(6, 6, 6, 6);
+		gbc.anchor = GridBagConstraints.NORTHWEST;
+		gbc.fill = GridBagConstraints.HORIZONTAL;
+		gbc.weightx = 1.0;
+
+		int y = 0;
+
+		if (fields == null || fields.isEmpty()) {
+			gbc.gridx = 0;
+			gbc.gridy = y;
+			gbc.weighty = 1.0;
+			fieldsContainer.add(new JLabel("Обязательные поля не найдены"), gbc);
+			fieldsContainer.revalidate();
+			fieldsContainer.repaint();
+			return;
+		}
+
+		for (JagaTaskAttributeResponse field : fields) {
+			JLabel label = new JLabel(resolveFieldLabel(field));
+
+			String objectType = safe(field.getObjectTypeNameM());
+			JComponent previewComponent;
+
+			if ("task.content".equals(objectType)) {
+				JTextArea textArea = new JTextArea(reportText, 6, 40);
+				textArea.setLineWrap(true);
+				textArea.setWrapStyleWord(true);
+				previewComponent = new JScrollPane(textArea);
+			} else {
+				JTextField preview = new JTextField();
+				preview.setEditable(false);
+
+				if (field.getDictionaryId() != null) {
+					if (Boolean.TRUE.equals(field.getMultipleSelector())) {
+						preview.setText("Будет MultiSelectChipsField");
+					} else {
+						preview.setText("Будет JComboBox");
+					}
+				} else {
+					preview.setText("Будет текстовое поле");
+				}
+
+				previewComponent = preview;
+			}
+
+			gbc.gridx = 0;
+			gbc.gridy = y;
+			gbc.weightx = 0;
+			gbc.weighty = 0;
+			fieldsContainer.add(label, gbc);
+
+			gbc.gridx = 1;
+			gbc.gridy = y++;
+			gbc.weightx = 1;
+			fieldsContainer.add(previewComponent, gbc);
+		}
+
+		gbc.gridx = 0;
+		gbc.gridy = y;
+		gbc.weighty = 1.0;
+		fieldsContainer.add(Box.createVerticalGlue(), gbc);
+
+		fieldsContainer.revalidate();
+		fieldsContainer.repaint();
+	}
+
+	private void clearDynamicFields(JPanel fieldsContainer) {
+		fieldsContainer.removeAll();
+		fieldsContainer.revalidate();
+		fieldsContainer.repaint();
+	}
+
+	private void clearTaskTypeState() {
+		loadedTaskTypeResponse = null;
+		requiredTaskTypeFields = new ArrayList<>();
+	}
+
+	private void fillTaskTypeCombo(JComboBox<TaskTypeOption> comboBox, List<TaskTypeOption> options) {
+		DefaultComboBoxModel<TaskTypeOption> model = new DefaultComboBoxModel<>();
+		for (TaskTypeOption option : options) {
+			model.addElement(option);
+		}
+		comboBox.setModel(model);
+	}
+
+	private String resolveFieldLabel(JagaTaskAttributeResponse field) {
+		String name = safe(field.getName());
+		if (!name.isBlank()) {
+			return name;
+		}
+
+		String dictionaryName = safe(field.getDictionaryName());
+		if (!dictionaryName.isBlank()) {
+			return dictionaryName;
+		}
+
+		String objectTypeNameM = safe(field.getObjectTypeNameM());
+		if (!objectTypeNameM.isBlank()) {
+			return objectTypeNameM;
+		}
+
+		return "Поле " + field.getId();
+	}
+
+	private String buildJagaDescriptionTemplate() {
+		String steps = buildBugReportText();
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("Шаги воспроизведения:").append(System.lineSeparator());
+		if (!steps.isBlank()) {
+			sb.append(steps);
+		}
+		sb.append(System.lineSeparator()).append(System.lineSeparator());
+		sb.append("Ожидаемый результат:").append(System.lineSeparator()).append(System.lineSeparator());
+		sb.append("Фактический результат:").append(System.lineSeparator()).append(System.lineSeparator());
+		sb.append("Доп. инфо:").append(System.lineSeparator());
+
+		return sb.toString();
+	}
+
+	private String resolveJagaPassword() throws Exception {
+		JagaUserSettings latest = configService.loadJagaUserSettings(config);
+		if (latest.getEncryptedPassword() == null || latest.getEncryptedPassword().isBlank()) {
+			return null;
+		}
+		return SimpleSecretService.decrypt(latest.getEncryptedPassword());
 	}
 
 	private String buildBugReportText() {
@@ -756,5 +1191,28 @@ public class JagaBugReportsService {
 		).getProjectTaskTypes(projectId, true).block();
 
 		return buildTaskLabelToIdMap(response);
+	}
+
+	private static class TaskTypeOption {
+		private final Long id;
+		private final String label;
+
+		private TaskTypeOption(Long id, String label) {
+			this.id = id;
+			this.label = label;
+		}
+
+		public Long getId() {
+			return id;
+		}
+
+		public String getLabel() {
+			return label;
+		}
+
+		@Override
+		public String toString() {
+			return label == null ? "" : label;
+		}
 	}
 }
