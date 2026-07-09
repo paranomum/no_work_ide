@@ -9,4 +9,5 @@ public class JagaTaskTypeDetailsResponse {
 	private Long projectId;
 	private String typeName;
 	private List<JagaTaskTypeGroupResponse> groups;
+	private Long workflowId;
 }

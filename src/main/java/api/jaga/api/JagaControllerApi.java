@@ -472,4 +472,62 @@ public class JagaControllerApi {
 		return createTaskByTaskTypeRequestCreation(projectId, taskTypeId, jagaCreateTaskRequest)
 				.bodyToMono(localVarReturnType);
 	}
+
+	private ResponseSpec getWorkflowRequestCreation(Long workflowId) throws WebClientResponseException {
+		Object postBody = null;
+
+		if (workflowId == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'workflowId' when calling getWorkflow",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		final Map<String, Object> pathParams = new HashMap<>();
+		pathParams.put("workflowId", workflowId);
+
+		final MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();
+		final HttpHeaders headerParams = new HttpHeaders();
+		final MultiValueMap<String, String> cookieParams = new LinkedMultiValueMap<>();
+		final MultiValueMap<String, Object> formParams = new LinkedMultiValueMap<>();
+
+		final String[] localVarAccepts = {
+				"application/json",
+				"*/*"
+		};
+		final List<MediaType> localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+		final String[] localVarContentTypes = {};
+		final MediaType localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+		String[] localVarAuthNames = new String[] { "bearer-jwt" };
+
+		ParameterizedTypeReference<JagaWorkflowResponse> localVarReturnType =
+				new ParameterizedTypeReference<JagaWorkflowResponse>() {};
+
+		return apiClient.invokeAPI(
+				"/backend/workflow/{workflowId}",
+				HttpMethod.GET,
+				pathParams,
+				queryParams,
+				postBody,
+				headerParams,
+				cookieParams,
+				formParams,
+				localVarAccept,
+				localVarContentType,
+				localVarAuthNames,
+				localVarReturnType
+		);
+	}
+
+	public Mono<JagaWorkflowResponse> getWorkflow(Long workflowId) throws WebClientResponseException {
+		ParameterizedTypeReference<JagaWorkflowResponse> localVarReturnType =
+				new ParameterizedTypeReference<JagaWorkflowResponse>() {};
+		return getWorkflowRequestCreation(workflowId).bodyToMono(localVarReturnType);
+	}
 }

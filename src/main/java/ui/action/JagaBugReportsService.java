@@ -2,20 +2,29 @@ package ui.action;
 
 import api.jaga.api.*;
 import api.jaga.dto.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dto.AppConfig;
 import dto.JagaUserSettings;
+import lombok.SneakyThrows;
 import lombok.val;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import api.ApiClient;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import ui.ChipItem;
 import ui.MultiSelectChipsField;
 import util.SimpleSecretService;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.net.ssl.TrustManagerFactory;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -36,8 +45,12 @@ public class JagaBugReportsService {
 	private final AppConfig config;
 	private JagaUserSettings jagaUserSettings;
 
+	private List<JagaTaskAttributeResponse> allTaskTypeFields = new ArrayList<>();
+
 	private JagaTaskTypeDetailsResponse loadedTaskTypeResponse;
 	private List<JagaTaskAttributeResponse> requiredTaskTypeFields = new ArrayList<>();
+	private final Map<Long, JComponent> fieldComponents = new LinkedHashMap<>();
+	private final Map<Long, LinkedHashMap<String, Long>> fieldDictionaryValues = new LinkedHashMap<>();
 
 	public JagaBugReportsService(DefaultTableModel tableModel, ConfigService configService, AppConfig config) {
 		this.tableModel = tableModel;
@@ -149,8 +162,12 @@ public class JagaBugReportsService {
 			}.execute();
 		});
 
+		JButton loadCertsButton = new JButton("Загрузить серты");
+		loadCertsButton.addActionListener(e -> importJagaCertificates(parentDialog));
+
 		JPanel checkPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
 		checkPanel.add(checkButton);
+		checkPanel.add(loadCertsButton);
 		checkPanel.add(checkStatusLabel);
 
 		JLabel projectIdLabel = new JLabel("ID проекта");
@@ -512,9 +529,49 @@ public class JagaBugReportsService {
 
 		JButton closeButton = new JButton("Закрыть");
 		closeButton.addActionListener(e -> dialog.dispose());
+		JButton createButton = new JButton("Создать");
+		createButton.setEnabled(false);
+		createButton.addActionListener(e -> {
+			TaskTypeOption selected = (TaskTypeOption) taskTypeComboBox.getSelectedItem();
+			if (selected == null || selected.getId() == null) {
+				JOptionPane.showMessageDialog(dialog, "Выберите тип задачи", "Ошибка", JOptionPane.ERROR_MESSAGE);
+				return;
+			}
+
+			createButton.setEnabled(false);
+
+			new SwingWorker<JagaTaskResponse, Void>() {
+				@Override
+				protected JagaTaskResponse doInBackground() throws Exception {
+					return createTask(selected);
+				}
+
+				@Override
+				protected void done() {
+					try {
+						JagaTaskResponse response = get();
+						String message = buildCreatedTaskMessage(response);
+						dialog.dispose();
+						showCreatedTaskDialog(null, message);
+					} catch (Exception ex) {
+						Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+						log.error("Ошибка создания задачи Jaga", cause);
+						JOptionPane.showMessageDialog(
+								dialog,
+								"Не удалось создать задачу: " + cause.getMessage(),
+								"Ошибка",
+								JOptionPane.ERROR_MESSAGE
+						);
+					} finally {
+						createButton.setEnabled(true);
+					}
+				}
+			}.execute();
+		});
 
 		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		buttons.add(closeButton);
+		buttons.add(createButton);
 
 		int y = 0;
 
@@ -545,24 +602,43 @@ public class JagaBugReportsService {
 				return;
 			}
 
-			loadTaskTypeFieldsAsync(selected, fieldsContainer, statusLabel, reportText);
+			loadTaskTypeFieldsAsync(selected, fieldsContainer, statusLabel, reportText, createButton);
 		});
 
-		initTaskTypeSelection(taskTypeComboBox, fieldsContainer, statusLabel, reportText);
+		initTaskTypeSelection(taskTypeComboBox, fieldsContainer, statusLabel, reportText, createButton);
 
 		dialog.pack();
 		dialog.setLocationRelativeTo(null);
 		dialog.setVisible(true);
 	}
 
+	private List<JagaTaskAttributeResponse> extractAllFields(JagaTaskTypeDetailsResponse response) {
+		if (response == null || response.getGroups() == null || response.getGroups().isEmpty()) {
+			return List.of();
+		}
+
+		return response.getGroups().stream()
+				.filter(Objects::nonNull)
+				.filter(group -> !Boolean.TRUE.equals(group.getDeleted()))
+				.flatMap(group -> group.getAttributes() == null
+						? java.util.stream.Stream.empty()
+						: group.getAttributes().stream())
+				.filter(Objects::nonNull)
+				.filter(field -> !Boolean.TRUE.equals(field.getDeleted()))
+				.filter(field -> Boolean.TRUE.equals(field.getVisible()))
+				.toList();
+	}
+
 	private void initTaskTypeSelection(
 			JComboBox<TaskTypeOption> taskTypeComboBox,
 			JPanel fieldsContainer,
 			JLabel statusLabel,
-			String reportText
+			String reportText,
+			JButton createButton
 	) {
 		clearTaskTypeState();
 		clearDynamicFields(fieldsContainer);
+		createButton.setEnabled(false);
 
 		Map<Long, String> configuredTaskTypes = jagaUserSettings.getTaskTypes();
 
@@ -587,7 +663,7 @@ public class JagaBugReportsService {
 				taskTypeComboBox.setEnabled(false);
 				statusLabel.setText("Тип задачи выбран автоматически");
 				statusLabel.setForeground(new Color(0, 128, 0));
-				loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText);
+				loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText, createButton);
 			} else {
 				taskTypeComboBox.setEnabled(true);
 				statusLabel.setText("Выберите тип задачи");
@@ -666,7 +742,7 @@ public class JagaBugReportsService {
 						taskTypeComboBox.setEnabled(false);
 						statusLabel.setText("Тип задачи выбран автоматически");
 						statusLabel.setForeground(new Color(0, 128, 0));
-						loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText);
+						loadTaskTypeFieldsAsync(options.get(0), fieldsContainer, statusLabel, reportText, createButton);
 					} else {
 						taskTypeComboBox.setEnabled(true);
 						statusLabel.setText("Выберите тип задачи");
@@ -687,10 +763,12 @@ public class JagaBugReportsService {
 			TaskTypeOption selectedTaskType,
 			JPanel fieldsContainer,
 			JLabel statusLabel,
-			String reportText
+			String reportText,
+			JButton createButton
 	) {
 		clearTaskTypeState();
 		clearDynamicFields(fieldsContainer);
+		createButton.setEnabled(false);
 
 		Long projectId = jagaUserSettings.getProjectId();
 		if (projectId == null) {
@@ -733,12 +811,14 @@ public class JagaBugReportsService {
 					JagaTaskTypeDetailsResponse response = get();
 
 					loadedTaskTypeResponse = response;
+					allTaskTypeFields = extractAllFields(response);
 					requiredTaskTypeFields = extractRequiredFields(response);
 
 					statusLabel.setText("Поля загружены: " + requiredTaskTypeFields.size());
 					statusLabel.setForeground(new Color(0, 128, 0));
 
-					renderTemporaryRequiredFieldsPreview(fieldsContainer, requiredTaskTypeFields, reportText);
+					renderRequiredFields(fieldsContainer, requiredTaskTypeFields, reportText, statusLabel);
+					createButton.setEnabled(true);
 				} catch (Exception ex) {
 					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
 					log.error("Ошибка загрузки полей типа задачи {}", selectedTaskType.getId(), cause);
@@ -748,6 +828,7 @@ public class JagaBugReportsService {
 
 					statusLabel.setText("Не удалось загрузить поля");
 					statusLabel.setForeground(Color.RED);
+					createButton.setEnabled(false);
 				}
 			}
 		}.execute();
@@ -777,24 +858,27 @@ public class JagaBugReportsService {
 				|| "task.project_id".equals(objectTypeNameM);
 	}
 
-	private void renderTemporaryRequiredFieldsPreview(
+	private void renderRequiredFields(
 			JPanel fieldsContainer,
 			List<JagaTaskAttributeResponse> fields,
-			String reportText
+			String reportText,
+			JLabel statusLabel
 	) {
 		fieldsContainer.removeAll();
+		fieldComponents.clear();
+		fieldDictionaryValues.clear();
 
 		GridBagConstraints gbc = new GridBagConstraints();
 		gbc.insets = new Insets(6, 6, 6, 6);
 		gbc.anchor = GridBagConstraints.NORTHWEST;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.weightx = 1.0;
 
 		int y = 0;
 
 		if (fields == null || fields.isEmpty()) {
 			gbc.gridx = 0;
 			gbc.gridy = y;
+			gbc.weightx = 1.0;
 			gbc.weighty = 1.0;
 			fieldsContainer.add(new JLabel("Обязательные поля не найдены"), gbc);
 			fieldsContainer.revalidate();
@@ -804,31 +888,7 @@ public class JagaBugReportsService {
 
 		for (JagaTaskAttributeResponse field : fields) {
 			JLabel label = new JLabel(resolveFieldLabel(field));
-
-			String objectType = safe(field.getObjectTypeNameM());
-			JComponent previewComponent;
-
-			if ("task.content".equals(objectType)) {
-				JTextArea textArea = new JTextArea(reportText, 6, 40);
-				textArea.setLineWrap(true);
-				textArea.setWrapStyleWord(true);
-				previewComponent = new JScrollPane(textArea);
-			} else {
-				JTextField preview = new JTextField();
-				preview.setEditable(false);
-
-				if (field.getDictionaryId() != null) {
-					if (Boolean.TRUE.equals(field.getMultipleSelector())) {
-						preview.setText("Будет MultiSelectChipsField");
-					} else {
-						preview.setText("Будет JComboBox");
-					}
-				} else {
-					preview.setText("Будет текстовое поле");
-				}
-
-				previewComponent = preview;
-			}
+			JComponent component = buildFieldComponent(field, reportText, statusLabel);
 
 			gbc.gridx = 0;
 			gbc.gridy = y;
@@ -838,17 +898,356 @@ public class JagaBugReportsService {
 
 			gbc.gridx = 1;
 			gbc.gridy = y++;
-			gbc.weightx = 1;
-			fieldsContainer.add(previewComponent, gbc);
+			gbc.weightx = 1.0;
+			gbc.fill = GridBagConstraints.HORIZONTAL;
+
+			if (component instanceof JScrollPane) {
+				gbc.fill = GridBagConstraints.BOTH;
+			}
+
+			fieldsContainer.add(component, gbc);
 		}
 
 		gbc.gridx = 0;
 		gbc.gridy = y;
+		gbc.weightx = 1.0;
 		gbc.weighty = 1.0;
+		gbc.fill = GridBagConstraints.BOTH;
 		fieldsContainer.add(Box.createVerticalGlue(), gbc);
 
 		fieldsContainer.revalidate();
 		fieldsContainer.repaint();
+	}
+
+	private JComponent buildFieldComponent(
+			JagaTaskAttributeResponse field,
+			String reportText,
+			JLabel statusLabel
+	) {
+		String objectType = safe(field.getObjectTypeNameM());
+
+		if ("task.content".equals(objectType)) {
+			JTextArea textArea = new JTextArea(reportText, 8, 40);
+			textArea.setLineWrap(true);
+			textArea.setWrapStyleWord(true);
+			JScrollPane scrollPane = new JScrollPane(textArea);
+			scrollPane.setPreferredSize(new Dimension(500, 160));
+			fieldComponents.put(field.getId(), textArea);
+			return scrollPane;
+		}
+
+		if (field.getDictionaryId() != null) {
+			if (Boolean.TRUE.equals(field.getMultipleSelector())) {
+				return buildMultiSelectDictionaryField(field, statusLabel);
+			}
+			return buildSingleSelectDictionaryField(field, statusLabel);
+		}
+
+		JTextField textField = new JTextField();
+		fieldComponents.put(field.getId(), textField);
+		return textField;
+	}
+
+	private LinkedHashMap<String, Long> loadDictionaryValueToId(
+			Long dictionaryId,
+			String username,
+			String password
+	) throws Exception {
+		if (dictionaryId == null) {
+			return new LinkedHashMap<>();
+		}
+
+		JagaListRefResponse response = new JagaControllerApi(
+				getApiClient("https://jaga.rt.ru", username, password)
+		).getListRefAny(dictionaryId).block();
+
+		LinkedHashMap<String, Long> result = new LinkedHashMap<>();
+		if (response == null || response.getItems() == null) {
+			return result;
+		}
+
+		for (JagaListRefItemResponse item : response.getItems()) {
+			if (item == null || item.getId() == null) {
+				continue;
+			}
+
+			String value = safe(item.getValue());
+			if (value.isBlank()) {
+				continue;
+			}
+
+			result.putIfAbsent(value, item.getId());
+		}
+
+		return result;
+	}
+
+	private JComponent buildSingleSelectDictionaryField(
+			JagaTaskAttributeResponse field,
+			JLabel statusLabel
+	) {
+		JComboBox<RefOption> comboBox = new JComboBox<>();
+		comboBox.setEnabled(false);
+		comboBox.addItem(new RefOption(null, "Загрузка..."));
+
+		fieldComponents.put(field.getId(), comboBox);
+
+		loadDictionaryAsync(field, statusLabel, valueToId -> {
+			DefaultComboBoxModel<RefOption> model = new DefaultComboBoxModel<>();
+			model.addElement(new RefOption(null, ""));
+
+			for (Map.Entry<String, Long> entry : valueToId.entrySet()) {
+				model.addElement(new RefOption(entry.getValue(), entry.getKey()));
+			}
+
+			comboBox.setModel(model);
+			comboBox.setEnabled(true);
+		});
+
+		return comboBox;
+	}
+
+	private JComponent buildMultiSelectDictionaryField(
+			JagaTaskAttributeResponse field,
+			JLabel statusLabel
+	) {
+		MultiSelectChipsField chipsField = new MultiSelectChipsField(List.of());
+		setTaskTypesFieldEnabled(chipsField, false);
+
+		fieldComponents.put(field.getId(), chipsField);
+
+		loadDictionaryAsync(field, statusLabel, valueToId -> {
+			List<ChipItem> chipItems = new ArrayList<>();
+			for (Map.Entry<String, Long> entry : valueToId.entrySet()) {
+				chipItems.add(new ChipItem(entry.getValue(), entry.getKey()));
+			}
+
+			chipsField.setAvailableItems(chipItems);
+			chipsField.setSelectedIds(List.of());
+			setTaskTypesFieldEnabled(chipsField, true);
+		});
+
+		return chipsField;
+	}
+
+	private void loadDictionaryAsync(
+			JagaTaskAttributeResponse field,
+			JLabel statusLabel,
+			java.util.function.Consumer<LinkedHashMap<String, Long>> onSuccess
+	) {
+		Long dictionaryId = field.getDictionaryId();
+		if (dictionaryId == null) {
+			onSuccess.accept(new LinkedHashMap<>());
+			return;
+		}
+
+		String username = safe(jagaUserSettings.getEmail());
+		final String password;
+		try {
+			password = resolveJagaPassword();
+		} catch (Exception ex) {
+			log.error("Не удалось получить пароль Jaga для dictionaryId={}", dictionaryId, ex);
+			statusLabel.setText("Не удалось загрузить справочник для поля: " + resolveFieldLabel(field));
+			statusLabel.setForeground(Color.RED);
+			return;
+		}
+
+		new SwingWorker<LinkedHashMap<String, Long>, Void>() {
+			@Override
+			protected LinkedHashMap<String, Long> doInBackground() throws Exception {
+				return loadDictionaryValueToId(dictionaryId, username, password);
+			}
+
+			@Override
+			protected void done() {
+				try {
+					LinkedHashMap<String, Long> valueToId = get();
+					fieldDictionaryValues.put(field.getId(), valueToId);
+					onSuccess.accept(valueToId);
+				} catch (Exception ex) {
+					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+					log.error("Ошибка загрузки dictionaryId={} для поля {}", dictionaryId, field.getId(), cause);
+					statusLabel.setText("Не удалось загрузить справочник: " + resolveFieldLabel(field));
+					statusLabel.setForeground(Color.RED);
+				}
+			}
+		}.execute();
+	}
+
+	private JagaTaskResponse createTask(TaskTypeOption selectedTaskType) throws Exception {
+		Long projectId = jagaUserSettings.getProjectId();
+		String username = safe(jagaUserSettings.getEmail());
+		String password = resolveJagaPassword();
+
+		if (projectId == null) {
+			throw new IllegalStateException("Не заполнен projectId");
+		}
+		if (username.isBlank()) {
+			throw new IllegalStateException("Не заполнен email");
+		}
+		if (password == null || password.isBlank()) {
+			throw new IllegalStateException("Не найден пароль");
+		}
+
+		JagaCreateTaskRequest request = buildCreateTaskRequest(selectedTaskType);
+
+		log.debug("Отправка задачи в Jaga: projectId={}, taskTypeId={}, attributesCount={}",
+				projectId, selectedTaskType.getId(), request.getAttributes() == null ? 0 : request.getAttributes().size());
+
+		JagaTaskResponse response = new JagaControllerApi(
+				getApiClient("https://jaga.rt.ru", username, password)
+		).createTaskByTaskType(projectId, selectedTaskType.getId(), request).block();
+
+		if (response == null) {
+			throw new IllegalStateException("Jaga вернула пустой ответ при создании задачи");
+		}
+
+		return response;
+	}
+
+	private JagaCreateTaskRequest buildCreateTaskRequest(TaskTypeOption selectedTaskType) {
+		if (loadedTaskTypeResponse == null) {
+			throw new IllegalStateException("Схема типа задачи не загружена");
+		}
+
+		if (selectedTaskType == null || selectedTaskType.getId() == null) {
+			throw new IllegalStateException("Не выбран тип задачи");
+		}
+
+		Long projectId = jagaUserSettings.getProjectId();
+		if (projectId == null) {
+			throw new IllegalStateException("Не заполнен projectId");
+		}
+
+		JagaCreateTaskRequest request = new JagaCreateTaskRequest();
+		request.setOrderNum(1);
+		request.setStatusModifier(1);
+		request.setAttachmentIds(new ArrayList<>());
+		request.setAttributes(new ArrayList<>());
+
+		for (JagaTaskAttributeResponse field : allTaskTypeFields) {
+			Object value = resolveAttributeValue(field, selectedTaskType, projectId);
+
+			if (shouldSendField(field, value)) {
+				JagaCreateTaskAttributeRequest attr = new JagaCreateTaskAttributeRequest();
+				attr.setFieldId(field.getId());
+				attr.setValue(value);
+				attr.setObjectTypeNameM(safe(field.getObjectTypeNameM()));
+				attr.setReferenceValue(false);
+				attr.setDictionaryId(null);
+				attr.setMnemo("");
+				request.getAttributes().add(attr);
+			}
+		}
+
+		Long statusId = resolveStatusIdFromLoadedType();
+		request.setStatusId(statusId);
+
+		return request;
+	}
+
+	private boolean shouldSendField(JagaTaskAttributeResponse field, Object value) {
+		if (field == null) {
+			return false;
+		}
+
+		if (value == null) {
+			return Boolean.TRUE.equals(field.getRequired());
+		}
+
+		if (value instanceof String s) {
+			return !s.isBlank() || Boolean.TRUE.equals(field.getRequired());
+		}
+
+		if (value instanceof List<?> list) {
+			return !list.isEmpty() || Boolean.TRUE.equals(field.getRequired());
+		}
+
+		return true;
+	}
+
+	private Object resolveAttributeValue(
+			JagaTaskAttributeResponse field,
+			TaskTypeOption selectedTaskType,
+			Long projectId
+	) {
+		String objectType = safe(field.getObjectTypeNameM());
+
+		switch (objectType) {
+			case "task.project_id":
+				return projectId;
+
+			case "task.type_id":
+				return selectedTaskType.getId();
+
+			case "task.content":
+				return getTextComponentValue(field);
+
+			case "task.task_title":
+				return getTextComponentValue(field);
+
+			default:
+				if (field.getDictionaryId() != null) {
+					if (Boolean.TRUE.equals(field.getMultipleSelector()) || Boolean.TRUE.equals(field.getMultiple())) {
+						return getMultiSelectValue(field);
+					}
+					return getSingleSelectValue(field);
+				}
+
+				if (Boolean.TRUE.equals(field.getMultipleSelector()) || Boolean.TRUE.equals(field.getMultiple())) {
+					return getMultiValueWithoutDictionary(field);
+				}
+
+				return getTextComponentValue(field);
+		}
+	}
+
+	private String getTextComponentValue(JagaTaskAttributeResponse field) {
+		JComponent component = fieldComponents.get(field.getId());
+		if (component instanceof JTextField textField) {
+			return safe(textField.getText());
+		}
+		if (component instanceof JTextArea textArea) {
+			return safe(textArea.getText());
+		}
+		return "";
+	}
+
+	private Object getSingleSelectValue(JagaTaskAttributeResponse field) {
+		JComponent component = fieldComponents.get(field.getId());
+		if (component instanceof JComboBox<?> comboBox) {
+			Object selected = comboBox.getSelectedItem();
+			if (selected instanceof RefOption option) {
+				return option.getId();
+			}
+		}
+		return null;
+	}
+
+	private Object getMultiSelectValue(JagaTaskAttributeResponse field) {
+		JComponent component = fieldComponents.get(field.getId());
+		if (component instanceof MultiSelectChipsField chipsField) {
+			return new ArrayList<>(chipsField.getSelectedIds());
+		}
+		return new ArrayList<Long>();
+	}
+
+	private Object getMultiValueWithoutDictionary(JagaTaskAttributeResponse field) {
+		JComponent component = fieldComponents.get(field.getId());
+		if (component instanceof JTextField textField) {
+			String text = safe(textField.getText());
+			if (text.isBlank()) {
+				return new ArrayList<>();
+			}
+
+			List<String> values = java.util.Arrays.stream(text.split(","))
+					.map(String::trim)
+					.filter(s -> !s.isBlank())
+					.toList();
+
+			return new ArrayList<>(values);
+		}
+		return new ArrayList<>();
 	}
 
 	private void clearDynamicFields(JPanel fieldsContainer) {
@@ -859,7 +1258,10 @@ public class JagaBugReportsService {
 
 	private void clearTaskTypeState() {
 		loadedTaskTypeResponse = null;
+		allTaskTypeFields = new ArrayList<>();
 		requiredTaskTypeFields = new ArrayList<>();
+		fieldComponents.clear();
+		fieldDictionaryValues.clear();
 	}
 
 	private void fillTaskTypeCombo(JComboBox<TaskTypeOption> comboBox, List<TaskTypeOption> options) {
@@ -1005,44 +1407,152 @@ public class JagaBugReportsService {
 		return null;
 	}
 
-	private void showBugReportDialog(String text) {
-		JTextArea textArea = new JTextArea(text, 25, 80);
+	private void importJagaCertificates(Component parent) {
+		final String domain = "jaga.rt.ru";
+
+		try {
+			String ksPath = config.trustStorePath != null ? config.trustStorePath.trim() : "";
+			if (ksPath.isEmpty()) {
+				Path configDir = configService.loadConfigDir();
+				ksPath = configDir.resolve("custom-cacerts.jks").toString();
+				config.trustStorePath = ksPath;
+			}
+
+			String ksPassword = config.trustStorePassword != null && !config.trustStorePassword.isBlank()
+					? config.trustStorePassword
+					: "changeit";
+
+			String ksType = config.trustStoreType != null && !config.trustStoreType.isBlank()
+					? config.trustStoreType
+					: "JKS";
+
+			config.trustStorePassword = ksPassword;
+			config.trustStoreType = ksType;
+			configService.save(config);
+
+			final String finalKsPath = ksPath;
+			final String finalKsPassword = ksPassword;
+			final String finalKsType = ksType;
+
+			new SwingWorker<List<String>, Void>() {
+				@Override
+				protected List<String> doInBackground() throws Exception {
+					return util.CertImporter.importCertsFromDomain(
+							domain,
+							443,
+							finalKsPath,
+							finalKsPassword,
+							finalKsType
+					);
+				}
+
+				@Override
+				protected void done() {
+					try {
+						List<String> added = get();
+
+						String msg = added.isEmpty()
+								? "Сертификаты для " + domain + " уже были в хранилище.\nTrustStore: " + finalKsPath
+								: "Добавлено сертификатов: " + added.size() + "\n"
+								+ String.join("\n", added)
+								+ "\n\nTrustStore: " + finalKsPath;
+
+						JOptionPane.showMessageDialog(
+								parent,
+								msg,
+								"Импорт сертификатов",
+								JOptionPane.INFORMATION_MESSAGE
+						);
+					} catch (Exception ex) {
+						Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+						JOptionPane.showMessageDialog(
+								parent,
+								"Не удалось импортировать сертификаты для " + domain + ":\n" + cause.getMessage(),
+								"Ошибка импорта",
+								JOptionPane.WARNING_MESSAGE
+						);
+					}
+				}
+			}.execute();
+
+		} catch (Exception ex) {
+			JOptionPane.showMessageDialog(
+					parent,
+					"Не удалось подготовить trustStore:\n" + ex.getMessage(),
+					"Ошибка",
+					JOptionPane.WARNING_MESSAGE
+			);
+		}
+	}
+
+	private String resolveTaskTitleForMessage() {
+		for (JagaTaskAttributeResponse field : allTaskTypeFields) {
+			if (field == null) {
+				continue;
+			}
+
+			String objectType = safe(field.getObjectTypeNameM());
+			String name = safe(field.getName());
+
+			if ("task.task_title".equals(objectType) || "Название".equalsIgnoreCase(name)) {
+				return getTextComponentValue(field);
+			}
+		}
+		return "";
+	}
+
+	private String buildCreatedTaskMessage(JagaTaskResponse response) {
+		String code = response == null ? "" : safe(response.getCode());
+		String title = resolveTaskTitleForMessage();
+
+		String url = code.isBlank()
+				? "https://jaga.rt.ru/browse/"
+				: "https://jaga.rt.ru/browse/" + code;
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("Завел баг ").append(url);
+
+		if (!title.isBlank()) {
+			sb.append(System.lineSeparator()).append(title);
+		}
+
+		return sb.toString();
+	}
+
+	private void showCreatedTaskDialog(Window parent, String message) {
+		JDialog dialog = new JDialog(parent, "Баг создан", Dialog.ModalityType.APPLICATION_MODAL);
+		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+		JTextArea textArea = new JTextArea(message, 6, 60);
+		textArea.setEditable(false);
 		textArea.setLineWrap(true);
 		textArea.setWrapStyleWord(true);
-		textArea.setEditable(true);
 		textArea.setCaretPosition(0);
 
 		JScrollPane scrollPane = new JScrollPane(textArea);
 
-		JButton copyButton = new JButton("Скопировать");
+		JButton copyButton = new JButton("Копировать");
 		copyButton.addActionListener(e -> {
-			textArea.selectAll();
-			textArea.copy();
-			textArea.select(0, 0);
+			Toolkit.getDefaultToolkit()
+					.getSystemClipboard()
+					.setContents(new java.awt.datatransfer.StringSelection(message), null);
 		});
 
 		JButton closeButton = new JButton("Закрыть");
-		closeButton.addActionListener(e -> {
-			Window window = SwingUtilities.getWindowAncestor(closeButton);
-			if (window != null) {
-				window.dispose();
-			}
-		});
+		closeButton.addActionListener(e -> dialog.dispose());
 
 		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 		buttons.add(copyButton);
 		buttons.add(closeButton);
 
-		JPanel root = new JPanel(new BorderLayout(8, 8));
-		root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+		JPanel root = new JPanel(new BorderLayout(10, 10));
+		root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
 		root.add(scrollPane, BorderLayout.CENTER);
 		root.add(buttons, BorderLayout.SOUTH);
 
-		JDialog dialog = new JDialog((Frame) null, "Черновик баг-репорта", true);
-		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 		dialog.setContentPane(root);
 		dialog.pack();
-		dialog.setLocationRelativeTo(null);
+		dialog.setLocationRelativeTo(parent);
 		dialog.setVisible(true);
 	}
 
@@ -1104,11 +1614,66 @@ public class JagaBugReportsService {
 	}
 
 	private ApiClient getApiClient(String fullUrl, String username, String password) {
-		ApiClient apiClient = new ApiClient();
-		String token = getJagaToken(username, password);
-		apiClient.setBearerToken(token);
-		apiClient.setBasePath(fullUrl);
-		return apiClient;
+		try {
+			WebClient webClient = buildJagaWebClient();
+			ApiClient apiClient = new ApiClient(webClient);
+			apiClient.setBasePath(fullUrl);
+
+			String token = getJagaToken(username, password);
+			apiClient.setBearerToken(token);
+
+			return apiClient;
+		} catch (Exception ex) {
+			throw new IllegalStateException("Не удалось создать Jaga ApiClient с trustStore: " + ex.getMessage(), ex);
+		}
+	}
+
+	private TrustManagerFactory buildTrustManagerFactory() throws Exception {
+		String ksPath = config.trustStorePath != null ? config.trustStorePath.trim() : "";
+		String ksPassword = config.trustStorePassword != null && !config.trustStorePassword.isBlank()
+				? config.trustStorePassword
+				: "changeit";
+		String ksType = config.trustStoreType != null && !config.trustStoreType.isBlank()
+				? config.trustStoreType
+				: "JKS";
+
+		if (ksPath.isBlank()) {
+			throw new IllegalStateException("Не указан trustStorePath");
+		}
+
+		Path path = Path.of(ksPath);
+		if (!Files.exists(path)) {
+			throw new IllegalStateException("TrustStore не найден: " + ksPath);
+		}
+
+		KeyStore trustStore = KeyStore.getInstance(ksType);
+		try (InputStream is = Files.newInputStream(path)) {
+			trustStore.load(is, ksPassword.toCharArray());
+		}
+
+		TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+				TrustManagerFactory.getDefaultAlgorithm()
+		);
+		tmf.init(trustStore);
+		return tmf;
+	}
+
+	private WebClient buildJagaWebClient() throws Exception {
+		ObjectMapper mapper = ApiClient.createDefaultObjectMapper(ApiClient.createDefaultDateFormat());
+
+		TrustManagerFactory tmf = buildTrustManagerFactory();
+
+		io.netty.handler.ssl.SslContext sslContext = io.netty.handler.ssl.SslContextBuilder
+				.forClient()
+				.trustManager(tmf)
+				.build();
+
+		reactor.netty.http.client.HttpClient httpClient = reactor.netty.http.client.HttpClient.create()
+				.secure(sslSpec -> sslSpec.sslContext(sslContext));
+
+		return ApiClient.buildWebClientBuilder(mapper)
+				.clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(httpClient))
+				.build();
 	}
 
 	private String getJagaToken(String username, String password) {
@@ -1193,11 +1758,95 @@ public class JagaBugReportsService {
 		return buildTaskLabelToIdMap(response);
 	}
 
+	//должно быть 100042L
+	@SneakyThrows
+	private Long resolveStatusIdFromLoadedType() {
+		if (loadedTaskTypeResponse == null) {
+			throw new IllegalStateException("Схема типа задачи не загружена");
+		}
+
+		Long workflowId = loadedTaskTypeResponse.getWorkflowId();
+		if (workflowId == null) {
+			throw new IllegalStateException("У типа задачи отсутствует workflowId");
+		}
+
+		String username = safe(jagaUserSettings.getEmail());
+		String password = resolveJagaPassword();
+
+		if (username.isBlank() || password == null || password.isBlank()) {
+			throw new IllegalStateException("Не заполнены учетные данные Jaga");
+		}
+
+		JagaWorkflowResponse workflow = new JagaControllerApi(
+				getApiClient("https://jaga.rt.ru", username, password)
+		).getWorkflow(workflowId).block();
+
+		if (workflow == null || workflow.getStatusTransitions() == null || workflow.getStatusTransitions().isEmpty()) {
+			throw new IllegalStateException("Не удалось получить переходы workflow");
+		}
+
+		Long preferred = workflow.getStatusTransitions().stream()
+				.filter(Objects::nonNull)
+				.filter(t -> t.getStatusFromId() == null)
+				.filter(t -> t.getStatusToId() != null)
+				.filter(t -> Integer.valueOf(1).equals(t.getTransitionMod()))
+				.map(JagaWorkflowTransitionResponse::getStatusToId)
+				.findFirst()
+				.orElse(null);
+
+		if (preferred != null) {
+			return preferred;
+		}
+
+		Long fallback = workflow.getStatusTransitions().stream()
+				.filter(Objects::nonNull)
+				.filter(t -> t.getStatusFromId() == null)
+				.filter(t -> t.getStatusToId() != null)
+				.filter(t -> Integer.valueOf(0).equals(t.getTransitionMod()))
+				.map(JagaWorkflowTransitionResponse::getStatusToId)
+				.findFirst()
+				.orElse(null);
+
+		if (fallback != null) {
+			return fallback;
+		}
+
+		return workflow.getStatusTransitions().stream()
+				.filter(Objects::nonNull)
+				.map(JagaWorkflowTransitionResponse::getStatusToId)
+				.filter(Objects::nonNull)
+				.findFirst()
+				.orElseThrow(() -> new IllegalStateException("Не найден стартовый статус workflow"));
+	}
+
 	private static class TaskTypeOption {
 		private final Long id;
 		private final String label;
 
 		private TaskTypeOption(Long id, String label) {
+			this.id = id;
+			this.label = label;
+		}
+
+		public Long getId() {
+			return id;
+		}
+
+		public String getLabel() {
+			return label;
+		}
+
+		@Override
+		public String toString() {
+			return label == null ? "" : label;
+		}
+	}
+
+	private static class RefOption {
+		private final Long id;
+		private final String label;
+
+		private RefOption(Long id, String label) {
 			this.id = id;
 			this.label = label;
 		}
