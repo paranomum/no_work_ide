@@ -530,4 +530,132 @@ public class JagaControllerApi {
 				new ParameterizedTypeReference<JagaWorkflowResponse>() {};
 		return getWorkflowRequestCreation(workflowId).bodyToMono(localVarReturnType);
 	}
+
+	/**
+	 * <p><b>200</b> - OK
+	 *
+	 * @param projectId        (required)
+	 * @param size             (required)
+	 * @param page             (required)
+	 * @param searchRequestDto (required)
+	 * @return SearchResultDto
+	 * @throws WebClientResponseException if an error occurs while attempting to invoke the API
+	 */
+	private ResponseSpec searchTaskByIdOrTitleRequestCreation(
+			Long projectId,
+			Integer size,
+			Integer page,
+			SearchRequestDto searchRequestDto
+	) throws WebClientResponseException {
+		Object postBody = searchRequestDto;
+
+		if (projectId == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'projectId' when calling searchTaskByIdOrTitle",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		if (size == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'size' when calling searchTaskByIdOrTitle",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		if (page == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'page' when calling searchTaskByIdOrTitle",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		if (searchRequestDto == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'searchRequestDto' when calling searchTaskByIdOrTitle",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		final Map<String, Object> pathParams = new HashMap<>();
+		final MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();
+		final HttpHeaders headerParams = new HttpHeaders();
+		final MultiValueMap<String, String> cookieParams = new LinkedMultiValueMap<>();
+		final MultiValueMap<String, Object> formParams = new LinkedMultiValueMap<>();
+
+		// ?size=10&page=0&projectId={projectId}
+		queryParams.putAll(apiClient.parameterToMultiValueMap(null, "size", size));
+		queryParams.putAll(apiClient.parameterToMultiValueMap(null, "page", page));
+		queryParams.putAll(apiClient.parameterToMultiValueMap(null, "projectId", projectId));
+
+		final String[] localVarAccepts = {
+				"application/json",
+				"*/*"
+		};
+		final List<MediaType> localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+		final String[] localVarContentTypes = {
+				"application/json"
+		};
+		final MediaType localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+		String[] localVarAuthNames = new String[] { "bearer-jwt" };
+
+		ParameterizedTypeReference<SearchResultDto> localVarReturnType =
+				new ParameterizedTypeReference<SearchResultDto>() {};
+
+		return apiClient.invokeAPI(
+				"/backend/task/searchByTitleCode",
+				HttpMethod.POST,
+				pathParams,
+				queryParams,
+				postBody,
+				headerParams,
+				cookieParams,
+				formParams,
+				localVarAccept,
+				localVarContentType,
+				localVarAuthNames,
+				localVarReturnType
+		);
+	}
+
+
+	/**
+	 * <p><b>200</b> - OK
+	 *
+	 * @param projectId        (required)
+	 * @param size             (required)
+	 * @param page             (required)
+	 * @param searchRequestDto (required)
+	 * @return SearchResultDto
+	 * @throws WebClientResponseException if an error occurs while attempting to invoke the API
+	 */
+	public Mono<SearchResultDto> searchTaskByIdOrTitle(
+			Long projectId,
+			Integer size,
+			Integer page,
+			SearchRequestDto searchRequestDto
+	) throws WebClientResponseException {
+		ParameterizedTypeReference<SearchResultDto> localVarReturnType =
+				new ParameterizedTypeReference<SearchResultDto>() {};
+		return searchTaskByIdOrTitleRequestCreation(projectId, size, page, searchRequestDto)
+				.bodyToMono(localVarReturnType);
+	}
 }
