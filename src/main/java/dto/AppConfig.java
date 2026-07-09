@@ -23,4 +23,8 @@ public class AppConfig {
 	public String selectedDomain = "";
 
 	public Map<String, Integer> actionTableColumnWidths = new HashMap<>();
+
+	// новое
+	public String jagaUserSettingsPath = "";
+	public JagaUserSettings jagaUserSettings = new JagaUserSettings();
 }

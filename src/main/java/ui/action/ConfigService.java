@@ -3,6 +3,8 @@ package ui.action;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dto.AppConfig;
+import dto.JagaUserSettings;
+import util.SimpleSecretService;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -19,6 +21,7 @@ public class ConfigService {
 	private static final String USERS_FILE_NAME = "users.json";
 	//	private static final String BACKEND_REQUESTS_FILE_NAME = "backendRequests.json";
 	private static final String DEFAULT_TRUSTSTORE_FILE_NAME = "custom-cacerts.jks";
+	private static final String JAGA_USER_SETTINGS_FILE_NAME = "jagaUserSettings.json";
 	private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
 	private Path getConfigDir() throws IOException {
@@ -87,10 +90,21 @@ public class ConfigService {
 				if (cfg.openApiSpecsPath == null) cfg.openApiSpecsPath = "";
 				if (cfg.customMethodsPath == null) cfg.customMethodsPath = "";
 				if (cfg.usersSpecsPath == null) cfg.usersSpecsPath = "";
+				if (cfg.backendRequestsPath == null) cfg.backendRequestsPath = "";
+				if (cfg.trustStorePath == null) cfg.trustStorePath = "";
+				if (cfg.trustStorePassword == null) cfg.trustStorePassword = "changeit";
+				if (cfg.trustStoreType == null) cfg.trustStoreType = "PKCS12";
 				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
-				// НОВОЕ: защита от null для полей доменов
 				if (cfg.domains == null) cfg.domains = new java.util.ArrayList<>();
 				if (cfg.selectedDomain == null) cfg.selectedDomain = "";
+
+				if (cfg.jagaUserSettingsPath == null) cfg.jagaUserSettingsPath = "";
+				if (cfg.jagaUserSettings == null) cfg.jagaUserSettings = new JagaUserSettings();
+				if (cfg.jagaUserSettings.getEmail() == null) cfg.jagaUserSettings.setEmail("");
+				if (cfg.jagaUserSettings.getPassword() == null) cfg.jagaUserSettings.setPassword("");
+				if (cfg.jagaUserSettings.getTaskTypes() == null) {
+					cfg.jagaUserSettings.setTaskTypes(new java.util.LinkedHashMap<>());
+				}
 
 				return cfg;
 			}
@@ -185,6 +199,106 @@ public class ConfigService {
 
 	public Path loadConfigDir() throws IOException {
 		return getConfigDir();
+	}
+
+	public Path getJagaUserSettingsFile(AppConfig cfg) throws IOException {
+		Path dir = getConfigDir();
+		if (!Files.exists(dir)) {
+			Files.createDirectories(dir);
+		}
+
+		Path file;
+		if (cfg != null && cfg.jagaUserSettingsPath != null && !cfg.jagaUserSettingsPath.isBlank()) {
+			file = Paths.get(cfg.jagaUserSettingsPath);
+			if (!file.isAbsolute()) {
+				file = dir.resolve(cfg.jagaUserSettingsPath);
+			}
+		} else {
+			file = dir.resolve(JAGA_USER_SETTINGS_FILE_NAME);
+		}
+
+		if (file.getParent() != null && !Files.exists(file.getParent())) {
+			Files.createDirectories(file.getParent());
+		}
+
+		if (!Files.exists(file)) {
+			try (Writer w = Files.newBufferedWriter(file)) {
+				gson.toJson(new JagaUserSettings(), w);
+			}
+		}
+
+		return file;
+	}
+
+	public JagaUserSettings loadJagaUserSettings(AppConfig cfg) {
+		try {
+			Path file = getJagaUserSettingsFile(cfg);
+
+			try (Reader r = Files.newBufferedReader(file)) {
+				JagaUserSettings settings = gson.fromJson(r, JagaUserSettings.class);
+
+				if (settings == null) {
+					settings = new JagaUserSettings();
+				}
+
+				if (settings.getEmail() == null) {
+					settings.setEmail("");
+				}
+				if (settings.getTaskTypes() == null) {
+					settings.setTaskTypes(new java.util.LinkedHashMap<>());
+				}
+				if (settings.getEncryptedPassword() == null) {
+					settings.setEncryptedPassword("");
+				}
+
+				settings.setPassword("");
+				return settings;
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+
+			JagaUserSettings settings = new JagaUserSettings();
+			settings.setEmail("");
+			settings.setTaskTypes(new java.util.LinkedHashMap<>());
+			settings.setEncryptedPassword("");
+			settings.setPassword("");
+
+			return settings;
+		}
+	}
+
+	public void saveJagaUserSettings(AppConfig cfg, JagaUserSettings settings) throws IOException {
+		Path file = getJagaUserSettingsFile(cfg);
+
+		JagaUserSettings existingSettings = loadJagaUserSettings(cfg);
+
+		if (settings == null) {
+			settings = new JagaUserSettings();
+		}
+
+		if (settings.getEmail() == null) {
+			settings.setEmail("");
+		}
+		if (settings.getTaskTypes() == null) {
+			settings.setTaskTypes(new java.util.LinkedHashMap<>());
+		}
+		if (settings.getEncryptedPassword() == null) {
+			settings.setEncryptedPassword("");
+		}
+
+		if (settings.getPassword() != null && !settings.getPassword().isBlank()) {
+			settings.setEncryptedPassword(SimpleSecretService.encrypt(settings.getPassword()));
+		} else {
+			settings.setEncryptedPassword(existingSettings.getEncryptedPassword() == null
+					? ""
+					: existingSettings.getEncryptedPassword());
+		}
+
+		settings.setPassword("");
+
+		try (Writer w = Files.newBufferedWriter(file)) {
+			gson.toJson(settings, w);
+		}
 	}
 }
 

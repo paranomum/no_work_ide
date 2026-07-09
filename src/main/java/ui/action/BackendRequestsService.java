@@ -629,7 +629,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		addUniqueRow.setToolTipText("Добавить переопределение значения для поля");
 		JButton removeUniqueRow = new JButton("-");
 		removeUniqueRow.setToolTipText("Удалить переопределение значения для поля");
-		JButton parseBtn = new JButton("⬇ Разобрать поля из ответа");
+		JButton parseBtn = new JButton("⬇ Разобрать поля из запроса");
 		parseBtn.setFont(parseBtn.getFont().deriveFont(11f));
 
 		addUniqueRow.addActionListener(e ->
@@ -654,7 +654,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			String bodyType = Objects.toString(bodyTypeCombo.getSelectedItem(), "JSON");
 			List<String> paths = new ArrayList<>();
 
-			if ("FORM_URLENCODED".equals(bodyType)) {
+			if ("FORM_URL_ENCODED".equals(bodyType)) {
 				DefaultTableModel formModel = (DefaultTableModel) formDataPanel.getClientProperty("formModel");
 				if (formModel != null) {
 					for (int r = 0; r < formModel.getRowCount(); r++) {
@@ -668,29 +668,22 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				if (paths.isEmpty()) {
 					JOptionPane.showMessageDialog(
 							dlg,
-							"Не удалось разобрать form-data: список полей пуст.",
+							"Form-data пустой.",
 							"Parse error",
 							JOptionPane.WARNING_MESSAGE
 					);
 					return;
 				}
 			} else {
-				String responseText = responseBodyArea.getText().trim();
-				if (!responseText.isEmpty()) {
-					paths = extractJsonLeafPaths(responseText);
-				}
-
-				if (paths.isEmpty()) {
-					String requestText = bodyArea.getText().trim();
-					if (!requestText.isEmpty()) {
-						paths = extractJsonLeafPaths(requestText);
-					}
+				String requestText = bodyArea.getText().trim();
+				if (!requestText.isEmpty()) {
+					paths = extractJsonLeafPaths(requestText);
 				}
 
 				if (paths.isEmpty()) {
 					JOptionPane.showMessageDialog(
 							dlg,
-							"Не удалось разобрать JSON ответа или request body пуст/невалиден.",
+							"JSON request body пустой или некорректный.",
 							"Parse error",
 							JOptionPane.WARNING_MESSAGE
 					);
@@ -711,12 +704,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 				}
 			}
 
-			JOptionPane.showMessageDialog(
-					dlg,
-					"Добавлено " + added + " полей (дубликаты пропущены).",
-					"Done",
-					JOptionPane.INFORMATION_MESSAGE
-			);
+			JOptionPane.showMessageDialog(dlg, added + " полей добавлено.", "Done", JOptionPane.INFORMATION_MESSAGE);
 		});
 
 		JPanel uniqueToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));

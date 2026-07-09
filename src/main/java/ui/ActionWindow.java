@@ -53,6 +53,7 @@ public class ActionWindow extends JFrame {
 	private final BackendRequestsService backendRequestsService;
 	private final ProxyCaptureService proxyCaptureService;
 	private final VariablesService variablesService;
+	private final JagaBugReportsService jagaBugReportsService;
 	private JTable actionTable;
 	private DefaultTableModel tableModel;
 	private JButton addActionButton;
@@ -115,6 +116,7 @@ public class ActionWindow extends JFrame {
 		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 		fileService.setBackendRequestsService(backendRequestsService);
 		fileService.setPlayActionServiceRef(playActionService);
+		jagaBugReportsService = new JagaBugReportsService(tableModel, configService, config);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());
@@ -174,6 +176,10 @@ public class ActionWindow extends JFrame {
 //				e -> openApiService.openGenerateApiClientDialog(this)
 //		);
 //		menuPopup.add(generateApiClientItem);
+
+		JMenuItem bugItem = new JMenuItem("Завести баг репорт");
+		bugItem.addActionListener(e -> jagaBugReportsService.createBugReport());
+		menuPopup.add(bugItem);
 
 		JMenuItem settingsItem = new JMenuItem("Настройки");
 		settingsItem.addActionListener(e -> openSettingsDialog());
@@ -1161,6 +1167,9 @@ public class ActionWindow extends JFrame {
 		JPanel backendPanel = backendRequestsService.createBackendRequestsSettingsPanel(dialog);
 		tabs.addTab("Backend", backendPanel);
 
+		JPanel jagaPanel = jagaBugReportsService.createJagaSettingsPanel(dialog);
+		tabs.addTab("Настройка Яги", jagaPanel);
+
 		dialog.add(tabs, BorderLayout.CENTER);
 
 		JButton closeBtn = new JButton("Закрыть");
@@ -2033,32 +2042,80 @@ public class ActionWindow extends JFrame {
 
 	private void toggleSlowDown() {
 		if (playActionService.getStepDelayMs() > 0) {
-			// Замедление уже включено — выключаем
 			playActionService.setStepDelayMs(0);
-			slowDownButton.setText("🐢 Замедлить тест");
+			slowDownButton.setText("Замедлить");
 			slowDownButton.setToolTipText("Добавить задержку перед каждым шагом");
-		} else {
-			// Замедление выключено — спрашиваем задержку и включаем
-			SpinnerNumberModel spinnerModel = new SpinnerNumberModel(2, 1, 60, 1);
-			JSpinner spinner = new JSpinner(spinnerModel);
-			JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-			panel.add(new JLabel("Задержка (секунд):"));
-			panel.add(spinner);
+			return;
+		}
 
-			int result = JOptionPane.showConfirmDialog(
-					this,
-					panel,
-					"Настройка замедления",
-					JOptionPane.OK_CANCEL_OPTION,
-					JOptionPane.PLAIN_MESSAGE
-			);
+		SpinnerNumberModel spinnerModel = new SpinnerNumberModel(2, 1, 60, 1);
+		JSpinner spinner = new JSpinner(spinnerModel);
 
-			if (result == JOptionPane.OK_OPTION) {
-				int seconds = (int) spinner.getValue();
-				playActionService.setStepDelayMs(seconds * 1000L);
-				slowDownButton.setText("Убрать замедление");
-				slowDownButton.setToolTipText("Сейчас задержка " + seconds + " сек. Нажмите, чтобы убрать.");
+		JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+		panel.add(new JLabel("Задержка (секунд):"));
+		panel.add(spinner);
+
+		Object[] options = {"Отмена", "Добавить шагом", "Ок"};
+
+		int result = JOptionPane.showOptionDialog(
+				this,
+				panel,
+				"Настройка замедления",
+				JOptionPane.DEFAULT_OPTION,
+				JOptionPane.PLAIN_MESSAGE,
+				null,
+				options,
+				options[2]
+		);
+
+		if (result == 0 || result == JOptionPane.CLOSED_OPTION) {
+			return;
+		}
+
+		int seconds = (int) spinner.getValue();
+
+		if (result == 2) {
+			playActionService.setStepDelayMs(seconds * 1000L);
+			slowDownButton.setText("Убрать замедление");
+			slowDownButton.setToolTipText("Сейчас задержка " + seconds + " сек. Нажмите, чтобы убрать.");
+			return;
+		}
+
+		if (result == 1) {
+			addPauseRowsBetweenOriginalSteps(seconds);
+		}
+	}
+
+	private void addPauseRowsBetweenOriginalSteps(int seconds) {
+		List<Object[]> originalRows = new ArrayList<>();
+
+		for (int i = 0; i < tableModel.getRowCount(); i++) {
+			int columnCount = tableModel.getColumnCount();
+			Object[] row = new Object[columnCount];
+			for (int j = 0; j < columnCount; j++) {
+				row[j] = tableModel.getValueAt(i, j);
 			}
+			originalRows.add(row);
+		}
+
+		tableModel.setRowCount(0);
+
+		for (Object[] originalRow : originalRows) {
+			tableModel.addRow(originalRow);
+
+			tableModel.addRow(new Object[]{
+					null,
+					"pause",
+					"",
+					seconds,
+					"",
+					"",
+					"",
+					"",
+					"",
+					"",
+					""
+			});
 		}
 	}
 }
