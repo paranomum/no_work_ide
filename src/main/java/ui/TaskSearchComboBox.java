@@ -8,6 +8,7 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.event.ItemEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -31,8 +32,10 @@ public class TaskSearchComboBox extends JPanel {
 	private final Function<SearchRequestDto, SearchResultDto> searchFunction;
 
 	private boolean suppressEditorEvents = false;
+	private boolean suppressComboEvents = false;
 	private boolean clearingNow = false;
 	private String lastSearchText = "";
+	private TaskOption selectedTaskOption;
 
 	public TaskSearchComboBox(
 			Long projectId,
@@ -97,14 +100,32 @@ public class TaskSearchComboBox extends JPanel {
 			}
 		});
 
+		comboBox.addItemListener(e -> {
+			if (clearingNow || suppressComboEvents) {
+				return;
+			}
+
+			if (e.getStateChange() == ItemEvent.SELECTED && e.getItem() instanceof TaskOption option) {
+				selectedTaskOption = option;
+				setEditorText(option.getDisplayText());
+				updateClearButtonState();
+			}
+		});
+
 		comboBox.addActionListener(e -> {
-			if (clearingNow) {
+			if (clearingNow || suppressComboEvents) {
 				return;
 			}
 
 			Object selected = comboBox.getSelectedItem();
 			if (selected instanceof TaskOption option) {
+				selectedTaskOption = option;
 				setEditorText(option.getDisplayText());
+			} else {
+				TaskOption matched = findOptionByCurrentText();
+				if (matched != null) {
+					setSelectedOption(matched);
+				}
 			}
 
 			updateClearButtonState();
@@ -121,15 +142,29 @@ public class TaskSearchComboBox extends JPanel {
 			return;
 		}
 
-		Object selected = comboBox.getSelectedItem();
-		if (selected instanceof TaskOption option) {
-			String currentText = safe(editor.getText());
-			if (Objects.equals(currentText, option.getDisplayText())) {
-				updateClearButtonState();
-				return;
-			}
+		String currentText = safe(editor.getText());
+
+		if (currentText.isBlank()) {
+			selectedTaskOption = null;
+			lastSearchText = "";
+			updateClearButtonState();
+			debounceTimer.stop();
+			return;
 		}
 
+		if (selectedTaskOption != null && matchesByCode(currentText, selectedTaskOption)) {
+			updateClearButtonState();
+			return;
+		}
+
+		TaskOption matched = findOptionByText(currentText);
+		if (matched != null) {
+			selectedTaskOption = matched;
+			updateClearButtonState();
+			return;
+		}
+
+		selectedTaskOption = null;
 		updateClearButtonState();
 		debounceTimer.restart();
 	}
@@ -138,6 +173,7 @@ public class TaskSearchComboBox extends JPanel {
 		String text = safe(editor.getText());
 
 		if (text.length() < MIN_SEARCH_LENGTH) {
+			lastSearchText = "";
 			clearLoadedItemsOnly();
 			return;
 		}
@@ -187,14 +223,29 @@ public class TaskSearchComboBox extends JPanel {
 				try {
 					List<TaskOption> items = get();
 
-					model.removeAllElements();
-					for (TaskOption item : items) {
-						model.addElement(item);
-					}
+					suppressComboEvents = true;
+					try {
+						model.removeAllElements();
+						for (TaskOption item : items) {
+							model.addElement(item);
+						}
 
-					comboBox.setEnabled(true);
-					comboBox.setSelectedItem(null);
-					setEditorText(text);
+						TaskOption matched = selectedTaskOption != null
+								? findOptionByCode(selectedTaskOption.getCode())
+								: findOptionByText(text);
+
+						comboBox.setEnabled(true);
+
+						if (matched != null) {
+							setSelectedOption(matched);
+						} else {
+							selectedTaskOption = null;
+							comboBox.setSelectedItem(null);
+							setEditorText(text);
+						}
+					} finally {
+						suppressComboEvents = false;
+					}
 
 					if (!items.isEmpty()) {
 						comboBox.showPopup();
@@ -214,10 +265,17 @@ public class TaskSearchComboBox extends JPanel {
 		try {
 			debounceTimer.stop();
 			lastSearchText = "";
-			model.removeAllElements();
-			comboBox.hidePopup();
-			comboBox.setSelectedItem(null);
-			setEditorText("");
+			selectedTaskOption = null;
+
+			suppressComboEvents = true;
+			try {
+				model.removeAllElements();
+				comboBox.hidePopup();
+				comboBox.setSelectedItem(null);
+				setEditorText("");
+			} finally {
+				suppressComboEvents = false;
+			}
 		} finally {
 			clearingNow = false;
 			updateClearButtonState();
@@ -225,10 +283,82 @@ public class TaskSearchComboBox extends JPanel {
 	}
 
 	private void clearLoadedItemsOnly() {
-		model.removeAllElements();
-		comboBox.hidePopup();
-		comboBox.setSelectedItem(null);
+		selectedTaskOption = null;
+
+		suppressComboEvents = true;
+		try {
+			model.removeAllElements();
+			comboBox.hidePopup();
+			comboBox.setSelectedItem(null);
+		} finally {
+			suppressComboEvents = false;
+		}
+
 		updateClearButtonState();
+	}
+
+	private void setSelectedOption(TaskOption option) {
+		if (option == null) {
+			return;
+		}
+
+		selectedTaskOption = option;
+
+		suppressComboEvents = true;
+		try {
+			comboBox.setSelectedItem(option);
+			setEditorText(option.getDisplayText());
+		} finally {
+			suppressComboEvents = false;
+		}
+	}
+
+	private TaskOption findOptionByCurrentText() {
+		return findOptionByText(editor.getText());
+	}
+
+	private TaskOption findOptionByText(String text) {
+		return findOptionByCode(extractCode(text));
+	}
+
+	private TaskOption findOptionByCode(String code) {
+		String normalizedCode = safe(code);
+		if (normalizedCode.isBlank()) {
+			return null;
+		}
+
+		for (int i = 0; i < model.getSize(); i++) {
+			TaskOption option = model.getElementAt(i);
+			if (option == null) {
+				continue;
+			}
+
+			if (Objects.equals(safe(option.getCode()), normalizedCode)) {
+				return option;
+			}
+		}
+
+		return null;
+	}
+
+	private boolean matchesByCode(String text, TaskOption option) {
+		if (option == null) {
+			return false;
+		}
+
+		return Objects.equals(extractCode(text), safe(option.getCode()));
+	}
+
+	private static String extractCode(String text) {
+		String normalized = safe(text);
+		if (normalized.isBlank()) {
+			return "";
+		}
+
+		int firstSpace = normalized.indexOf(' ');
+		return firstSpace < 0
+				? normalized
+				: normalized.substring(0, firstSpace).trim();
 	}
 
 	private void setEditorText(String text) {
@@ -242,24 +372,18 @@ public class TaskSearchComboBox extends JPanel {
 
 	private void updateClearButtonState() {
 		boolean hasText = !safe(editor.getText()).isBlank();
-		boolean hasSelection = comboBox.getSelectedItem() instanceof TaskOption;
+		boolean hasSelection = selectedTaskOption != null;
 		clearButton.setEnabled(hasText || hasSelection);
 	}
 
 	public Long getSelectedTaskId() {
-		Object selected = comboBox.getSelectedItem();
-		if (selected instanceof TaskOption option) {
-			return option.getId();
-		}
-		return null;
+		TaskOption matched = selectedTaskOption != null ? selectedTaskOption : findOptionByCurrentText();
+		return matched == null ? null : matched.getId();
 	}
 
 	public String getSelectedDisplayText() {
-		Object selected = comboBox.getSelectedItem();
-		if (selected instanceof TaskOption option) {
-			return option.getDisplayText();
-		}
-		return "";
+		TaskOption matched = selectedTaskOption != null ? selectedTaskOption : findOptionByCurrentText();
+		return matched == null ? "" : matched.getDisplayText();
 	}
 
 	public JComboBox<TaskOption> getComboBox() {

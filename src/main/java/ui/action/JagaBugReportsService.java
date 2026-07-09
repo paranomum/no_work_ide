@@ -14,6 +14,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import ui.ChipItem;
 import ui.MultiSelectChipsField;
+import ui.TaskSearchComboBox;
 import util.SimpleSecretService;
 
 import java.io.InputStream;
@@ -847,8 +848,15 @@ public class JagaBugReportsService {
 						: group.getAttributes().stream())
 				.filter(Objects::nonNull)
 				.filter(field -> !Boolean.TRUE.equals(field.getDeleted()))
-				.filter(field -> Boolean.TRUE.equals(field.getRequired()))
 				.filter(field -> !shouldSkipField(field))
+				.filter(field ->
+						Boolean.TRUE.equals(field.getRequired())
+								|| "task.parent_id".equals(safe(field.getObjectTypeNameM()))
+				)
+				.sorted(java.util.Comparator.comparing(
+						JagaTaskAttributeResponse::getOrderNum,
+						java.util.Comparator.nullsLast(Integer::compareTo)
+				))
 				.toList();
 	}
 
@@ -934,6 +942,10 @@ public class JagaBugReportsService {
 			scrollPane.setPreferredSize(new Dimension(500, 160));
 			fieldComponents.put(field.getId(), textArea);
 			return scrollPane;
+		}
+
+		if ("task.parent_id".equals(objectType)) {
+			return buildTaskParentField(field, statusLabel);
 		}
 
 		if (field.getDictionaryId() != null) {
@@ -1186,6 +1198,9 @@ public class JagaBugReportsService {
 			case "task.task_title":
 				return getTextComponentValue(field);
 
+			case "task.parent_id":
+				return getTaskParentIdValue(field);
+
 			default:
 				if (field.getDictionaryId() != null) {
 					if (Boolean.TRUE.equals(field.getMultipleSelector()) || Boolean.TRUE.equals(field.getMultiple())) {
@@ -1200,6 +1215,75 @@ public class JagaBugReportsService {
 
 				return getTextComponentValue(field);
 		}
+	}
+
+	private JComponent buildTaskParentField(
+			JagaTaskAttributeResponse field,
+			JLabel statusLabel
+	) {
+		Long projectId = jagaUserSettings.getProjectId();
+		String username = safe(jagaUserSettings.getEmail());
+
+		final String password;
+		try {
+			password = resolveJagaPassword();
+		} catch (Exception ex) {
+			log.error("Не удалось получить пароль Jaga для поля {}", field.getId(), ex);
+			statusLabel.setText("Не удалось подготовить поиск задач для поля: " + resolveFieldLabel(field));
+			statusLabel.setForeground(Color.RED);
+
+			JTextField fallbackField = new JTextField();
+			fallbackField.setEnabled(false);
+			fieldComponents.put(field.getId(), fallbackField);
+			return fallbackField;
+		}
+
+		if (projectId == null || username.isBlank() || password == null || password.isBlank()) {
+			JTextField fallbackField = new JTextField();
+			fallbackField.setEnabled(false);
+			fieldComponents.put(field.getId(), fallbackField);
+			return fallbackField;
+		}
+
+		TaskSearchComboBox taskSearchComboBox = new TaskSearchComboBox(
+				projectId,
+				requestDto -> searchTasksByText(projectId, username, password, requestDto)
+		);
+
+		fieldComponents.put(field.getId(), taskSearchComboBox);
+		return taskSearchComboBox;
+	}
+
+	private SearchResultDto searchTasksByText(
+			Long projectId,
+			String username,
+			String password,
+			SearchRequestDto requestDto
+	) {
+		if (projectId == null) {
+			throw new IllegalArgumentException("projectId is required");
+		}
+
+		if (requestDto == null) {
+			requestDto = new SearchRequestDto();
+		}
+
+		SearchResultDto response = new JagaControllerApi(
+				getApiClient("https://jaga.rt.ru", username, password)
+		).searchTaskByIdOrTitle(projectId,
+				TaskSearchComboBox.getSearchSize(),
+				TaskSearchComboBox.getSearchPage(),
+				requestDto).block();
+
+		return response == null ? new SearchResultDto() : response;
+	}
+
+	private Long getTaskParentIdValue(JagaTaskAttributeResponse field) {
+		JComponent component = fieldComponents.get(field.getId());
+		if (component instanceof TaskSearchComboBox taskSearchComboBox) {
+			return taskSearchComboBox.getSelectedTaskId();
+		}
+		return null;
 	}
 
 	private String getTextComponentValue(JagaTaskAttributeResponse field) {
