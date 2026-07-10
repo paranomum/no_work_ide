@@ -121,11 +121,13 @@ public class JagaBugReportsService {
 						startCheckButtonCooldown(checkButton);
 						return;
 					}
+
 					passwordToCheck = SimpleSecretService.decrypt(latest.getEncryptedPassword());
 				} catch (Exception ex) {
-					log.error("Не удалось расшифровать сохраненный пароль Jaga для пользователя {}", email, ex);
+					logHttpError("Расшифровка сохраненного пароля Jaga для пользователя " + email, ex);
 					checkStatusLabel.setText("Ошибка проверки");
 					checkStatusLabel.setForeground(Color.RED);
+					showCopyableErrorDialog(parentDialog, "Ошибка проверки", buildErrorDetails("Расшифровка пароля Jaga", ex));
 					startCheckButtonCooldown(checkButton);
 					return;
 				}
@@ -151,11 +153,17 @@ public class JagaBugReportsService {
 							checkStatusLabel.setText("Ошибка проверки");
 							checkStatusLabel.setForeground(Color.RED);
 							log.error("Jaga login вернул пустой accessToken для пользователя {}", email);
+							showCopyableErrorDialog(
+									parentDialog,
+									"Ошибка проверки",
+									"Ошибка при выполнении операции: Проверка авторизации Jaga" + System.lineSeparator()
+											+ "Jaga login вернул пустой accessToken для пользователя: " + email
+							);
 						}
 					} catch (Exception ex) {
 						checkStatusLabel.setText("Ошибка проверки");
 						checkStatusLabel.setForeground(Color.RED);
-						log.error("Ошибка авторизации в Jaga для пользователя {}", email, ex);
+						handleUiError(parentDialog, "Проверка авторизации Jaga для пользователя " + email, ex);
 					} finally {
 						startCheckButtonCooldown(checkButton);
 					}
@@ -248,14 +256,16 @@ public class JagaBugReportsService {
 						taskTypesStatusLabel.setForeground(Color.RED);
 						return;
 					}
+
 					passwordToUse = SimpleSecretService.decrypt(latest.getEncryptedPassword());
 				} else {
 					passwordToUse = enteredPassword;
 				}
 			} catch (Exception ex) {
-				log.error("Не удалось подготовить пароль для загрузки типов задач", ex);
+				logHttpError("Подготовка пароля для загрузки типов задач", ex);
 				taskTypesStatusLabel.setText("Ошибка подготовки пароля");
 				taskTypesStatusLabel.setForeground(Color.RED);
+				showCopyableErrorDialog(parentDialog, "Ошибка", buildErrorDetails("Подготовка пароля для загрузки типов задач", ex));
 				return;
 			}
 
@@ -295,19 +305,14 @@ public class JagaBugReportsService {
 						taskTypesStatusLabel.setForeground(new Color(0, 128, 0));
 					} catch (Exception ex) {
 						setTaskTypesFieldEnabled(taskIdsField, false);
-
-						Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-
-						if (cause instanceof WebClientResponseException webEx) {
-							String responseBody = webEx.getResponseBodyAsString();
-							log.error("Ошибка получения типов задач. projectId={}, status={}, body={}",
-									projectId, webEx.getStatusCode(), responseBody, webEx);
-						} else {
-							log.error("Ошибка получения типов задач для projectId={}", projectId, cause);
-						}
-
 						taskTypesStatusLabel.setText("Произошла ошибка");
 						taskTypesStatusLabel.setForeground(Color.RED);
+
+						handleUiError(
+								parentDialog,
+								"Получение типов задач Jaga для projectId=" + projectId,
+								ex
+						);
 					} finally {
 						loadTaskTypesButton.setEnabled(true);
 					}
@@ -530,6 +535,7 @@ public class JagaBugReportsService {
 
 		JButton closeButton = new JButton("Закрыть");
 		closeButton.addActionListener(e -> dialog.dispose());
+
 		JButton createButton = new JButton("Создать");
 		createButton.setEnabled(false);
 		createButton.addActionListener(e -> {
@@ -555,14 +561,7 @@ public class JagaBugReportsService {
 						dialog.dispose();
 						showCreatedTaskDialog(null, message);
 					} catch (Exception ex) {
-						Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-						log.error("Ошибка создания задачи Jaga", cause);
-						JOptionPane.showMessageDialog(
-								dialog,
-								"Не удалось создать задачу: " + cause.getMessage(),
-								"Ошибка",
-								JOptionPane.ERROR_MESSAGE
-						);
+						handleUiError(dialog, "Создание задачи Jaga", ex);
 					} finally {
 						createButton.setEnabled(true);
 					}
@@ -576,12 +575,18 @@ public class JagaBugReportsService {
 
 		int y = 0;
 
-		gbc.gridx = 0; gbc.gridy = y; gbc.weightx = 0;
+		gbc.gridx = 0;
+		gbc.gridy = y;
+		gbc.weightx = 0;
 		topPanel.add(taskTypeLabel, gbc);
-		gbc.gridx = 1; gbc.gridy = y++; gbc.weightx = 1;
+
+		gbc.gridx = 1;
+		gbc.gridy = y++;
+		gbc.weightx = 1;
 		topPanel.add(taskTypeComboBox, gbc);
 
-		gbc.gridx = 1; gbc.gridy = y++;
+		gbc.gridx = 1;
+		gbc.gridy = y++;
 		topPanel.add(statusLabel, gbc);
 
 		root.add(topPanel, BorderLayout.NORTH);
@@ -687,7 +692,7 @@ public class JagaBugReportsService {
 		try {
 			password = resolveJagaPassword();
 		} catch (Exception ex) {
-			log.error("Не удалось получить пароль Jaga", ex);
+			logHttpError("Получение пароля Jaga", ex);
 			statusLabel.setText("Не удалось получить пароль из настроек");
 			statusLabel.setForeground(Color.RED);
 			taskTypeComboBox.setEnabled(false);
@@ -750,8 +755,7 @@ public class JagaBugReportsService {
 						statusLabel.setForeground(Color.GRAY);
 					}
 				} catch (Exception ex) {
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.error("Ошибка загрузки типов задач Jaga", cause);
+					logHttpError("Загрузка типов задач Jaga", ex);
 					statusLabel.setText("Не удалось загрузить типы задач");
 					statusLabel.setForeground(Color.RED);
 					taskTypeComboBox.setEnabled(false);
@@ -783,7 +787,7 @@ public class JagaBugReportsService {
 		try {
 			password = resolveJagaPassword();
 		} catch (Exception ex) {
-			log.error("Не удалось получить пароль Jaga", ex);
+			logHttpError("Получение пароля Jaga", ex);
 			statusLabel.setText("Не удалось получить пароль");
 			statusLabel.setForeground(Color.RED);
 			return;
@@ -821,8 +825,7 @@ public class JagaBugReportsService {
 					renderRequiredFields(fieldsContainer, requiredTaskTypeFields, reportText, statusLabel);
 					createButton.setEnabled(true);
 				} catch (Exception ex) {
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.error("Ошибка загрузки полей типа задачи {}", selectedTaskType.getId(), cause);
+					logHttpError("Загрузка полей типа задачи " + selectedTaskType.getId(), ex);
 
 					clearTaskTypeState();
 					clearDynamicFields(fieldsContainer);
@@ -1058,8 +1061,14 @@ public class JagaBugReportsService {
 		try {
 			password = resolveJagaPassword();
 		} catch (Exception ex) {
-			log.error("Не удалось получить пароль Jaga для dictionaryId={}", dictionaryId, ex);
+			logHttpError("Получение пароля Jaga для dictionaryId=" + dictionaryId, ex);
 			statusLabel.setText("Не удалось загрузить справочник для поля: " + resolveFieldLabel(field));
+			statusLabel.setForeground(Color.RED);
+			return;
+		}
+
+		if (username.isBlank() || password == null || password.isBlank()) {
+			statusLabel.setText("Не заполнены учетные данные Jaga для загрузки справочника");
 			statusLabel.setForeground(Color.RED);
 			return;
 		}
@@ -1077,8 +1086,10 @@ public class JagaBugReportsService {
 					fieldDictionaryValues.put(field.getId(), valueToId);
 					onSuccess.accept(valueToId);
 				} catch (Exception ex) {
-					Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-					log.error("Ошибка загрузки dictionaryId={} для поля {}", dictionaryId, field.getId(), cause);
+					logHttpError(
+							"Загрузка справочника Jaga. dictionaryId=" + dictionaryId + ", fieldId=" + field.getId(),
+							ex
+					);
 					statusLabel.setText("Не удалось загрузить справочник: " + resolveFieldLabel(field));
 					statusLabel.setForeground(Color.RED);
 				}
@@ -1492,7 +1503,7 @@ public class JagaBugReportsService {
 	}
 
 	private void importJagaCertificates(Component parent) {
-		final String domain = "jaga.rt.ru";
+		final List<String> domains = List.of("jaga.rt.ru", "stage.jaga.rt.ru");
 
 		try {
 			String ksPath = config.trustStorePath != null ? config.trustStorePath.trim() : "";
@@ -1518,40 +1529,73 @@ public class JagaBugReportsService {
 			final String finalKsPassword = ksPassword;
 			final String finalKsType = ksType;
 
-			new SwingWorker<List<String>, Void>() {
+			new SwingWorker<LinkedHashMap<String, List<String>>, Void>() {
 				@Override
-				protected List<String> doInBackground() throws Exception {
-					return util.CertImporter.importCertsFromDomain(
-							domain,
-							443,
-							finalKsPath,
-							finalKsPassword,
-							finalKsType
-					);
+				protected LinkedHashMap<String, List<String>> doInBackground() throws Exception {
+					LinkedHashMap<String, List<String>> result = new LinkedHashMap<>();
+
+					for (String domain : domains) {
+						List<String> added = util.CertImporter.importCertsFromDomain(
+								domain,
+								443,
+								finalKsPath,
+								finalKsPassword,
+								finalKsType
+						);
+						result.put(domain, added == null ? List.of() : added);
+					}
+
+					return result;
 				}
 
 				@Override
 				protected void done() {
 					try {
-						List<String> added = get();
+						LinkedHashMap<String, List<String>> importedByDomain = get();
 
-						String msg = added.isEmpty()
-								? "Сертификаты для " + domain + " уже были в хранилище.\nTrustStore: " + finalKsPath
-								: "Добавлено сертификатов: " + added.size() + "\n"
-								+ String.join("\n", added)
-								+ "\n\nTrustStore: " + finalKsPath;
+						StringBuilder msg = new StringBuilder();
+						int totalAdded = 0;
+
+						for (String domain : domains) {
+							List<String> added = importedByDomain.getOrDefault(domain, List.of());
+							totalAdded += added.size();
+
+							if (added.isEmpty()) {
+								msg.append("Для ").append(domain)
+										.append(" сертификаты уже были в хранилище.")
+										.append(System.lineSeparator());
+							} else {
+								msg.append("Для ").append(domain)
+										.append(" добавлено сертификатов: ")
+										.append(added.size())
+										.append(System.lineSeparator());
+
+								for (String cert : added) {
+									msg.append(" - ").append(cert).append(System.lineSeparator());
+								}
+							}
+
+							msg.append(System.lineSeparator());
+						}
+
+						msg.append("Всего добавлено сертификатов: ").append(totalAdded).append(System.lineSeparator())
+								.append("TrustStore: ").append(finalKsPath);
 
 						JOptionPane.showMessageDialog(
 								parent,
-								msg,
+								msg.toString(),
 								"Импорт сертификатов",
 								JOptionPane.INFORMATION_MESSAGE
 						);
 					} catch (Exception ex) {
 						Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+						log.error("Ошибка импорта сертификатов для доменов {}", domains, cause);
+
 						JOptionPane.showMessageDialog(
 								parent,
-								"Не удалось импортировать сертификаты для " + domain + ":\n" + cause.getMessage(),
+								"Не удалось импортировать сертификаты для доменов:\n"
+										+ String.join(", ", domains)
+										+ "\n\nПричина: " + cause.getMessage(),
 								"Ошибка импорта",
 								JOptionPane.WARNING_MESSAGE
 						);
@@ -1560,6 +1604,8 @@ public class JagaBugReportsService {
 			}.execute();
 
 		} catch (Exception ex) {
+			log.error("Не удалось подготовить trustStore для импорта сертификатов Jaga", ex);
+
 			JOptionPane.showMessageDialog(
 					parent,
 					"Не удалось подготовить trustStore:\n" + ex.getMessage(),
@@ -1692,9 +1738,15 @@ public class JagaBugReportsService {
 	}
 
 	private ApiClient getApiClient(String fullUrl) {
-		ApiClient apiClient = new ApiClient();
-		apiClient.setBasePath(fullUrl);
-		return apiClient;
+		try {
+			WebClient webClient = buildJagaWebClient();
+			ApiClient apiClient = new ApiClient(webClient);
+			apiClient.setBasePath(fullUrl);
+
+			return apiClient;
+		} catch (Exception ex) {
+			throw new IllegalStateException("Не удалось создать Jaga ApiClient с trustStore: " + ex.getMessage(), ex);
+		}
 	}
 
 	private ApiClient getApiClient(String fullUrl, String username, String password) {
@@ -1761,9 +1813,19 @@ public class JagaBugReportsService {
 	}
 
 	private String getJagaToken(String username, String password) {
-		val jagaApiClient = new JagaControllerApi(getApiClient("https://stage.jaga.rt.ru"));
-		val response = jagaApiClient.login(new JagaLoginRequest().mail(username).password(password)).block();
-		return response == null ? null : response.getAccessToken();
+		try {
+			val jagaApiClient = new JagaControllerApi(getApiClient("https://stage.jaga.rt.ru"));
+			val response = jagaApiClient.login(
+					new JagaLoginRequest()
+							.mail(username)
+							.password(password)
+			).block();
+
+			return response == null ? null : response.getAccessToken();
+		} catch (Exception ex) {
+			logHttpError("Получение токена Jaga", ex);
+			throw ex;
+		}
 	}
 
 	private void startCheckButtonCooldown(JButton checkButton) {
@@ -1840,6 +1902,113 @@ public class JagaBugReportsService {
 		).getProjectTaskTypes(projectId, true).block();
 
 		return buildTaskLabelToIdMap(response);
+	}
+
+	private String buildErrorDetails(String operation, Throwable throwable) {
+		Throwable cause = throwable != null && throwable.getCause() != null
+				? throwable.getCause()
+				: throwable;
+
+		String lineSeparator = System.lineSeparator();
+		StringBuilder sb = new StringBuilder();
+		sb.append("Ошибка при выполнении операции: ").append(operation).append(lineSeparator);
+
+		if (cause == null) {
+			sb.append("Причина: <unknown>");
+			return sb.toString();
+		}
+
+		sb.append("Exception: ").append(cause.getClass().getName()).append(lineSeparator);
+
+		if (cause.getMessage() != null && !cause.getMessage().isBlank()) {
+			sb.append("Message: ").append(cause.getMessage()).append(lineSeparator);
+		}
+
+		if (cause instanceof WebClientResponseException webEx) {
+			sb.append("HTTP status: ")
+					.append(webEx.getRawStatusCode())
+					.append(" ")
+					.append(webEx.getStatusText())
+					.append(lineSeparator);
+
+			if (webEx.getRequest() != null && webEx.getRequest().getURI() != null) {
+				sb.append("Request URI: ").append(webEx.getRequest().getURI()).append(lineSeparator);
+			}
+
+			if (webEx.getHeaders() != null && !webEx.getHeaders().isEmpty()) {
+				sb.append("Response headers:").append(lineSeparator)
+						.append(webEx.getHeaders())
+						.append(lineSeparator);
+			}
+
+			String responseBody;
+			try {
+				responseBody = webEx.getResponseBodyAsString();
+			} catch (Exception ignored) {
+				responseBody = "<failed to read response body>";
+			}
+
+			sb.append("Response body:").append(lineSeparator);
+			if (responseBody == null || responseBody.isBlank()) {
+				sb.append("<empty>");
+			} else {
+				sb.append(responseBody);
+			}
+			sb.append(lineSeparator);
+		}
+
+		return sb.toString().trim();
+	}
+
+	private void logHttpError(String operation, Throwable throwable) {
+		Throwable cause = throwable != null && throwable.getCause() != null
+				? throwable.getCause()
+				: throwable;
+
+		String details = buildErrorDetails(operation, cause);
+		log.error("{}{}{}", operation, System.lineSeparator(), details, cause);
+	}
+
+	private void showCopyableErrorDialog(Component parent, String title, String details) {
+		Window owner = parent == null ? null : SwingUtilities.getWindowAncestor(parent);
+		JDialog dialog = new JDialog(owner, title, Dialog.ModalityType.APPLICATION_MODAL);
+		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+		JTextArea textArea = new JTextArea(details, 18, 90);
+		textArea.setEditable(false);
+		textArea.setLineWrap(true);
+		textArea.setWrapStyleWord(true);
+		textArea.setCaretPosition(0);
+
+		JScrollPane scrollPane = new JScrollPane(textArea);
+
+		JButton copyButton = new JButton("Копировать");
+		copyButton.addActionListener(e -> Toolkit.getDefaultToolkit()
+				.getSystemClipboard()
+				.setContents(new java.awt.datatransfer.StringSelection(details), null));
+
+		JButton closeButton = new JButton("Закрыть");
+		closeButton.addActionListener(e -> dialog.dispose());
+
+		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		buttons.add(copyButton);
+		buttons.add(closeButton);
+
+		JPanel root = new JPanel(new BorderLayout(10, 10));
+		root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+		root.add(scrollPane, BorderLayout.CENTER);
+		root.add(buttons, BorderLayout.SOUTH);
+
+		dialog.setContentPane(root);
+		dialog.pack();
+		dialog.setLocationRelativeTo(parent);
+		dialog.setVisible(true);
+	}
+
+	private void handleUiError(Component parent, String operation, Throwable ex) {
+		String details = buildErrorDetails(operation, ex);
+		logHttpError(operation, ex);
+		showCopyableErrorDialog(parent, "Ошибка", details);
 	}
 
 	//должно быть 100042L

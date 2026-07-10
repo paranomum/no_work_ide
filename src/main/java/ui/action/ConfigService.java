@@ -93,7 +93,7 @@ public class ConfigService {
 				if (cfg.backendRequestsPath == null) cfg.backendRequestsPath = "";
 				if (cfg.trustStorePath == null) cfg.trustStorePath = "";
 				if (cfg.trustStorePassword == null) cfg.trustStorePassword = "changeit";
-				if (cfg.trustStoreType == null) cfg.trustStoreType = "PKCS12";
+				if (cfg.trustStoreType == null) cfg.trustStoreType = "JKS";
 				if (cfg.actionTableColumnWidths == null) cfg.actionTableColumnWidths = new HashMap<>();
 				if (cfg.domains == null) cfg.domains = new java.util.ArrayList<>();
 				if (cfg.selectedDomain == null) cfg.selectedDomain = "";
@@ -250,8 +250,10 @@ public class ConfigService {
 				if (settings.getEncryptedPassword() == null) {
 					settings.setEncryptedPassword("");
 				}
+				if (settings.getPassword() == null) {
+					settings.setPassword("");
+				}
 
-				settings.setPassword("");
 				return settings;
 			}
 		} catch (Exception e) {
