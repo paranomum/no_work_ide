@@ -104,7 +104,7 @@ public class ActionWindow extends JFrame {
 
 		actionRecorder = new ActionRecorder(tableModel);
 		backendRequestsService = new BackendRequestsService(this, config);
-		jagaBugReportsService = new JagaBugReportsService(tableModel, configService, config);
+		jagaBugReportsService = new JagaBugReportsService(tableModel, configService, config, backendRequestsService);
 		playActionService = new PlayActionService(
 				tableModel,
 				usersService,

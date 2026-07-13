@@ -778,4 +778,79 @@ public class JagaControllerApi {
 		return createAttachmentRequestCreation(projectId, fileBytes, fileName, fileContentType)
 				.bodyToMono(localVarReturnType);
 	}
+
+	/**
+	 * <p><b>200</b> - OK
+	 *
+	 * @param jagaCreateCommentRequest (required)
+	 * @return Object
+	 * @throws WebClientResponseException if an error occurs while attempting to invoke the API
+	 */
+	private ResponseSpec createCommentRequestCreation(JagaCreateCommentRequest jagaCreateCommentRequest) throws WebClientResponseException {
+		Object postBody = jagaCreateCommentRequest;
+
+		if (jagaCreateCommentRequest == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'jagaCreateCommentRequest' when calling createComment",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		final Map<String, Object> pathParams = new HashMap<String, Object>();
+
+		final MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<String, String>();
+		final HttpHeaders headerParams = new HttpHeaders();
+		final MultiValueMap<String, String> cookieParams = new LinkedMultiValueMap<String, String>();
+		final MultiValueMap<String, Object> formParams = new LinkedMultiValueMap<String, Object>();
+
+		final String[] localVarAccepts = {
+				"application/json",
+				"*/*"
+		};
+		final List<MediaType> localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+		final String[] localVarContentTypes = {
+				"application/json"
+		};
+		final MediaType localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+		String[] localVarAuthNames = new String[] { "bearer-jwt" };
+
+		ParameterizedTypeReference<Object> localVarReturnType =
+				new ParameterizedTypeReference<Object>() {
+				};
+
+		return apiClient.invokeAPI(
+				"/backend/comment",
+				HttpMethod.POST,
+				pathParams,
+				queryParams,
+				postBody,
+				headerParams,
+				cookieParams,
+				formParams,
+				localVarAccept,
+				localVarContentType,
+				localVarAuthNames,
+				localVarReturnType
+		);
+	}
+
+	/**
+	 * <p><b>200</b> - OK
+	 *
+	 * @param jagaCreateCommentRequest (required)
+	 * @return Object
+	 * @throws WebClientResponseException if an error occurs while attempting to invoke the API
+	 */
+	public Mono<Object> createComment(JagaCreateCommentRequest jagaCreateCommentRequest) throws WebClientResponseException {
+		ParameterizedTypeReference<Object> localVarReturnType =
+				new ParameterizedTypeReference<Object>() {
+				};
+		return createCommentRequestCreation(jagaCreateCommentRequest).bodyToMono(localVarReturnType);
+	}
 }

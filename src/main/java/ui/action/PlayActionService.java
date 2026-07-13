@@ -663,13 +663,20 @@ public class PlayActionService {
 			);
 			dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
-			JTextArea textArea = new JTextArea(message, 14, 80);
+			String dialogText = buildReadableErrorText(message, backendResult);
+
+			JTextArea textArea = new JTextArea(dialogText, 24, 100);
 			textArea.setEditable(false);
-			textArea.setLineWrap(true);
-			textArea.setWrapStyleWord(true);
+			textArea.setLineWrap(false);
+			textArea.setWrapStyleWord(false);
 			textArea.setCaretPosition(0);
+			textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+			textArea.setMargin(new Insets(8, 8, 8, 8));
 
 			JScrollPane scrollPane = new JScrollPane(textArea);
+			scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+			scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+			scrollPane.setPreferredSize(new Dimension(900, 500));
 
 			JButton createBugReportButton = new JButton("Создать баг-репорт");
 			createBugReportButton.addActionListener(e -> {
@@ -687,23 +694,26 @@ public class PlayActionService {
 
 				String popupError = safeExtractPopupError();
 				String finalError = resolveBugReportError(message, popupError);
-
 				Path curlAttachment = createCurlAttachmentForBackendError(backendResult);
 
-				// НИЧЕГО НЕ НАШЛИ → не автозаполняем описание, просто открываем диалог Jaga
+				Integer failedStep = null;
+				if (backendResult != null && backendResult.step != null) {
+					failedStep = backendResult.step + 1;
+				} else if (currentRow >= 0) {
+					failedStep = currentRow + 1;
+				}
+
 				if (finalError == null) {
 					if (curlAttachment != null) {
-						// создаём баг без текста, но с вложением
-						jagaBugReportsService.createBugReport(null, curlAttachment);
+						jagaBugReportsService.createBugReport(null, curlAttachment, failedStep);
 					} else {
-						jagaBugReportsService.createBugReport(); // перегрузка без error
+						jagaBugReportsService.createBugReport(null, null, failedStep);
 					}
 				} else {
-					// нашёлся нормальный текст → используем его
 					if (curlAttachment != null) {
-						jagaBugReportsService.createBugReport(finalError, curlAttachment);
+						jagaBugReportsService.createBugReport(finalError, curlAttachment, failedStep);
 					} else {
-						jagaBugReportsService.createBugReport(finalError);
+						jagaBugReportsService.createBugReport(finalError, null, failedStep);
 					}
 				}
 			});
@@ -721,12 +731,86 @@ public class PlayActionService {
 			root.add(buttons, BorderLayout.SOUTH);
 
 			dialog.setContentPane(root);
+			dialog.setMinimumSize(new Dimension(700, 300));
 			dialog.pack();
+			dialog.setSize(Math.min(dialog.getWidth(), 900), Math.min(dialog.getHeight(), 520));
 			dialog.setLocationRelativeTo(parent);
 			dialog.setVisible(true);
 		});
 	}
 
+	private String buildReadableErrorText(String message, BackendExecutionResult backendResult) {
+		String lineSeparator = System.lineSeparator();
+		StringBuilder sb = new StringBuilder();
+
+		String safeMessage = message == null ? "" : message.trim();
+
+		if (backendResult == null) {
+			return safeMessage;
+		}
+
+		sb.append("Ошибка выполнения backend-запроса").append(lineSeparator);
+		sb.append("==================================================").append(lineSeparator);
+
+		if (backendResult.requestName != null && !backendResult.requestName.isBlank()) {
+			sb.append("requestName: ").append(backendResult.requestName).append(lineSeparator);
+		}
+
+		if (backendResult.step != null) {
+			sb.append("stepNumber: ").append(backendResult.step + 1).append(lineSeparator);
+		}
+
+		sb.append("method: ").append(backendResult.method != null ? backendResult.method : "").append(lineSeparator);
+		sb.append("url: ").append(backendResult.url != null ? backendResult.url : "").append(lineSeparator);
+		sb.append("status: ").append(backendResult.status).append(lineSeparator);
+		sb.append("success: ").append(backendResult.success).append(lineSeparator);
+
+		if (!safeMessage.isBlank()) {
+			sb.append(lineSeparator);
+			sb.append("MESSAGE:").append(lineSeparator);
+			sb.append("--------------------------------------------------").append(lineSeparator);
+			sb.append(safeMessage).append(lineSeparator);
+		}
+
+		String responseBody = prettyBackendBody(backendResult.responseBody);
+		sb.append(lineSeparator);
+		sb.append("RESPONSE BODY:").append(lineSeparator);
+		sb.append("--------------------------------------------------").append(lineSeparator);
+		sb.append(responseBody.isBlank() ? "<empty response>" : responseBody);
+
+		if (backendResult.warnings != null && !backendResult.warnings.isEmpty()) {
+			sb.append(lineSeparator).append(lineSeparator);
+			sb.append("WARNINGS:").append(lineSeparator);
+			sb.append("--------------------------------------------------").append(lineSeparator);
+			for (String warning : backendResult.warnings) {
+				sb.append("- ").append(warning).append(lineSeparator);
+			}
+		}
+
+		return sb.toString().trim();
+	}
+
+
+	private String prettyBackendBody(String body) {
+		if (body == null) {
+			return "";
+		}
+
+		String trimmed = body.trim();
+		if (trimmed.isBlank()) {
+			return "";
+		}
+
+		try {
+			JsonElement json = JsonParser.parseString(trimmed);
+			return new GsonBuilder()
+					.setPrettyPrinting()
+					.create()
+					.toJson(json);
+		} catch (Exception ignored) {
+			return trimmed;
+		}
+	}
 	private Object createElementFromStep(PlayStep step) {
 		String type = step.javaClassName;
 		String name = step.name;
@@ -1044,7 +1128,6 @@ public class PlayActionService {
 			if (!result.success) {
 				throw new RuntimeException(
 						"Backend request '" + requestName + "' failed with status " + result.status
-								+ ". Response: " + result.responseBody
 				);
 			}
 
@@ -1933,27 +2016,22 @@ public class PlayActionService {
 		return null;
 	}
 
-	private String resolveBugReportError(
-			String message,
-			String popupError
-	) {
-
+	private String resolveBugReportError(String message, String popupError) {
 		val back = findLastFailedBackendResult();
-		// 1. Backend-ошибка → тело ответа бэка
-		if (back != null)
-			return back.requestBody;
 
-		// 2. Ошибка из всплывашки
+		if (back != null) {
+			String responseBody = prettyBackendBody(back.responseBody);
+			return responseBody.isBlank() ? null : responseBody;
+		}
+
 		if (popupError != null && !popupError.isBlank()) {
 			return popupError.trim();
 		}
 
-		// 3. Человекочитаемое «элемент не виден»
 		if (isElementNotVisibleError(message)) {
 			return "Элемент не виден на странице";
 		}
 
-		// 4. Ничего подходящего не нашли → не заполняем описание
 		return null;
 	}
 

@@ -4,15 +4,13 @@ import api.jaga.api.*;
 import api.jaga.dto.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dto.AppConfig;
+import dto.BackendRequestDef;
 import dto.JagaUserSettings;
 import lombok.SneakyThrows;
 import lombok.val;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import api.ApiClient;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.Resource;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import ui.ChipItem;
@@ -44,16 +42,20 @@ import javax.swing.text.*;
 import java.awt.*;
 import java.io.IOException;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class JagaBugReportsService {
 
 	private static final Logger log = LoggerFactory.getLogger(JagaBugReportsService.class);
 	private static final String PASSWORD_MASK = "************";
+	private static final Pattern ORDERED_LIST_ITEM = Pattern.compile("^\\s*\\d+([.)]|\\s*-)?\\s+.*");
+	private static final Pattern ORDERED_LIST_PREFIX = Pattern.compile("^\\s*\\d+(?:[.)]|\\s*-)?\\s*");
 
 	private final DefaultTableModel tableModel;
 	private final ConfigService configService;
 	private final AppConfig config;
 	private JagaUserSettings jagaUserSettings;
+	private BackendRequestsService backendRequestsService;
 
 	private List<JagaTaskAttributeResponse> allTaskTypeFields = new ArrayList<>();
 
@@ -63,13 +65,13 @@ public class JagaBugReportsService {
 	private final Map<Long, LinkedHashMap<String, Long>> fieldDictionaryValues = new LinkedHashMap<>();
 
 	private final java.util.List<Path> selectedAttachments = new ArrayList<>();
-	private DefaultListModel<String> attachmentsListModel;
 
-	public JagaBugReportsService(DefaultTableModel tableModel, ConfigService configService, AppConfig config) {
+	public JagaBugReportsService(DefaultTableModel tableModel, ConfigService configService, AppConfig config, BackendRequestsService backendRequestsService) {
 		this.tableModel = tableModel;
 		this.configService = configService;
 		this.config = config;
 		this.jagaUserSettings = configService.loadJagaUserSettings(config);
+		this.backendRequestsService = backendRequestsService;
 	}
 
 	public JPanel createJagaSettingsPanel(JDialog parentDialog) {
@@ -512,24 +514,28 @@ public class JagaBugReportsService {
 	}
 
 	public void createBugReport() {
-		createBugReport(null, (Path[]) null);
+		createBugReport(null, null, null);
 	}
 
 	public void createBugReport(String error) {
-		createBugReport(error, (Path[]) null);
+		createBugReport(error, null, null);
 	}
 
-	public void createBugReport(String error, Path... autoAttachments) {
+	public void createBugReport(String error, Path autoAttachment) {
+		createBugReport(error, autoAttachment, null);
+	}
+
+	public void createBugReport(String error, Path autoAttachment, Integer failedStep) {
 		reloadJagaSettings();
 		selectedAttachments.clear();
-		addAutoAttachments(autoAttachments);
-		showJagaCreateBugDialog(error);
+		addAutoAttachments(autoAttachment);
+		showJagaCreateBugDialog(error, failedStep);
 	}
 
-	private void showJagaCreateBugDialog(String error) {
-		String reportText = buildJagaDescriptionTemplate(error);
+	private void showJagaCreateBugDialog(String error, Integer failedStep) {
+		String reportText = buildJagaDescriptionTemplate(error, failedStep);
 
-		JDialog dialog = new JDialog((Frame) null, "Создание бага в Jaga", true);
+		JDialog dialog = new JDialog((Frame) null, "Jaga", true);
 		dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
 
 		JPanel root = new JPanel(new BorderLayout(10, 10));
@@ -546,7 +552,7 @@ public class JagaBugReportsService {
 		JComboBox<TaskTypeOption> taskTypeComboBox = new JComboBox<>();
 		taskTypeComboBox.setEnabled(false);
 
-		JLabel statusLabel = new JLabel(" ");
+		JLabel statusLabel = new JLabel("");
 		statusLabel.setForeground(Color.GRAY);
 
 		JPanel fieldsContainer = new JPanel(new GridBagLayout());
@@ -570,7 +576,7 @@ public class JagaBugReportsService {
 		createButton.addActionListener(e -> {
 			TaskTypeOption selected = (TaskTypeOption) taskTypeComboBox.getSelectedItem();
 			if (selected == null || selected.getId() == null) {
-				JOptionPane.showMessageDialog(dialog, "Выберите тип задачи", "Ошибка", JOptionPane.ERROR_MESSAGE);
+				JOptionPane.showMessageDialog(dialog, "Не выбран тип задачи", "Ошибка", JOptionPane.ERROR_MESSAGE);
 				return;
 			}
 
@@ -604,7 +610,6 @@ public class JagaBugReportsService {
 		buttons.add(createButton);
 
 		int y = 0;
-
 		gbc.gridx = 0;
 		gbc.gridy = y;
 		gbc.weightx = 0;
@@ -616,7 +621,7 @@ public class JagaBugReportsService {
 		topPanel.add(taskTypeComboBox, gbc);
 
 		gbc.gridx = 1;
-		gbc.gridy = y++;
+		gbc.gridy = y;
 		topPanel.add(statusLabel, gbc);
 
 		root.add(topPanel, BorderLayout.NORTH);
@@ -633,7 +638,7 @@ public class JagaBugReportsService {
 			TaskTypeOption selected = (TaskTypeOption) taskTypeComboBox.getSelectedItem();
 			if (selected == null || selected.getId() == null) {
 				clearDynamicFields(fieldsContainer);
-				statusLabel.setText("Выберите тип задачи");
+				statusLabel.setText("");
 				statusLabel.setForeground(Color.GRAY);
 				return;
 			}
@@ -1158,43 +1163,134 @@ public class JagaBugReportsService {
 		String password = resolveJagaPassword();
 
 		if (projectId == null) {
-			throw new IllegalStateException("Не заполнен projectId");
+			throw new IllegalStateException("projectId is required");
 		}
 		if (username.isBlank()) {
-			throw new IllegalStateException("Не заполнен email");
+			throw new IllegalStateException("email is required");
 		}
 		if (password == null || password.isBlank()) {
-			throw new IllegalStateException("Не найден пароль");
+			throw new IllegalStateException("password is required");
 		}
 
+		// ШАГ 1: загружаем ВСЕ вложения ДО создания задачи
 		List<UploadedAttachment> uploadedAttachments = prepareUploadedAttachments(username, password);
-		List<Long> attachmentIds = extractAttachmentIds(uploadedAttachments);
 
-		JagaCreateTaskRequest request = buildCreateTaskRequest(
-				selectedTaskType,
-				attachmentIds,
-				uploadedAttachments
-		);
+		// ШАГ 2: в attachmentIds идут ТОЛЬКО картинки
+		List<Long> imageAttachmentIds = extractImageAttachmentIds(uploadedAttachments);
+
+		// ШАГ 3: строим запрос (task.content уже содержит встроенные <img src="ID">)
+		JagaCreateTaskRequest request = buildCreateTaskRequest(selectedTaskType, imageAttachmentIds, uploadedAttachments);
 
 		log.debug(
-				"Отправка задачи в Jaga: projectId={}, taskTypeId={}, attributesCount={}, attachmentCount={}",
+				"Creating Jaga task: projectId={}, taskTypeId={}, attributesCount={}, imageAttachmentCount={}",
 				projectId,
 				selectedTaskType.getId(),
-				request.getAttributes() == null ? 0 : request.getAttributes().size(),
-				attachmentIds.size()
+				request.getAttributes() != null ? request.getAttributes().size() : 0,
+				imageAttachmentIds.size()
 		);
 
-		JagaTaskResponse response = new JagaControllerApi(
-				getApiClient("https://jaga.rt.ru", username, password)
-		).createTaskByTaskType(projectId, selectedTaskType.getId(), request).block();
+		// ШАГ 4: создаём задачу
+		JagaTaskResponse response = new JagaControllerApi(getApiClient("https://jaga.rt.ru", username, password))
+				.createTaskByTaskType(projectId, selectedTaskType.getId(), request)
+				.block();
 
 		if (response == null) {
-			throw new IllegalStateException("Jaga вернула пустой ответ при создании задачи");
+			throw new IllegalStateException("Jaga task creation returned null response");
+		}
+
+		// ШАГ 5: НЕ-картинки отправляем как attachment в комментарий
+		try {
+			createCommentWithNonImageAttachments(response, uploadedAttachments, username, password);
+		} catch (Exception ex) {
+			log.warn("Jaga task created, but comment creation failed for taskId={}", response.getId(), ex);
 		}
 
 		selectedAttachments.clear();
 		return response;
 	}
+
+	private void createCommentWithNonImageAttachments(JagaTaskResponse taskResponse,
+													  List<UploadedAttachment> uploadedAttachments,
+													  String username,
+													  String password) throws Exception {
+		if (taskResponse == null || taskResponse.getId() == null) {
+			return;
+		}
+
+		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
+			return;
+		}
+
+		List<UploadedAttachment> nonImageAttachments = uploadedAttachments.stream()
+				.filter(Objects::nonNull)
+				.filter(uploaded -> uploaded.getResponse() != null)
+				.filter(uploaded -> uploaded.getId() != null)
+				.filter(uploaded -> !isImageAttachment(uploaded.getFile(), uploaded.getContentType()))
+				.toList();
+
+		if (nonImageAttachments.isEmpty()) {
+			return;
+		}
+
+		JagaCreateCommentRequest request = buildCommentRequest(taskResponse.getId(), nonImageAttachments);
+
+		new JagaControllerApi(getApiClient("https://jaga.rt.ru", username, password))
+				.createComment(request)
+				.block();
+	}
+
+	private JagaCreateCommentRequest buildCommentRequest(Long taskId,
+														 List<UploadedAttachment> attachments) {
+		JagaCreateCommentRequest request = new JagaCreateCommentRequest();
+		request.setContentComment("");
+		request.setReplyComment(null);
+		request.setReplyTo(null);
+		request.setTaskId(taskId);
+		request.setAttachIsPending(false);
+
+		Long creatorId = attachments.stream()
+				.filter(Objects::nonNull)
+				.map(UploadedAttachment::getResponse)
+				.filter(Objects::nonNull)
+				.map(JagaAttachmentResponse::getAttachUser)
+				.filter(Objects::nonNull)
+				.findFirst()
+				.orElse(null);
+		request.setCreatorId(creatorId);
+
+		request.setAttachments(
+				attachments.stream()
+						.map(this::toCommentAttachment)
+						.filter(Objects::nonNull)
+						.toList()
+		);
+
+		return request;
+	}
+
+	private JagaCommentAttachmentRequest toCommentAttachment(UploadedAttachment uploaded) {
+		if (uploaded == null || uploaded.getResponse() == null) {
+			return null;
+		}
+
+		JagaAttachmentResponse src = uploaded.getResponse();
+
+		JagaCommentAttachmentRequest attachment = new JagaCommentAttachmentRequest();
+		attachment.setId(src.getId());
+		attachment.setAttachUser(src.getAttachUser());
+		attachment.setAttachPath(src.getAttachPath());
+		attachment.setAttachName(src.getAttachName());
+		attachment.setOriginalName(src.getOriginalName());
+		attachment.setAttachType(src.getAttachType());
+		attachment.setCreateTs(src.getCreateTs());
+		attachment.setAttachSize(src.getAttachSize());
+		attachment.setAttachSrc(src.getAttachSrc());
+		attachment.setServiceAttribute(src.getServiceAttribute());
+		attachment.setIsDeleted(src.getIsDeleted());
+
+		return attachment;
+	}
+
 
 	private List<JagaCreateAttachmentRequest> buildAttachmentRequests() {
 		List<JagaCreateAttachmentRequest> requests = new ArrayList<>();
@@ -1247,6 +1343,7 @@ public class JagaBugReportsService {
 		JagaCreateTaskRequest request = new JagaCreateTaskRequest();
 		request.setOrderNum(1);
 		request.setStatusModifier(1);
+		// attachmentIds — ВСЕ загруженные вложения (и картинки, и файлы)
 		request.setAttachmentIds(safeAttachmentIds);
 		request.setAttributes(new ArrayList<>());
 
@@ -1290,6 +1387,7 @@ public class JagaBugReportsService {
 		return true;
 	}
 
+	@SneakyThrows
 	private Object resolveAttributeValue(
 			JagaTaskAttributeResponse field,
 			TaskTypeOption selectedTaskType,
@@ -1304,7 +1402,7 @@ public class JagaBugReportsService {
 			case "task.type_id":
 				return selectedTaskType.getId();
 			case "task.content":
-				return buildTaskContentHtml(getTextComponentValue(field), uploadedAttachments);
+				return buildTaskContentHtml(getTextComponentValue(field), splitAttachmentsByType(uploadedAttachments));
 			case "task.task_title":
 				return getTextComponentValue(field);
 			case "task.parent_id":
@@ -1326,122 +1424,68 @@ public class JagaBugReportsService {
 	}
 
 	@SneakyThrows
-	private String buildTaskContentHtml(String description, List<UploadedAttachment> uploadedAttachments) {
+	private String buildTaskContentHtml(String description, AttachmentGroups groups) {
 		StringBuilder sb = new StringBuilder();
 
+
 		String descriptionHtml = toHtmlParagraphs(description);
-		if (!descriptionHtml.isBlank()) {
-			sb.append(descriptionHtml);
-		}
+//		if (!descriptionHtml.isBlank()) {
+//			sb.append(descriptionHtml);
+//		}
+		sb.append(descriptionHtml);
 
-		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
-			return sb.toString();
-		}
+		// Блок "Вложения" — имена НЕ-картинок
+		appendAttachmentNamesBlock(sb, groups.getNonImages());
 
-		sb.append("<p><b>Вложения:</b></p>");
-		sb.append("<ul>");
-
-		for (UploadedAttachment uploaded : uploadedAttachments) {
-			if (uploaded == null || uploaded.getFile() == null) {
-				continue;
-			}
-
-			String fileName = uploaded.getFile().getFileName() == null
-					? uploaded.getFile().toString()
-					: uploaded.getFile().getFileName().toString();
-
-			sb.append("<li>")
-					.append(escapeHtml(fileName))
-					.append("</li>");
-		}
-
-		sb.append("</ul>");
-
-		for (UploadedAttachment uploaded : uploadedAttachments) {
-			if (uploaded == null || uploaded.getFile() == null) {
-				continue;
-			}
-
-			Path file = uploaded.getFile();
-
-			if (uploaded.getId() != null && isImageAttachment(file, uploaded.getContentType())) {
-				sb.append("<p><img src=\"")
-						.append(uploaded.getId())
-						.append("\" width=\"100%\"></p>");
-				continue;
-			}
-
-			if (isTextAttachment(file, uploaded.getContentType())) {
-				String fileName = file.getFileName() == null
-						? file.toString()
-						: file.getFileName().toString();
-
-				String textContent = readTextAttachmentSafely(file);
-
-				if (!textContent.isBlank()) {
-					sb.append("<p><b>")
-							.append(escapeHtml(fileName))
-							.append("</b></p>");
-					sb.append("<pre>")
-							.append(escapeHtml(textContent))
-							.append("</pre>");
-				}
-			}
-		}
+		// Картинки встраиваем через <img src="ID" width="100%">
+		appendImageAttachmentsBlock(sb, groups.getImages());
 
 		return sb.toString();
 	}
 
-	private boolean isTextAttachment(Path file, String contentType) {
-		if (contentType != null && !contentType.isBlank()) {
-			String normalized = contentType.toLowerCase(Locale.ROOT);
-			if (normalized.startsWith("text/")) {
-				return true;
+	private void appendAttachmentNamesBlock(StringBuilder sb, List<UploadedAttachment> nonImages) {
+		if (sb == null || nonImages == null || nonImages.isEmpty()) {
+			return;
+		}
+
+		boolean hasAny = nonImages.stream()
+				.anyMatch(uploaded -> uploaded != null && uploaded.getFile() != null);
+
+		if (!hasAny) {
+			return;
+		}
+
+		sb.append("<p>Вложения:</p>");
+		sb.append("<ol>");
+
+		for (UploadedAttachment uploaded : nonImages) {
+			if (uploaded == null || uploaded.getFile() == null) {
+				continue;
 			}
-			if (normalized.contains("json")
-					|| normalized.contains("xml")
-					|| normalized.contains("yaml")
-					|| normalized.contains("javascript")
-					|| normalized.contains("x-www-form-urlencoded")) {
-				return true;
+			String fileName = uploaded.getFile().getFileName() != null
+					? uploaded.getFile().getFileName().toString()
+					: uploaded.getFile().toString();
+			if (!safe(fileName).isBlank()) {
+				sb.append("<li><p>\"").append(fileName).append("\"</p></li>");
 			}
 		}
 
-		String fileName = file != null && file.getFileName() != null
-				? file.getFileName().toString().toLowerCase(Locale.ROOT)
-				: "";
-
-		return fileName.endsWith(".txt")
-				|| fileName.endsWith(".log")
-				|| fileName.endsWith(".json")
-				|| fileName.endsWith(".xml")
-				|| fileName.endsWith(".csv")
-				|| fileName.endsWith(".yaml")
-				|| fileName.endsWith(".yml")
-				|| fileName.endsWith(".properties")
-				|| fileName.endsWith(".md");
+		sb.append("</ol>");
 	}
 
-	@SneakyThrows
-	private String readTextAttachmentSafely(Path file) {
-		if (file == null || !Files.exists(file) || !Files.isRegularFile(file)) {
-			return "";
+	private void appendImageAttachmentsBlock(StringBuilder sb, List<UploadedAttachment> images) {
+		if (sb == null || images == null || images.isEmpty()) {
+			return;
 		}
 
-		long maxBytes = 32 * 1024;
-		long size = Files.size(file);
-		byte[] bytes;
-
-		if (size > maxBytes) {
-			bytes = Files.readAllBytes(file);
-			String text = new String(bytes, StandardCharsets.UTF_8);
-			return text.substring(0, Math.min(text.length(), 8000))
-					+ System.lineSeparator()
-					+ "... [truncated]";
+		for (UploadedAttachment uploaded : images) {
+			if (uploaded == null || uploaded.getFile() == null || uploaded.getId() == null) {
+				continue;
+			}
+			sb.append("<img src=\"")
+					.append(uploaded.getId())
+					.append("\" width=\"100%\"><p></p>");
 		}
-
-		bytes = Files.readAllBytes(file);
-		return new String(bytes, StandardCharsets.UTF_8);
 	}
 
 	private JComponent buildTaskParentField(
@@ -1602,8 +1646,8 @@ public class JagaBugReportsService {
 		return "Поле " + field.getId();
 	}
 
-	private String buildJagaDescriptionTemplate(String error) {
-		String steps = buildBugReportText();
+	private String buildJagaDescriptionTemplate(String error, Integer failedStep) {
+		String steps = buildBugReportText(failedStep);
 		String safeError = safe(error);
 
 		StringBuilder sb = new StringBuilder();
@@ -1613,13 +1657,12 @@ public class JagaBugReportsService {
 		}
 
 		sb.append(System.lineSeparator()).append(System.lineSeparator());
-		sb.append("Ожидаемый результат:").append(System.lineSeparator()).append(System.lineSeparator());
+		sb.append("Ожидаемый результат:").append(System.lineSeparator());
+		sb.append(System.lineSeparator()).append(System.lineSeparator());
 		sb.append("Фактический результат:").append(System.lineSeparator());
 		if (!safeError.isBlank()) {
-			sb.append(safeError);
+			sb.append(safeError).append(System.lineSeparator());
 		}
-		sb.append(System.lineSeparator()).append(System.lineSeparator());
-		sb.append("Доп. инфо:").append(System.lineSeparator());
 
 		return sb.toString();
 	}
@@ -1800,25 +1843,28 @@ public class JagaBugReportsService {
 		return SimpleSecretService.decrypt(latest.getEncryptedPassword());
 	}
 
-	private String buildBugReportText() {
+	private String buildBugReportText(Integer failedStep) {
 		StringBuilder sb = new StringBuilder();
 		int rowCount = tableModel.getRowCount();
-
-		log.debug("createBugReport: rowCount={}", rowCount);
+		log.debug("createBugReport rowCount={}, failedStep={}", rowCount, failedStep);
 
 		int stepNumber = 1;
 		for (int row = 0; row < rowCount; row++) {
-			String interpreted = interpretRow(row);
+			if (failedStep != null && row == failedStep) {
+				break;
+			}
 
+			String interpreted = interpretRow(row);
 			if (interpreted == null || interpreted.isBlank()) {
 				log.trace("Row {} skipped in bug report", row + 1);
 				continue;
 			}
 
-			sb.append(stepNumber++)
+			sb.append(stepNumber)
 					.append(". ")
 					.append(interpreted.trim())
 					.append(System.lineSeparator());
+			stepNumber++;
 		}
 
 		return sb.toString().trim();
@@ -1856,7 +1902,7 @@ public class JagaBugReportsService {
 		}
 
 		if (action.contains("useBackendMethod")) {
-			return text("Выполнить запрос \"%s\"", value);
+			return interpretBackendMethodStep(value);
 		}
 
 		if (action.contains("specialAction")) {
@@ -2107,9 +2153,23 @@ public class JagaBugReportsService {
 				|| action.contains("selectOptions");
 	}
 
-	private String text(String pattern, String value) {
-		String safeValue = safe(value);
-		return safeValue.isBlank() ? "" : pattern.formatted(safeValue);
+	private String text(String pattern, Object... values) {
+		if (pattern == null || pattern.isBlank()) {
+			return "";
+		}
+
+		if (values == null || values.length == 0) {
+			return pattern;
+		}
+
+		Object[] safeValues = Arrays.stream(values)
+				.map(v -> safe(v == null ? "" : String.valueOf(v)))
+				.toArray();
+
+		boolean allBlank = Arrays.stream(safeValues)
+				.allMatch(v -> String.valueOf(v).isBlank());
+
+		return allBlank ? "" : pattern.formatted(safeValues);
 	}
 
 	private String val(int row, int col) {
@@ -2413,52 +2473,78 @@ public class JagaBugReportsService {
 	private String toHtmlParagraphs(String text) {
 		String safeText = text == null ? "" : text.trim();
 		if (safeText.isBlank()) {
-			return "";
+			return "<p></p>";
 		}
 
-		String[] blocks = safeText.split("\\R\\R+");
+		String[] lines = safeText.split("\\R+");
 		StringBuilder sb = new StringBuilder();
+		StringBuilder listBuilder = null;
 
-		for (String block : blocks) {
-			String normalized = block == null ? "" : block.strip();
+		for (String line : lines) {
+			String normalized = line == null ? "" : line.strip();
 			if (normalized.isBlank()) {
 				continue;
 			}
 
-			String htmlBlock = escapeHtml(normalized).replaceAll("\\R", "<br/>");
-			sb.append("<p>").append(htmlBlock).append("</p>");
+			boolean isOrderedListItem = ORDERED_LIST_ITEM.matcher(normalized).matches();
+
+			if (isOrderedListItem) {
+				if (listBuilder == null) {
+					listBuilder = new StringBuilder();
+				}
+
+				String itemText = ORDERED_LIST_PREFIX.matcher(normalized).replaceFirst("");
+
+				listBuilder
+						.append("<li><p>")
+						.append(itemText)
+						.append("</p></li>");
+			} else {
+				if (listBuilder != null) {
+					sb.append("<ol>").append(listBuilder).append("</ol>");
+					listBuilder = null;
+				}
+
+				sb.append("<p>")
+						.append(normalized)
+						.append("</p>");
+			}
+			sb.append("<p></p>");
+		}
+
+		if (listBuilder != null) {
+			sb.append("<ol>").append(listBuilder).append("</ol><p></p>");
 		}
 
 		return sb.toString();
 	}
 
-	private String escapeHtml(String text) {
-		if (text == null) {
-			return "";
+	// Только ID картинок — идут в attachmentIds запроса создания задачи
+	private List<Long> extractImageAttachmentIds(List<UploadedAttachment> uploadedAttachments) {
+		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
+			return new ArrayList<>();
 		}
 
-		return text
-				.replace("&", "&amp;")
-				.replace("<", "&lt;")
-				.replace(">", "&gt;")
-				.replace("\"", "&quot;")
-				.replace("'", "&#39;");
+		return uploadedAttachments.stream()
+				.filter(Objects::nonNull)
+				.filter(uploaded -> uploaded.getId() != null)
+				.filter(uploaded -> isImageAttachment(uploaded.getFile(), uploaded.getContentType()))
+				.map(UploadedAttachment::getId)
+				.collect(java.util.stream.Collectors.toList());
 	}
 
-	private List<Long> extractAttachmentIds(List<UploadedAttachment> uploadedAttachments) {
-		List<Long> attachmentIds = new ArrayList<>();
-
+	// Только ID картинок — идут в attachmentIds запроса создания задачи
+	private List<Long> extractNonImageAttachmentIds(List<UploadedAttachment> uploadedAttachments) {
 		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
-			return attachmentIds;
+			return new ArrayList<>();
 		}
 
-		for (UploadedAttachment uploaded : uploadedAttachments) {
-			if (uploaded != null && uploaded.getId() != null) {
-				attachmentIds.add(uploaded.getId());
-			}
-		}
-
-		return attachmentIds;
+		return uploadedAttachments.stream()
+				.filter(Objects::nonNull)
+				.filter(uploaded -> uploaded.getId() != null)
+				.filter(uploaded -> !isImageAttachment(uploaded.getFile(), uploaded.getContentType()))
+				.map(UploadedAttachment::getId)
+				.collect(java.util.stream.Collectors.toList());
 	}
 
 	private List<UploadedAttachment> prepareUploadedAttachments(String username, String password) throws Exception {
@@ -2515,7 +2601,7 @@ public class JagaBugReportsService {
 			throw new IllegalStateException("Jaga вернула пустой ответ при загрузке вложения: " + file);
 		}
 
-		return new UploadedAttachment(response.getId(), file, contentType);
+		return new UploadedAttachment(response.getId(), file, contentType, response);
 	}
 
 	private boolean isImageAttachment(Path file, String contentType) {
@@ -2685,6 +2771,70 @@ public class JagaBugReportsService {
 		return new MultipartFormDataBody(output.toByteArray(), boundary);
 	}
 
+	private String interpretBackendMethodStep(String requestName) {
+		String safeRequestName = safe(requestName);
+		if (safeRequestName.isBlank()) {
+			return "Выполнить backend-запрос";
+		}
+
+		BackendRequestDef def = backendRequestsService.findByName(safeRequestName);
+		if (def == null) {
+			return text("Выполнить запрос \"%s\"", safeRequestName);
+		}
+
+		String httpMethod = safe(def.getMethod()).toUpperCase(Locale.ROOT);
+		String path = safe(def.getUrl());
+
+		if (httpMethod.isBlank() && path.isBlank()) {
+			return text("Выполнить запрос \"%s\"", safeRequestName);
+		}
+
+		if (httpMethod.isBlank()) {
+			return text("Выполнить backend-запрос %s", path);
+		}
+
+		if (path.isBlank()) {
+			return text("Выполнить backend-запрос %s", httpMethod);
+		}
+
+		return text("Выполнить backend-запрос %s %s", httpMethod, path);
+	}
+
+	private String escapeHtml(String text) {
+		if (text == null) {
+			return "";
+		}
+
+		return text
+				.replace("&", "&amp;")
+				.replace("<", "&lt;")
+				.replace(">", "&gt;")
+				.replace("\"", "&quot;")
+				.replace("'", "&#39;");
+	}
+
+	private AttachmentGroups splitAttachmentsByType(List<UploadedAttachment> uploadedAttachments) {
+		AttachmentGroups groups = new AttachmentGroups();
+
+		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
+			return groups;
+		}
+
+		for (UploadedAttachment uploaded : uploadedAttachments) {
+			if (uploaded == null || uploaded.getFile() == null) {
+				continue;
+			}
+
+			if (isImageAttachment(uploaded.getFile(), uploaded.getContentType())) {
+				groups.getImages().add(uploaded);
+			} else {
+				groups.getNonImages().add(uploaded);
+			}
+		}
+
+		return groups;
+	}
+
 	private static class TaskTypeOption {
 		private final Long id;
 		private final String label;
@@ -2735,11 +2885,13 @@ public class JagaBugReportsService {
 		private final Long id;
 		private final Path file;
 		private final String contentType;
+		private final JagaAttachmentResponse response;
 
-		private UploadedAttachment(Long id, Path file, String contentType) {
+		private UploadedAttachment(Long id, Path file, String contentType, JagaAttachmentResponse response) {
 			this.id = id;
 			this.file = file;
 			this.contentType = contentType;
+			this.response = response;
 		}
 
 		public Long getId() {
@@ -2752,6 +2904,10 @@ public class JagaBugReportsService {
 
 		public String getContentType() {
 			return contentType;
+		}
+
+		public JagaAttachmentResponse getResponse() {
+			return response;
 		}
 	}
 
@@ -2770,6 +2926,19 @@ public class JagaBugReportsService {
 
 		public String getBoundary() {
 			return boundary;
+		}
+	}
+
+	private static class AttachmentGroups {
+		private final List<UploadedAttachment> images = new ArrayList<>();
+		private final List<UploadedAttachment> nonImages = new ArrayList<>();
+
+		public List<UploadedAttachment> getImages() {
+			return images;
+		}
+
+		public List<UploadedAttachment> getNonImages() {
+			return nonImages;
 		}
 	}
 }
