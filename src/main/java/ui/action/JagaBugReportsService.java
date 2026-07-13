@@ -512,16 +512,21 @@ public class JagaBugReportsService {
 	}
 
 	public void createBugReport() {
-		createBugReport("");
+		createBugReport(null, (Path[]) null);
 	}
 
 	public void createBugReport(String error) {
+		createBugReport(error, (Path[]) null);
+	}
+
+	public void createBugReport(String error, Path... autoAttachments) {
 		reloadJagaSettings();
+		selectedAttachments.clear();
+		addAutoAttachments(autoAttachments);
 		showJagaCreateBugDialog(error);
 	}
 
 	private void showJagaCreateBugDialog(String error) {
-		selectedAttachments.clear();
 		String reportText = buildJagaDescriptionTemplate(error);
 
 		JDialog dialog = new JDialog((Frame) null, "Создание бага в Jaga", true);
@@ -555,7 +560,10 @@ public class JagaBugReportsService {
 		splitPane.setDividerLocation(420);
 
 		JButton closeButton = new JButton("Закрыть");
-		closeButton.addActionListener(e -> dialog.dispose());
+		closeButton.addActionListener(e -> {
+			selectedAttachments.clear();
+			dialog.dispose();
+		});
 
 		JButton createButton = new JButton("Создать");
 		createButton.setEnabled(false);
@@ -638,6 +646,31 @@ public class JagaBugReportsService {
 		dialog.pack();
 		dialog.setLocationRelativeTo(null);
 		dialog.setVisible(true);
+	}
+
+	private void addAutoAttachments(Path... autoAttachments) {
+		if (autoAttachments == null || autoAttachments.length == 0) {
+			return;
+		}
+
+		for (Path attachment : autoAttachments) {
+			if (attachment == null) {
+				continue;
+			}
+			if (!Files.exists(attachment) || !Files.isRegularFile(attachment)) {
+				continue;
+			}
+
+			Path normalized = attachment.toAbsolutePath().normalize();
+
+			boolean alreadyAdded = selectedAttachments.stream()
+					.map(path -> path.toAbsolutePath().normalize())
+					.anyMatch(normalized::equals);
+
+			if (!alreadyAdded) {
+				selectedAttachments.add(normalized);
+			}
+		}
 	}
 
 	private List<JagaTaskAttributeResponse> extractAllFields(JagaTaskTypeDetailsResponse response) {
@@ -1292,6 +1325,7 @@ public class JagaBugReportsService {
 		}
 	}
 
+	@SneakyThrows
 	private String buildTaskContentHtml(String description, List<UploadedAttachment> uploadedAttachments) {
 		StringBuilder sb = new StringBuilder();
 
@@ -1300,40 +1334,114 @@ public class JagaBugReportsService {
 			sb.append(descriptionHtml);
 		}
 
-		if (uploadedAttachments != null && !uploadedAttachments.isEmpty()) {
-			sb.append("<p><b>Вложения:</b></p>");
-			sb.append("<ul>");
+		if (uploadedAttachments == null || uploadedAttachments.isEmpty()) {
+			return sb.toString();
+		}
 
-			for (UploadedAttachment uploaded : uploadedAttachments) {
-				if (uploaded == null || uploaded.getFile() == null) {
-					continue;
-				}
+		sb.append("<p><b>Вложения:</b></p>");
+		sb.append("<ul>");
 
-				String fileName = uploaded.getFile().getFileName() == null
-						? uploaded.getFile().toString()
-						: uploaded.getFile().getFileName().toString();
-
-				sb.append("<li>")
-						.append(escapeHtml(fileName))
-						.append("</li>");
+		for (UploadedAttachment uploaded : uploadedAttachments) {
+			if (uploaded == null || uploaded.getFile() == null) {
+				continue;
 			}
 
-			sb.append("</ul>");
+			String fileName = uploaded.getFile().getFileName() == null
+					? uploaded.getFile().toString()
+					: uploaded.getFile().getFileName().toString();
 
-			for (UploadedAttachment uploaded : uploadedAttachments) {
-				if (uploaded == null || uploaded.getId() == null) {
-					continue;
-				}
+			sb.append("<li>")
+					.append(escapeHtml(fileName))
+					.append("</li>");
+		}
 
-				if (isImageAttachment(uploaded.getFile(), uploaded.getContentType())) {
-					sb.append("<p><img src=\"")
-							.append(uploaded.getId())
-							.append("\" width=\"100%\"></p>");
+		sb.append("</ul>");
+
+		for (UploadedAttachment uploaded : uploadedAttachments) {
+			if (uploaded == null || uploaded.getFile() == null) {
+				continue;
+			}
+
+			Path file = uploaded.getFile();
+
+			if (uploaded.getId() != null && isImageAttachment(file, uploaded.getContentType())) {
+				sb.append("<p><img src=\"")
+						.append(uploaded.getId())
+						.append("\" width=\"100%\"></p>");
+				continue;
+			}
+
+			if (isTextAttachment(file, uploaded.getContentType())) {
+				String fileName = file.getFileName() == null
+						? file.toString()
+						: file.getFileName().toString();
+
+				String textContent = readTextAttachmentSafely(file);
+
+				if (!textContent.isBlank()) {
+					sb.append("<p><b>")
+							.append(escapeHtml(fileName))
+							.append("</b></p>");
+					sb.append("<pre>")
+							.append(escapeHtml(textContent))
+							.append("</pre>");
 				}
 			}
 		}
 
 		return sb.toString();
+	}
+
+	private boolean isTextAttachment(Path file, String contentType) {
+		if (contentType != null && !contentType.isBlank()) {
+			String normalized = contentType.toLowerCase(Locale.ROOT);
+			if (normalized.startsWith("text/")) {
+				return true;
+			}
+			if (normalized.contains("json")
+					|| normalized.contains("xml")
+					|| normalized.contains("yaml")
+					|| normalized.contains("javascript")
+					|| normalized.contains("x-www-form-urlencoded")) {
+				return true;
+			}
+		}
+
+		String fileName = file != null && file.getFileName() != null
+				? file.getFileName().toString().toLowerCase(Locale.ROOT)
+				: "";
+
+		return fileName.endsWith(".txt")
+				|| fileName.endsWith(".log")
+				|| fileName.endsWith(".json")
+				|| fileName.endsWith(".xml")
+				|| fileName.endsWith(".csv")
+				|| fileName.endsWith(".yaml")
+				|| fileName.endsWith(".yml")
+				|| fileName.endsWith(".properties")
+				|| fileName.endsWith(".md");
+	}
+
+	@SneakyThrows
+	private String readTextAttachmentSafely(Path file) {
+		if (file == null || !Files.exists(file) || !Files.isRegularFile(file)) {
+			return "";
+		}
+
+		long maxBytes = 32 * 1024;
+		long size = Files.size(file);
+		byte[] bytes;
+
+		if (size > maxBytes) {
+			bytes = Files.readAllBytes(file);
+			String text = new String(bytes, StandardCharsets.UTF_8);
+			return text.substring(0, Math.min(text.length(), 8000))
+					+ System.lineSeparator()
+					+ "... [truncated]";
+		}
+
+		bytes = Files.readAllBytes(file);
+		return new String(bytes, StandardCharsets.UTF_8);
 	}
 
 	private JComponent buildTaskParentField(

@@ -5,6 +5,7 @@ import com.google.gson.*;
 import dto.*;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.SneakyThrows;
 import lombok.val;
 import model.UserAction;
 import org.openqa.selenium.By;
@@ -28,6 +29,9 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -646,7 +650,11 @@ public class PlayActionService {
 		});
 	}
 
-	private void showErrorWithBugReportButton(ActionWindow parent, String message) {
+	private void showErrorWithBugReportButton(
+			ActionWindow parent,
+			String message,
+			BackendExecutionResult backendResult
+	) {
 		SwingUtilities.invokeLater(() -> {
 			JDialog dialog = new JDialog(
 					SwingUtilities.getWindowAncestor(parent),
@@ -663,24 +671,45 @@ public class PlayActionService {
 
 			JScrollPane scrollPane = new JScrollPane(textArea);
 
-			JButton createBugReportButton = new JButton("Завести баг-репорт");
+			JButton createBugReportButton = new JButton("Создать баг-репорт");
 			createBugReportButton.addActionListener(e -> {
 				dialog.dispose();
 
-				if (jagaBugReportsService != null) {
-					jagaBugReportsService.createBugReport(message);
-				} else {
+				if (jagaBugReportsService == null) {
 					JOptionPane.showMessageDialog(
 							parent,
-							"JagaBugReportsService не инициализирован",
+							"JagaBugReportsService недоступен",
 							"Ошибка",
 							JOptionPane.ERROR_MESSAGE
 					);
+					return;
+				}
+
+				String popupError = safeExtractPopupError();
+				String finalError = resolveBugReportError(message, popupError);
+
+				Path curlAttachment = createCurlAttachmentForBackendError(backendResult);
+
+				// НИЧЕГО НЕ НАШЛИ → не автозаполняем описание, просто открываем диалог Jaga
+				if (finalError == null) {
+					if (curlAttachment != null) {
+						// создаём баг без текста, но с вложением
+						jagaBugReportsService.createBugReport(null, curlAttachment);
+					} else {
+						jagaBugReportsService.createBugReport(); // перегрузка без error
+					}
+				} else {
+					// нашёлся нормальный текст → используем его
+					if (curlAttachment != null) {
+						jagaBugReportsService.createBugReport(finalError, curlAttachment);
+					} else {
+						jagaBugReportsService.createBugReport(finalError);
+					}
 				}
 			});
 
 			JButton closeButton = new JButton("Закрыть");
-			closeButton.addActionListener(e -> dialog.dispose());
+			closeButton.addActionListener(e2 -> dialog.dispose());
 
 			JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 			buttons.add(createBugReportButton);
@@ -696,10 +725,6 @@ public class PlayActionService {
 			dialog.setLocationRelativeTo(parent);
 			dialog.setVisible(true);
 		});
-	}
-
-	private void showErrorOnUi(ActionWindow parent, String message) {
-		showErrorWithBugReportButton(parent, message);
 	}
 
 	private Object createElementFromStep(PlayStep step) {
@@ -900,6 +925,7 @@ public class PlayActionService {
 				mergedHeaders.put("Content-Type", "application/json;charset=UTF-8");
 			}
 
+			result.requestHeaders = new LinkedHashMap<>(mergedHeaders);
 			String finalHeadersJson = new com.google.gson.Gson().toJson(mergedHeaders);
 			result.warnings = new ArrayList<>(warnings);
 
@@ -1462,24 +1488,6 @@ public class PlayActionService {
 		return new PathToken(trimmed, null);
 	}
 
-	private String buildJsonLiteral(String value, String type) {
-		String normalizedType = safeTrim(type).toLowerCase(Locale.ROOT);
-
-		if ("number".equals(normalizedType)) {
-			String trimmed = safeTrim(value);
-			if (trimmed.isEmpty()) {
-				return "0";
-			}
-			try {
-				return String.valueOf(Integer.parseInt(trimmed));
-			} catch (NumberFormatException ex) {
-				throw new IllegalArgumentException("Value '" + value + "' is not a valid integer");
-			}
-		}
-
-		return "\"" + escapeJsonValue(value) + "\"";
-	}
-
 	private String resolveBackendTemplate(String raw, Map<String, String> nameToValue) {
 		if (raw == null || raw.isBlank()) {
 			return raw;
@@ -1514,74 +1522,33 @@ public class PlayActionService {
 		return sb.toString();
 	}
 
-	private String invokeStringGetter(Object target, String... methodNames) {
-		for (String methodName : methodNames) {
-			try {
-				Object value = target.getClass().getMethod(methodName).invoke(target);
-				return value == null ? null : String.valueOf(value);
-			} catch (Exception ignored) {
-			}
-		}
-		return null;
-	}
-
-	private Boolean invokeBooleanGetter(Object target, String... methodNames) {
-		for (String methodName : methodNames) {
-			try {
-				Object value = target.getClass().getMethod(methodName).invoke(target);
-				if (value instanceof Boolean b) {
-					return b;
-				}
-				if (value != null) {
-					return Boolean.parseBoolean(String.valueOf(value));
-				}
-			} catch (Exception ignored) {
-			}
-		}
-		return null;
-	}
-
-	private String escapeJsonValue(String s) {
-		if (s == null) {
-			return "";
-		}
-		return s
-				.replace("\\", "\\\\")
-				.replace("\"", "\\\"")
-				.replace("\n", "\\n")
-				.replace("\r", "\\r")
-				.replace("\t", "\\t");
-	}
-
-	private void onScenarioFinishedWithBackendAnswers(ActionWindow actionWindow, String message, int messageType) {
+	private void onScenarioFinishedWithBackendAnswers(
+			ActionWindow actionWindow,
+			String message,
+			int messageType
+	) {
 		SwingUtilities.invokeLater(() -> {
-			actionWindow.onScenarioFinished();
-
-			if (backendExecutionResults.isEmpty()) {
-				JOptionPane.showMessageDialog(
-						actionWindow,
-						message,
-						"Playback finished",
-						messageType
-				);
-				return;
-			}
-
-			Object[] options = {"OK", "View backend responses"};
+			// Показываем стандартный диалог завершения
+			Object[] options = {"OK", "View backend responses", "Create bug report"};
 			int choice = JOptionPane.showOptionDialog(
 					actionWindow,
 					message,
 					"Playback finished",
-					JOptionPane.YES_NO_OPTION,
+					JOptionPane.YES_NO_CANCEL_OPTION,
 					messageType,
 					null,
 					options,
 					options[0]
 			);
 
-			if (choice == 1) {
+			if (choice == 1) { // "View backend responses"
 				showBackendAnswersDialog(actionWindow);
+			} else if (choice == 2) { // "Create bug report"
+				BackendExecutionResult lastFailed = findLastFailedBackendResult();
+				// вот здесь ПРЯМО ИСПОЛЬЗУЕМ твой showErrorWithBugReportButton
+				showErrorWithBugReportButton(actionWindow, message, lastFailed);
 			}
+			// choice == 0 или закрытие диалога — просто ничего не делаем
 		});
 	}
 
@@ -1831,23 +1798,119 @@ public class PlayActionService {
 		return cfg != null ? cfg.getFieldOverrides() : null;
 	}
 
-	private String buildMethodExpression(DtoFieldOverride override) {
-		String method = override.getMethod();
-		if (method == null || method.isBlank()) return null;
-		method = method.trim();
+	@SneakyThrows
+	private Path createCurlAttachmentForBackendError(BackendExecutionResult result) {
+		if (result == null) {
+			return null;
+		}
+		if (result.status < 400 || result.status >= 600) {
+			return null;
+		}
 
-		if ("use variable".equals(method)) {
-			String arg = override.getMethodArg();
-			return (arg != null && !arg.isBlank()) ? arg : null;
+		String fileSafeRequestName = safeFileName(
+				result.requestName != null && !result.requestName.isBlank()
+						? result.requestName
+						: "backend-request"
+		);
+
+		String fileName = "backend-error-step-" +
+				(result.step != null ? result.step : "unknown") +
+				"-" + fileSafeRequestName +
+				".curl.txt";
+
+		Path file = Files.createTempDirectory("jaga-backend-curl-").resolve(fileName);
+
+		String curlText = buildCurlText(result);
+		Files.writeString(file, curlText, StandardCharsets.UTF_8);
+
+		return file;
+	}
+
+	private String buildCurlText(BackendExecutionResult result) {
+		String lineSeparator = System.lineSeparator();
+		StringBuilder sb = new StringBuilder();
+
+		sb.append("# Backend request debug").append(lineSeparator);
+		sb.append("# requestName: ").append(nullToEmpty(result.requestName)).append(lineSeparator);
+		sb.append("# step: ").append(result.step != null ? result.step : "").append(lineSeparator);
+		sb.append("# status: ").append(result.status).append(lineSeparator);
+		sb.append(lineSeparator);
+
+		sb.append("curl --location").append(" \\").append(lineSeparator);
+		sb.append("  --request ").append(shellQuote(safeHttpMethod(result.method))).append(" \\").append(lineSeparator);
+		sb.append("  ").append(shellQuote(nullToEmpty(result.url)));
+
+		Map<String, String> headers = result.requestHeaders != null
+				? result.requestHeaders
+				: Map.of();
+
+		for (Map.Entry<String, String> entry : headers.entrySet()) {
+			String headerName = entry.getKey();
+			String headerValue = entry.getValue();
+
+			if (headerName == null || headerName.isBlank()) {
+				continue;
+			}
+			if (isSensitiveHeader(headerName)) {
+				continue;
+			}
+
+			sb.append(" \\").append(lineSeparator);
+			sb.append("  --header ").append(shellQuote(headerName + ": " + nullToEmpty(headerValue)));
 		}
-		if ("addUuid".equals(method)) {
-			String arg = override.getMethodArg();
-			return "addUuid(" + (arg != null ? arg : "") + ")";
+
+		String requestBody = result.requestBody != null ? result.requestBody : "";
+		if (!requestBody.isBlank()) {
+			sb.append(" \\").append(lineSeparator);
+			sb.append("  --data-raw ").append(shellQuote(requestBody));
 		}
-		if (method.endsWith("()") || method.contains("(")) {
-			return method;
+
+		sb.append(lineSeparator).append(lineSeparator);
+
+		if (result.warnings != null && !result.warnings.isEmpty()) {
+			sb.append("# warnings").append(lineSeparator);
+			for (String warning : result.warnings) {
+				sb.append("# - ").append(nullToEmpty(warning)).append(lineSeparator);
+			}
 		}
-		return method + "()";
+
+		return sb.toString();
+	}
+
+	private boolean isSensitiveHeader(String headerName) {
+		if (headerName == null) {
+			return false;
+		}
+		String normalized = headerName.trim().toLowerCase(Locale.ROOT);
+		return normalized.equals("cookie")
+				|| normalized.equals("set-cookie")
+				|| normalized.equals("authorization");
+	}
+
+	private String safeHttpMethod(String method) {
+		String normalized = method != null ? method.trim().toUpperCase(Locale.ROOT) : "";
+		return switch (normalized) {
+			case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" -> normalized;
+			default -> "GET";
+		};
+	}
+
+	private String shellQuote(String value) {
+		if (value == null) {
+			return "''";
+		}
+		return "'" + value.replace("'", "'\"'\"'") + "'";
+	}
+
+	private String safeFileName(String value) {
+		if (value == null || value.isBlank()) {
+			return "file";
+		}
+		return value.replaceAll("[^a-zA-Z0-9._-]", "_");
+	}
+
+	private String nullToEmpty(String value) {
+		return value == null ? "" : value;
 	}
 
 	private String buildFinalBackendUrl(String storedPathOrUrl) {
@@ -1856,6 +1919,114 @@ public class PlayActionService {
 			throw new IllegalStateException("URL backend-метода пустой.");
 		}
 		return value;
+	}
+
+	private BackendExecutionResult findLastFailedBackendResult() {
+		synchronized (backendExecutionResults) {
+			for (int i = backendExecutionResults.size() - 1; i >= 0; i--) {
+				BackendExecutionResult result = backendExecutionResults.get(i);
+				if (result != null && !result.success) {
+					return result;
+				}
+			}
+		}
+		return null;
+	}
+
+	private String resolveBugReportError(
+			String message,
+			String popupError
+	) {
+
+		val back = findLastFailedBackendResult();
+		// 1. Backend-ошибка → тело ответа бэка
+		if (back != null)
+			return back.requestBody;
+
+		// 2. Ошибка из всплывашки
+		if (popupError != null && !popupError.isBlank()) {
+			return popupError.trim();
+		}
+
+		// 3. Человекочитаемое «элемент не виден»
+		if (isElementNotVisibleError(message)) {
+			return "Элемент не виден на странице";
+		}
+
+		// 4. Ничего подходящего не нашли → не заполняем описание
+		return null;
+	}
+
+	private boolean isElementNotVisibleError(String message) {
+		if (message == null || message.isBlank()) {
+			return false;
+		}
+
+		String text = message.toLowerCase(Locale.ROOT);
+
+		return text.contains("no such element")
+				|| text.contains("element not found")
+				|| text.contains("not exists on page")
+				|| text.contains("element not created")
+				|| text.contains("element is not attached")
+				|| text.contains("stale element")
+				|| text.contains("element click intercepted")
+				|| text.contains("element not interactable")
+				|| text.contains("invalid selector");
+	}
+
+	private String safeExtractPopupError() {
+		try {
+			String value = extractNotificationTextByXpathWithRetry();
+			return value != null && !value.isBlank() ? value.trim() : null;
+		} catch (Exception ex) {
+			log.debug("Не удалось получить текст всплывашки", ex);
+			return null;
+		}
+	}
+
+	private String extractNotificationTextByXpathWithRetry() {
+		for (int attempt = 0; attempt < 3; attempt++) {
+			String text = extractNotificationTextByXpath();
+			if (!text.isBlank()) {
+				return text;
+			}
+
+			try {
+				Thread.sleep(250);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return "";
+			}
+		}
+		return "";
+	}
+
+	private String extractNotificationTextByXpath() {
+		if (driver == null) {
+			return "";
+		}
+
+		String xpath =
+				"(" +
+						"//mat-snack-bar-container[contains(@class,'mat-mdc-snack-bar-container')]"
+						+ "//div[contains(@class,'mat-mdc-snack-bar-label') and contains(@class,'mdc-snackbar__label')]" +
+						" | " +
+						"//li[contains(@class,'iqhr-notification') and @data-sonner-toast and @data-visible='true']" +
+						")[last()]";
+
+		List<WebElement> elements = driver.findElements(By.xpath(xpath));
+		for (int i = elements.size() - 1; i >= 0; i--) {
+			WebElement element = elements.get(i);
+			if (element == null || !element.isDisplayed()) {
+				continue;
+			}
+			String text = element.getText();
+			if (text != null && !text.isBlank()) {
+				return text.trim();
+			}
+		}
+		return "";
 	}
 
 	private String safeTrim(String value) {
@@ -1885,9 +2056,9 @@ public class PlayActionService {
 		boolean success;
 		long status;
 		List<String> warnings = new ArrayList<>();
-		// УЛУЧШЕНИЕ 1: переменные, извлечённые из ответа — для tooltip в таблице Actions
 		Map<String, String> extractedVars = new LinkedHashMap<>();
 		Integer step;
+		Map<String, String> requestHeaders = new LinkedHashMap<>();
 	}
 
 	private class Auth {
