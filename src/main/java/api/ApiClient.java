@@ -16,6 +16,7 @@ package api;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import lombok.Getter;
 import org.openapitools.jackson.nullable.JsonNullableModule;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -81,6 +82,7 @@ import ru.rt.iqhr.services.invoker.auth.HttpBearerAuth;
 import ru.rt.iqhr.services.invoker.auth.ApiKeyAuth;
 import ru.rt.iqhr.services.invoker.JavaTimeFormatter;
 
+@Getter
 public class ApiClient extends JavaTimeFormatter {
     public enum CollectionFormat {
         CSV(","), TSV("\t"), SSV(" "), PIPES("|"), MULTI(null);
@@ -676,7 +678,7 @@ public class ApiClient extends JavaTimeFormatter {
      * @param headers The headers to add
      * @param requestBuilder The current request
      */
-    protected void addHeadersToRequest(HttpHeaders headers, WebClient.RequestBodySpec requestBuilder) {
+	public void addHeadersToRequest(HttpHeaders headers, WebClient.RequestBodySpec requestBuilder) {
         for (Entry<String, List<String>> entry : headers.entrySet()) {
             List<String> values = entry.getValue();
             for(String value : values) {
@@ -692,7 +694,7 @@ public class ApiClient extends JavaTimeFormatter {
      * @param cookies The cookies to add
      * @param requestBuilder The current request
      */
-    protected void addCookiesToRequest(MultiValueMap<String, String> cookies, WebClient.RequestBodySpec requestBuilder) {
+	public void addCookiesToRequest(MultiValueMap<String, String> cookies, WebClient.RequestBodySpec requestBuilder) {
         for (Entry<String, List<String>> entry : cookies.entrySet()) {
             List<String> values = entry.getValue();
             for(String value : values) {
@@ -711,7 +713,7 @@ public class ApiClient extends JavaTimeFormatter {
      * @param headerParams The header parameters
      * @param cookieParams the cookie parameters
      */
-    protected void updateParamsForAuth(String[] authNames, MultiValueMap<String, String> queryParams, HttpHeaders headerParams, MultiValueMap<String, String> cookieParams) {
+	public void updateParamsForAuth(String[] authNames, MultiValueMap<String, String> queryParams, HttpHeaders headerParams, MultiValueMap<String, String> cookieParams) {
         for (String authName : authNames) {
             Authentication auth = authentications.get(authName);
             if (auth == null) {

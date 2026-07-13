@@ -104,19 +104,20 @@ public class ActionWindow extends JFrame {
 
 		actionRecorder = new ActionRecorder(tableModel);
 		backendRequestsService = new BackendRequestsService(this, config);
+		jagaBugReportsService = new JagaBugReportsService(tableModel, configService, config);
 		playActionService = new PlayActionService(
 				tableModel,
 				usersService,
 				customMethodsService,
 				backendRequestsService,
-				variablesService
+				variablesService,
+				jagaBugReportsService
 		);
 		backendRequestsService.setVariablesService(variablesService);
 		driver = null;
 		fileService = new ActionFileService(this, tableModel, customMethodsService, variablesService);
 		fileService.setBackendRequestsService(backendRequestsService);
 		fileService.setPlayActionServiceRef(playActionService);
-		jagaBugReportsService = new JagaBugReportsService(tableModel, configService, config);
 
 		Container content = getContentPane();
 		content.setLayout(new BorderLayout());

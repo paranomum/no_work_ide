@@ -2,14 +2,20 @@ package api.jaga.api;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 import api.ApiClient;
 import api.jaga.dto.*;
@@ -656,6 +662,120 @@ public class JagaControllerApi {
 		ParameterizedTypeReference<SearchResultDto> localVarReturnType =
 				new ParameterizedTypeReference<SearchResultDto>() {};
 		return searchTaskByIdOrTitleRequestCreation(projectId, size, page, searchRequestDto)
+				.bodyToMono(localVarReturnType);
+	}
+
+	private ResponseSpec createAttachmentRequestCreation(
+			Long projectId,
+			byte[] fileBytes,
+			String fileName,
+			String fileContentType
+	) throws WebClientResponseException {
+
+		if (projectId == null) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'projectId' when calling createAttachment",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		if (fileBytes == null || fileBytes.length == 0) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'fileBytes' when calling createAttachment",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		if (fileName == null || fileName.isBlank()) {
+			throw new WebClientResponseException(
+					"Missing the required parameter 'fileName' when calling createAttachment",
+					400,
+					"Bad Request",
+					null,
+					null,
+					null
+			);
+		}
+
+		final Map<String, Object> pathParams = new HashMap<>();
+		final MultiValueMap<String, String> queryParams = new LinkedMultiValueMap<>();
+		final HttpHeaders headerParams = new HttpHeaders();
+		final MultiValueMap<String, String> cookieParams = new LinkedMultiValueMap<>();
+
+		final String[] localVarAccepts = {
+				"application/json",
+				"*/*",
+				"text/plain"
+		};
+		final List<MediaType> localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+		String[] localVarAuthNames = new String[] { "bearer-jwt" };
+		apiClient.updateParamsForAuth(localVarAuthNames, queryParams, headerParams, cookieParams);
+
+		ByteArrayResource fileResource = new ByteArrayResource(fileBytes) {
+			@Override
+			public String getFilename() {
+				return fileName;
+			}
+		};
+
+		MediaType resolvedFileContentType = MediaType.APPLICATION_OCTET_STREAM;
+		if (fileContentType != null && !fileContentType.isBlank()) {
+			try {
+				resolvedFileContentType = MediaType.parseMediaType(fileContentType);
+			} catch (Exception ignored) {
+				resolvedFileContentType = MediaType.APPLICATION_OCTET_STREAM;
+			}
+		}
+
+		MultipartBodyBuilder multipartBuilder = new MultipartBodyBuilder();
+		multipartBuilder.part("projectId", String.valueOf(projectId));
+		multipartBuilder.part("file", fileResource)
+				.filename(fileName)
+				.contentType(resolvedFileContentType);
+
+		String finalUri = UriComponentsBuilder
+				.fromHttpUrl(apiClient.getBasePath())
+				.path("/backend/attacher/file/create")
+				.build(false)
+				.toUriString();
+
+		WebClient.RequestBodySpec requestBuilder = apiClient.getWebClient()
+				.method(HttpMethod.POST)
+				.uri(finalUri, pathParams);
+
+		if (localVarAccept != null && !localVarAccept.isEmpty()) {
+			requestBuilder.accept(localVarAccept.toArray(new MediaType[0]));
+		}
+
+		requestBuilder.contentType(MediaType.MULTIPART_FORM_DATA);
+
+		apiClient.addHeadersToRequest(headerParams, requestBuilder);
+		apiClient.addHeadersToRequest(apiClient.getDefaultHeaders(), requestBuilder);
+		apiClient.addCookiesToRequest(cookieParams, requestBuilder);
+		apiClient.addCookiesToRequest(apiClient.getDefaultCookies(), requestBuilder);
+
+		requestBuilder.body(BodyInserters.fromMultipartData(multipartBuilder.build()));
+		return requestBuilder.retrieve();
+	}
+
+	public Mono<JagaAttachmentResponse> createAttachment(
+			Long projectId,
+			byte[] fileBytes,
+			String fileName,
+			String fileContentType
+	) throws WebClientResponseException {
+		ParameterizedTypeReference<JagaAttachmentResponse> localVarReturnType =
+				new ParameterizedTypeReference<JagaAttachmentResponse>() {};
+		return createAttachmentRequestCreation(projectId, fileBytes, fileName, fileContentType)
 				.bodyToMono(localVarReturnType);
 	}
 }

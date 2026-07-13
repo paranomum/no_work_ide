@@ -49,6 +49,7 @@ public class PlayActionService {
 	private final UsersService usersService;
 	private final CustomMethodsService customMethodsService;
 	private final BackendRequestsService backendRequestsService;
+	private final JagaBugReportsService jagaBugReportsService;
 	private final VariablesService variablesService;
 	private final List<BackendExecutionResult> backendExecutionResults =
 			Collections.synchronizedList(new ArrayList<>());
@@ -71,7 +72,8 @@ public class PlayActionService {
 							 UsersService usersService,
 							 CustomMethodsService customMethodsService,
 							 BackendRequestsService backendRequestsService,
-							 VariablesService variablesService) {
+							 VariablesService variablesService,
+							 JagaBugReportsService jagaBugReportsService) {
 		FrameworkConfig.setSpeedMode(FrameworkConfig.SpeedMode.FAST);
 		this.tableModel = tableModel;
 		formFiller = new FormFiller();
@@ -79,6 +81,7 @@ public class PlayActionService {
 		this.customMethodsService = customMethodsService;
 		this.backendRequestsService = backendRequestsService;
 		this.variablesService = variablesService;
+		this.jagaBugReportsService = jagaBugReportsService;
 		log.info("PlayActionService created, speedMode=FAST");
 	}
 
@@ -643,26 +646,60 @@ public class PlayActionService {
 		});
 	}
 
-	private void showErrorOnUi(ActionWindow parent, String message) {
-		SwingUtilities.invokeLater(() ->
-				JOptionPane.showMessageDialog(
-						parent,
-						message,
-						"Playback error",
-						JOptionPane.ERROR_MESSAGE
-				)
-		);
+	private void showErrorWithBugReportButton(ActionWindow parent, String message) {
+		SwingUtilities.invokeLater(() -> {
+			JDialog dialog = new JDialog(
+					SwingUtilities.getWindowAncestor(parent),
+					"Playback error",
+					Dialog.ModalityType.APPLICATION_MODAL
+			);
+			dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+
+			JTextArea textArea = new JTextArea(message, 14, 80);
+			textArea.setEditable(false);
+			textArea.setLineWrap(true);
+			textArea.setWrapStyleWord(true);
+			textArea.setCaretPosition(0);
+
+			JScrollPane scrollPane = new JScrollPane(textArea);
+
+			JButton createBugReportButton = new JButton("Завести баг-репорт");
+			createBugReportButton.addActionListener(e -> {
+				dialog.dispose();
+
+				if (jagaBugReportsService != null) {
+					jagaBugReportsService.createBugReport(message);
+				} else {
+					JOptionPane.showMessageDialog(
+							parent,
+							"JagaBugReportsService не инициализирован",
+							"Ошибка",
+							JOptionPane.ERROR_MESSAGE
+					);
+				}
+			});
+
+			JButton closeButton = new JButton("Закрыть");
+			closeButton.addActionListener(e -> dialog.dispose());
+
+			JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+			buttons.add(createBugReportButton);
+			buttons.add(closeButton);
+
+			JPanel root = new JPanel(new BorderLayout(10, 10));
+			root.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+			root.add(scrollPane, BorderLayout.CENTER);
+			root.add(buttons, BorderLayout.SOUTH);
+
+			dialog.setContentPane(root);
+			dialog.pack();
+			dialog.setLocationRelativeTo(parent);
+			dialog.setVisible(true);
+		});
 	}
 
-	private void showInfoOnUi(ActionWindow parent, String message) {
-		SwingUtilities.invokeLater(() ->
-				JOptionPane.showMessageDialog(
-						parent,
-						message,
-						"Playback",
-						JOptionPane.INFORMATION_MESSAGE
-				)
-		);
+	private void showErrorOnUi(ActionWindow parent, String message) {
+		showErrorWithBugReportButton(parent, message);
 	}
 
 	private Object createElementFromStep(PlayStep step) {
