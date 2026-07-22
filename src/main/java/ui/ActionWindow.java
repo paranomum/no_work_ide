@@ -75,6 +75,9 @@ public class ActionWindow extends JFrame {
 	private JTextField trustStorePasswordField;
 	private JTextField trustStoreTypeField;
 
+	private JButton userGuideButton;
+	private final UserGuideService userGuideService;
+
 	public ActionWindow() {
 		config = configService.load();
 		variablesService = new VariablesService();
@@ -84,6 +87,7 @@ public class ActionWindow extends JFrame {
 		customMethodsService = new CustomMethodsService(configService, config);
 		this.customMethodsService.load();
 		proxyCaptureService = new ProxyCaptureService(config, configService);
+		userGuideService = new UserGuideService();
 		driver = null;
 
 		if ("Dark".equalsIgnoreCase(config.theme)) {
@@ -1014,6 +1018,10 @@ public class ActionWindow extends JFrame {
 						: ""
 		);
 
+		userGuideButton = new JButton("Руководство пользователя");
+		userGuideButton.setToolTipText("Открыть руководство пользователя");
+		userGuideButton.addActionListener(e -> userGuideService.openUserGuideDialog(this));
+
 		trustStorePathField = new JTextField(20);
 		trustStorePasswordField = new JTextField(20);
 		trustStoreTypeField = new JTextField(10);
@@ -1057,19 +1065,27 @@ public class ActionWindow extends JFrame {
 		JPanel rowsPanel = new JPanel();
 		rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
 
-		JPanel settingsPanelTop = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		JPanel settingsPanelTop = new JPanel(new BorderLayout(10, 0));
 		settingsPanelTop.setBorder(BorderFactory.createTitledBorder("Settings"));
-		settingsPanelTop.add(new JLabel("Theme:"));
-		settingsPanelTop.add(themeSelect);
-		settingsPanelTop.add(Box.createHorizontalStrut(20));
-		settingsPanelTop.add(new JLabel("ChromeDriver Path:"));
-		settingsPanelTop.add(driverPathField);
+
+		JPanel settingsLeftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		settingsLeftPanel.add(new JLabel("Theme:"));
+		settingsLeftPanel.add(themeSelect);
+		settingsLeftPanel.add(Box.createHorizontalStrut(20));
+		settingsLeftPanel.add(new JLabel("ChromeDriver Path:"));
+		settingsLeftPanel.add(driverPathField);
 
 		JButton browseButton = new JButton("Обзор");
 		browseButton.setToolTipText("Выбрать chromedriver (windows/linux) или Chrome for Testing.app (macOs)");
 		ToolTipManager.sharedInstance().setInitialDelay(200);
 		browseButton.addActionListener(e -> browserService.selectChromeDriver(this, driverPathField));
-		settingsPanelTop.add(browseButton);
+		settingsLeftPanel.add(browseButton);
+
+		JPanel settingsRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+		settingsRightPanel.add(userGuideButton);
+
+		settingsPanelTop.add(settingsLeftPanel, BorderLayout.CENTER);
+		settingsPanelTop.add(settingsRightPanel, BorderLayout.EAST);
 
 		JPanel settingsPanelBot = new JPanel(new FlowLayout(FlowLayout.LEFT));
 		settingsPanelBot.add(new JLabel("TrustStore:"));

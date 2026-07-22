@@ -15,7 +15,7 @@ public class AppConfig {
 
 	public String trustStorePath = "";
 	public String trustStorePassword = "changeit";
-	public String trustStoreType = "PKCS12";
+	public String trustStoreType = "JKS";
 
 	// НОВОЕ: список доменных имён
 	public List<String> domains = new ArrayList<>();
