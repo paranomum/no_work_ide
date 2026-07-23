@@ -1,3 +1,12 @@
 Начало работы|intro.md
 Интеграция с Ягой|jaga.md
+Таблица действий в TestRecorder|table.md
+Опции колонки Actions|actions.md
+Опции колонки ElementType|element_type.md
+Запись и настройка тест плана|record.md
+Воспроизведение и прогон тест плана|play.md
+Сохранение данных и тест плана|save.md
+Использование backend запросов|backend.md
+Кастомные методы (сustomMethods)|сustom_methods.md
+Переменные|variables.md
 Нюансы при работе с TestRecorder|nuance.md

@@ -780,7 +780,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 
 		JButton addExtRow = new JButton("+");
 		JButton removeExtRow = new JButton("-");
-		JButton parseResponseBtn = new JButton("Parse fields from Response");
+		JButton parseResponseBtn = new JButton("Разобрать поля ответа");
 		parseResponseBtn.setFont(parseResponseBtn.getFont().deriveFont(11f));
 
 		addExtRow.addActionListener(e -> {
