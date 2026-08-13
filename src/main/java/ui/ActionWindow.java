@@ -548,6 +548,16 @@ public class ActionWindow extends JFrame {
 			}
 		}
 
+		// БАГ 3 FIX: подгружаем переменные кастомного метода в таблицу переменных сразу,
+		// по аналогии с тем, как выше подгружаются backend-запросы.
+		java.util.List<LocalVariables> methodVars = customMethodsService.loadMethodVariables(methodName);
+		if (methodVars != null) {
+			for (LocalVariables v : methodVars) {
+				variablesService.addVariable(v);
+			}
+			variablesService.refreshTableFromVariables();
+		}
+
 		return selected;
 	}
 

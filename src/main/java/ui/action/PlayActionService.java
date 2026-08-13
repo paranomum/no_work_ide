@@ -1784,8 +1784,6 @@ public class PlayActionService {
 		try {
 			JsonElement root = JsonParser.parseString(responseBody);
 
-			boolean addedToVariables = false;
-
 			for (ResponseFieldExtractor extractor : extractors) {
 				if (extractor == null) {
 					continue;
@@ -1798,7 +1796,7 @@ public class PlayActionService {
 
 				String varName = extractor.getVariableName();
 				if (varName == null || varName.isBlank()) {
-					varName = def.getName() + "." + fieldPath;
+					varName = util.VariableNameUtil.buildUniqueVariableName(def, fieldPath);
 				}
 
 				String value = extractJsonValue(root, fieldPath);
@@ -1810,22 +1808,15 @@ public class PlayActionService {
 					continue;
 				}
 
+				// БАГ 1 FIX: значение сохраняется ТОЛЬКО локально для текущего прогона,
+				// глобальный VariablesService (таблица настроек) больше не перезаписывается.
 				nameToValue.put(varName, value);
-
-				if (variablesService != null) {
-					variablesService.addVariable(varName, value);
-					addedToVariables = true;
-				}
 
 				if (lastResult != null) {
 					lastResult.extractedVars.put(varName, value);
 				}
 
 				log.info("Extracted response variable: {} = {}", varName, value);
-			}
-
-			if (addedToVariables && variablesService != null) {
-				variablesService.refreshTableFromVariables();
 			}
 
 		} catch (JsonSyntaxException ex) {

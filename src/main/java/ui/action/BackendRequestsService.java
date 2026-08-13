@@ -250,7 +250,7 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			if (variableName.isEmpty()) {
 				String fieldPath = safeTrim(ex.getFieldPath());
 				if (!fieldPath.isEmpty()) {
-					variableName = safeTrim(request.getName()) + "." + fieldPath;
+					variableName = util.VariableNameUtil.buildUniqueVariableName(request, fieldPath);
 				}
 			}
 
@@ -1349,6 +1349,8 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			return;
 		}
 
+		BackendRequestDef newDef = findByName(newName);
+
 		for (ResponseFieldExtractor ex : extractors) {
 			if (ex == null) continue;
 
@@ -1356,7 +1358,9 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			if (fieldPath.isEmpty()) continue;
 
 			String oldVarName = oldName + "." + fieldPath;
-			String newVarName = newName + "." + fieldPath;
+			String newVarName = newDef != null
+					? util.VariableNameUtil.buildUniqueVariableName(newDef, fieldPath)
+					: newName + "." + fieldPath;
 			String value = "json(" + fieldPath + ")";
 
 			variablesService.removeVariable(oldVarName);
@@ -1382,6 +1386,10 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			return "";
 		}
 
+		BackendRequestDef def = findByName(requestName);
+		if (def != null) {
+			return util.VariableNameUtil.buildUniqueVariableName(def, fieldPath);
+		}
 		return safeTrim(requestName) + "." + fieldPath;
 	}
 
@@ -1429,6 +1437,8 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			return;
 		}
 
+		BackendRequestDef newDef = findByName(newName);
+
 		for (ResponseFieldExtractor ex : extractors) {
 			if (ex == null) {
 				continue;
@@ -1440,7 +1450,9 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 			}
 
 			String oldVarName = oldName + "." + fieldPath;
-			String newVarName = newName + "." + fieldPath;
+			String newVarName = newDef != null
+					? util.VariableNameUtil.buildUniqueVariableName(newDef, fieldPath)
+					: newName + "." + fieldPath;
 			String value = "json(" + fieldPath + ")";
 
 			variablesService.removeVariable(oldVarName);

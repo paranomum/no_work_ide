@@ -181,11 +181,13 @@ public class CaptureResultDialog extends JDialog {
 				existing.add(String.valueOf(extractorModel.getValueAt(i, 0)).trim());
 			}
 
-			String reqName = nameField.getText().trim().isEmpty() ? captured.getName() : nameField.getText().trim();
+			if (!nameField.getText().trim().isEmpty()) {
+				captured.setName(nameField.getText().trim());
+			}
 
 			for (String path : paths) {
 				if (!existing.contains(path)) {
-					String varName = reqName + "." + path;
+					String varName = util.VariableNameUtil.buildUniqueVariableName(captured, path);
 					extractorModel.addRow(new Object[]{path, varName});
 				}
 			}
@@ -248,7 +250,7 @@ public class CaptureResultDialog extends JDialog {
 				String fp = String.valueOf(extractorModel.getValueAt(i, 0)).trim();
 				String vn = String.valueOf(extractorModel.getValueAt(i, 1)).trim();
 				if (!fp.isEmpty()) {
-					if (vn.isEmpty()) vn = name + "." + fp;
+					if (vn.isEmpty()) vn = util.VariableNameUtil.buildUniqueVariableName(captured, fp);
 					extractors.add(new ResponseFieldExtractor(fp, vn));
 				}
 			}
@@ -282,7 +284,7 @@ public class CaptureResultDialog extends JDialog {
 				String fp = String.valueOf(extractorModel.getValueAt(i, 0)).trim();
 				String vn = String.valueOf(extractorModel.getValueAt(i, 1)).trim();
 				if (!fp.isEmpty()) {
-					if (vn.isEmpty()) vn = captured.getName() + "." + fp;
+					if (vn.isEmpty()) vn = util.VariableNameUtil.buildUniqueVariableName(captured, fp);
 					extractors.add(new ResponseFieldExtractor(fp, vn));
 				}
 			}
