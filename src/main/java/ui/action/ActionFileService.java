@@ -674,6 +674,15 @@ public class ActionFileService {
 						}
 					}
 
+					List<LocalVariables> methodVariables =
+							customMethodsService.loadMethodVariables(methodName);
+
+					if (methodVariables != null && variablesService != null) {
+						for (LocalVariables variable : methodVariables) {
+							variablesService.addVariableIfAbsent(variable);
+						}
+					}
+
 					List<ActionRecord> nestedSteps = customMethodsService.loadMethodSteps(methodName);
 					collectBackendRequestsRecursive(nestedSteps, collected, visitedCustomMethods);
 				} catch (Exception ex) {

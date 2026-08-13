@@ -323,4 +323,14 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		}
 		variables.remove(name.trim());
 	}
+
+	public void addVariableIfAbsent(LocalVariables variable) {
+		if (variable == null
+				|| variable.getName() == null
+				|| variable.getName().isBlank()) {
+			return;
+		}
+
+		variables.putIfAbsent(variable.getName(), variable);
+	}
 }
