@@ -679,7 +679,7 @@ public class ActionFileService {
 
 					if (methodVariables != null && variablesService != null) {
 						for (LocalVariables variable : methodVariables) {
-							variablesService.addVariableIfAbsent(variable);
+							variablesService.addVariableIfAbsentOrEmpty(variable);
 						}
 					}
 
@@ -816,7 +816,7 @@ public class ActionFileService {
 					if (methodVars != null) {
 						for (LocalVariables v : methodVars) {
 							if (v != null && v.getName() != null && !v.getName().isBlank()) {
-								variablesService.addVariable(v);
+								variablesService.addVariableIfAbsentOrEmpty(v);
 							}
 						}
 						variablesService.refreshTableFromVariables();

@@ -5,11 +5,16 @@ import model.ActionGroup;
 import model.ElementType;
 import model.UserAction;
 import ui.action.CustomMethodsService;
+import ui.action.VariablesService;
+import ui.action.iqhr_only.FunnelMoveDialog;
+import ui.action.iqhr_only.FunnelMoveRequestDef;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellEditor;
 import java.awt.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class ActionMenuCellEditor extends AbstractCellEditor implements TableCellEditor {
@@ -23,6 +28,8 @@ public class ActionMenuCellEditor extends AbstractCellEditor implements TableCel
 	private final Supplier<CustomMethodsService.MethodDef> customMethodSupplier;
 	private final Supplier<BackendRequestDef> backendRequestSupplier;
 
+	private final VariablesService variablesService;
+
 	private final JButton editorButton = new JButton();
 
 	private UserAction selectedAction = UserAction.CLICK;
@@ -32,12 +39,14 @@ public class ActionMenuCellEditor extends AbstractCellEditor implements TableCel
 			JTable table,
 			DefaultTableModel tableModel,
 			Supplier<CustomMethodsService.MethodDef> customMethodSupplier,
-			Supplier<BackendRequestDef> backendRequestSupplier
+			Supplier<BackendRequestDef> backendRequestSupplier,
+			VariablesService variablesService
 	) {
 		this.table = table;
 		this.tableModel = tableModel;
 		this.customMethodSupplier = customMethodSupplier;
 		this.backendRequestSupplier = backendRequestSupplier;
+		this.variablesService = variablesService;
 
 		editorButton.setBorderPainted(false);
 		editorButton.setFocusPainted(false);
@@ -118,7 +127,35 @@ public class ActionMenuCellEditor extends AbstractCellEditor implements TableCel
 			}
 
 			JMenuItem item = new JMenuItem(action.getCode());
+
 			item.addActionListener(e -> {
+				if (action == UserAction.MOVE_FULL || action == UserAction.MOVE_TO_JR) {
+					FunnelMoveRequestDef currentRequest = getCurrentFunnelMoveRequest(modelRow);
+
+					FunnelMoveRequestDef request = FunnelMoveDialog.showDialog(
+							table,
+							variablesService,
+							currentRequest
+					);
+
+					// Нажали "Отмена": action и value в таблице не меняем.
+					if (request == null) {
+						cancelCellEditing();
+						return;
+					}
+
+					selectedAction = action;
+					tableModel.setValueAt(action, modelRow, ACTION_COL_INDEX);
+					tableModel.setValueAt(
+							serializeFunnelMoveRequest(request),
+							modelRow,
+							VALUE_COL_INDEX
+					);
+
+					stopEditing();
+					return;
+				}
+
 				selectedAction = action;
 				tableModel.setValueAt(action, modelRow, ACTION_COL_INDEX);
 				applyElementTypeIfNeeded(action, modelRow);
@@ -160,5 +197,59 @@ public class ActionMenuCellEditor extends AbstractCellEditor implements TableCel
 
 	private void stopEditing() {
 		fireEditingStopped();
+	}
+
+	private FunnelMoveRequestDef getCurrentFunnelMoveRequest(int modelRow) {
+		Object valueObject = tableModel.getValueAt(modelRow, VALUE_COL_INDEX);
+
+		if (valueObject == null || valueObject.toString().isBlank()) {
+			return null;
+		}
+
+		try {
+			return parseFunnelMoveRequest(valueObject.toString());
+		} catch (IllegalArgumentException e) {
+			JOptionPane.showMessageDialog(
+					table,
+					"Не удалось разобрать параметры Funnel Move:\n" + e.getMessage(),
+					"Funnel Move",
+					JOptionPane.WARNING_MESSAGE
+			);
+			return null;
+		}
+	}
+
+	private FunnelMoveRequestDef parseFunnelMoveRequest(String value) {
+		Map<String, String> params = new HashMap<>();
+
+		for (String part : value.split(";")) {
+			String[] keyValue = part.split("=", 2);
+
+			if (keyValue.length != 2) {
+				continue;
+			}
+
+			params.put(keyValue[0].trim(), keyValue[1].trim());
+		}
+
+		return new FunnelMoveRequestDef(
+				params.get("jrId"),
+				params.get("candidateId"),
+				params.get("vacancyId"),
+				params.get("username"),
+				params.get("password")
+		);
+	}
+
+	private String serializeFunnelMoveRequest(FunnelMoveRequestDef request) {
+		return "jrId=" + nullToEmpty(request.getJrId())
+				+ ";candidateId=" + nullToEmpty(request.getCandidateId())
+				+ ";vacancyId=" + nullToEmpty(request.getVacancyId())
+				+ ";username=" + nullToEmpty(request.getUsername())
+				+ ";password=" + nullToEmpty(request.getPassword());
+	}
+
+	private String nullToEmpty(String value) {
+		return value == null ? "" : value;
 	}
 }

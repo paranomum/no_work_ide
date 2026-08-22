@@ -24,6 +24,8 @@ import ru.rt.iqhr.framework.pageobject.react.web_elements.triggers.Dropdown;
 import ru.rt.iqhr.framework.util.FormFiller;
 import ru.rt.iqhr.framework.util.TabManager;
 import ui.ActionWindow;
+import ui.action.iqhr_only.FunnelMoveRequestDef;
+import ui.action.iqhr_only.FunnelMoveService;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -380,7 +382,9 @@ public class PlayActionService {
 				|| action.contains("useBackendMethod")
 				|| action.contains("assertExists")
 				|| action.contains("assertNotExists")
-				|| action.contains("refreshPage");
+				|| action.contains("refreshPage")
+				|| action.contains("moveCandidateFinal")
+				|| action.contains("moveCandidateToJr");
 
 		if (isSpecial) {
 			log.info("Row {}: special action '{}'", step.rowIndex + 1, action);
@@ -466,7 +470,12 @@ public class PlayActionService {
 		boolean hasValue = value != null && !value.isEmpty() && !value.isBlank();
 		log.info("playSpecialAction: action='{}', value='{}'", action, value);
 
-		if (action.contains("switchTab")) {
+		if (action.equals(UserAction.MOVE_FULL.getCode())
+				|| action.equals(UserAction.MOVE_TO_JR.getCode())) {
+			playFunnelMove(action, value, nameToValue);
+			return;
+		}
+		else if (action.contains("switchTab")) {
 			tabManager.switchToNewTab();
 		} else if (action.contains("open")) {
 			open(value);
@@ -540,6 +549,139 @@ public class PlayActionService {
 			}
 		} else if (action.contains("specialAction")) {
 			log.info("specialAction placeholder executed");
+		}
+	}
+
+	private void playFunnelMove(
+			String action,
+			String rawValue,
+			Map nameToValue
+	) {
+		FunnelMoveRequestDef request = parseFunnelMoveRequest(rawValue);
+
+		Long jrId = resolveFunnelLong("jrId", request.getJrId(), nameToValue);
+		Long candidateId = resolveFunnelLong("candidateId", request.getCandidateId(), nameToValue);
+		Long vacancyId = resolveFunnelLong("vacancyId", request.getVacancyId(), nameToValue);
+
+		String username = resolveFunnelString("username", request.getUsername(), nameToValue);
+		String password = resolveFunnelString("password", request.getPassword(), nameToValue);
+
+		String domain = getCurrentDomain();
+
+		if (UserAction.MOVE_FULL.getCode().equals(action)) {
+			FunnelMoveService.processFullCandidateMass(
+					jrId, candidateId, vacancyId, username, password, domain
+			);
+			return;
+		}
+
+		if (UserAction.MOVE_TO_JR.getCode().equals(action)) {
+			FunnelMoveService.processTillJrCandidateMass(
+					jrId, candidateId, vacancyId, username, password, domain
+			);
+			return;
+		}
+
+		throw new IllegalArgumentException("Неизвестное funnel action: " + action);
+	}
+
+	private FunnelMoveRequestDef parseFunnelMoveRequest(String value) {
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException(
+					"Value для funnel action пустой. Ожидается формат: "
+							+ "jrId=...;candidateId=...;vacancyId=...;username=...;password=..."
+			);
+		}
+
+		Map<String, String> params = new LinkedHashMap<>();
+
+		for (String part : value.split(";")) {
+			String[] keyValue = part.split("=", 2);
+
+			if (keyValue.length != 2) {
+				throw new IllegalArgumentException(
+						"Некорректный параметр: '" + part + "'"
+				);
+			}
+
+			String key = keyValue[0].trim();
+			String fieldValue = keyValue[1].trim();
+
+			if (key.isBlank()) {
+				throw new IllegalArgumentException(
+						"Обнаружен параметр без имени: '" + part + "'"
+				);
+			}
+
+			params.put(key, fieldValue);
+		}
+
+		validateFunnelParameter(params, "jrId");
+		validateFunnelParameter(params, "candidateId");
+		validateFunnelParameter(params, "vacancyId");
+		validateFunnelParameter(params, "username");
+		validateFunnelParameter(params, "password");
+
+		return new FunnelMoveRequestDef(
+				params.get("jrId"),
+				params.get("candidateId"),
+				params.get("vacancyId"),
+				params.get("username"),
+				params.get("password")
+		);
+	}
+
+	private void validateFunnelParameter(
+			Map<String, String> params,
+			String parameterName
+	) {
+		String value = params.get(parameterName);
+
+		if (value == null || value.isBlank()) {
+			throw new IllegalArgumentException(
+					"Не заполнен обязательный параметр '" + parameterName + "'."
+			);
+		}
+	}
+
+	private String resolveFunnelString(
+			String fieldName,
+			String rawValue,
+			Map nameToValue
+	) {
+		if (rawValue == null || rawValue.isBlank()) {
+			throw new IllegalArgumentException(
+					"Не заполнено поле '" + fieldName + "' для funnel action."
+			);
+		}
+
+		String resolvedValue = variablesService.resolveValue(rawValue, nameToValue);
+
+		if (resolvedValue == null || resolvedValue.isBlank()) {
+			throw new IllegalArgumentException(
+					"Не удалось получить значение поля '" + fieldName
+							+ "'. Исходное значение: " + rawValue
+			);
+		}
+
+		return resolvedValue.trim();
+	}
+
+	private Long resolveFunnelLong(
+			String fieldName,
+			String rawValue,
+			Map nameToValue
+	) {
+		String resolvedValue = resolveFunnelString(fieldName, rawValue, nameToValue);
+
+		try {
+			return Long.valueOf(resolvedValue);
+		} catch (NumberFormatException e) {
+			throw new IllegalArgumentException(
+					"Поле '" + fieldName + "' должно быть числом типа Long. Получено: "
+							+ resolvedValue,
+					e
+			);
 		}
 	}
 
@@ -2108,6 +2250,7 @@ public class PlayActionService {
 		String selector;
 		String value;
 		String rawValue;   // БАГ 3 FIX: сырое значение до резолвинга
+		FunnelMoveRequestDef funnelMoveRequest;
 		String javaClassName;
 		String xpath;
 		String name;
@@ -2149,6 +2292,33 @@ public class PlayActionService {
 		private PathToken(String key, Integer index) {
 			this.key = key != null ? key : "";
 			this.index = index;
+		}
+	}
+
+	private String getCurrentDomain() {
+		if (driver == null) {
+			throw new IllegalStateException("Browser driver is not initialized.");
+		}
+
+		String currentUrl = driver.getCurrentUrl();
+
+		if (currentUrl == null || currentUrl.isBlank()) {
+			throw new IllegalStateException("Current browser URL is empty.");
+		}
+
+		try {
+			URI uri = URI.create(currentUrl);
+
+			if (uri.getScheme() == null || uri.getAuthority() == null) {
+				throw new IllegalArgumentException("Invalid URL: " + currentUrl);
+			}
+
+			return uri.getScheme() + "://" + uri.getAuthority();
+		} catch (Exception e) {
+			throw new IllegalStateException(
+					"Cannot resolve domain from browser URL: " + currentUrl,
+					e
+			);
 		}
 	}
 }

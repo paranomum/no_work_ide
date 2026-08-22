@@ -31,7 +31,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		if (name == null || name.isBlank()) {
 			return;
 		}
-		variables.put(name, new LocalVariables(name, value, method));
+		putIfAbsentOrEmpty(new LocalVariables(name.trim(), value, method));
 	}
 
 	public void addVariable(String name, String value) {
@@ -39,35 +39,112 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			return;
 		}
 
+		putIfAbsentOrEmpty(toLocalVariable(name, value));
+	}
+
+	public void addVariable(LocalVariables variable) {
+		System.out.println("VariablesService.addVariable input = " + variable);
+
+		if (variable == null
+				|| variable.getName() == null
+				|| variable.getName().isBlank()) {
+			throw new IllegalArgumentException("Variable is null or has empty name");
+		}
+
+		putIfAbsentOrEmpty(variable);
+
+		System.out.println(
+				"VariablesService.addVariable map after putIfAbsentOrEmpty = " + variables
+		);
+	}
+
+	/**
+	 * Совместимость со старым вызовом.
+	 */
+	public void addVariableIfAbsent(LocalVariables variable) {
+		putIfAbsentOrEmpty(variable);
+	}
+
+	/**
+	 * Явное имя для загрузки дефолтов из custom method.
+	 */
+	public void addVariableIfAbsentOrEmpty(LocalVariables variable) {
+		putIfAbsentOrEmpty(variable);
+	}
+
+	/**
+	 * Единая политика добавления:
+	 * - отсутствует ключ -> добавить;
+	 * - ключ есть, но его значение пустое -> заменить дефолтом;
+	 * - ключ есть и задан -> оставить пользовательское/сценарное значение.
+	 */
+	private void putIfAbsentOrEmpty(LocalVariables incoming) {
+		if (incoming == null
+				|| incoming.getName() == null
+				|| incoming.getName().isBlank()) {
+			return;
+		}
+
+		String name = incoming.getName().trim();
+		LocalVariables existing = variables.get(name);
+
+		if (existing == null || isEmptyVariable(existing)) {
+			variables.put(
+					name,
+					new LocalVariables(name, incoming.getValue(), incoming.getMethod())
+			);
+		}
+	}
+
+	/**
+	 * Распознаёт строковое отображение переменной и переводит его в DTO.
+	 *
+	 * generateEmail()       -> method=generateEmail,       value=""
+	 * generatePhoneNumber() -> method=generatePhoneNumber, value=""
+	 * addUuid(prefix)       -> method=addUuid,              value="prefix"
+	 * обычное значение      -> method=null,                 value=значение
+	 */
+	private LocalVariables toLocalVariable(String name, String value) {
 		String method = null;
 		String raw = value;
 
-		if (value != null &&
-				(value.startsWith("generateEmail(")
-						|| value.startsWith("generatePhoneNumber(")
-						|| value.startsWith("addUuid("))) {
+		if (value != null
+				&& (value.startsWith("generateEmail(")
+				|| value.startsWith("generatePhoneNumber(")
+				|| value.startsWith("addUuid("))) {
 
 			int idx = value.indexOf('(');
 			int last = value.lastIndexOf(')');
+
 			if (idx > 0 && last > idx) {
 				method = value.substring(0, idx);
 				raw = value.substring(idx + 1, last);
 			}
 		}
 
-		variables.put(name, new LocalVariables(name, raw, method));
+		return new LocalVariables(name.trim(), raw, method);
 	}
 
-	public void addVariable(LocalVariables variable) {
-		System.out.println("VariablesService.addVariable input = " + variable);
-
-		if (variable == null || variable.getName() == null || variable.getName().isBlank()) {
-			throw new IllegalArgumentException("Variable is null or has empty name");
+	/**
+	 * Пустой считается только обычная переменная без method:
+	 * null, "", пробелы.
+	 *
+	 * generateEmail(), generatePhoneNumber() и addUuid(...)
+	 * не считаются пустыми: raw value у первых двух может быть "",
+	 * но method означает, что значение определено.
+	 */
+	private boolean isEmptyVariable(LocalVariables variable) {
+		if (variable == null) {
+			return true;
 		}
 
-		variables.put(variable.getName(), variable);
+		String method = variable.getMethod();
+		if (method != null && !method.isBlank()) {
+			return false;
+		}
 
-		System.out.println("VariablesService.addVariable map after put = " + variables);
+		String value = variable.getValue();
+		return value == null || value.isBlank();
 	}
 
 	private void stopTableEditing() {
@@ -89,34 +166,23 @@ public class VariablesService extends AbstractTableSettingsPanel {
 		Map<String, LocalVariables> fromTable = new LinkedHashMap<>();
 
 		for (int row = 0; row < variablesTableModel.getRowCount(); row++) {
-			String name = Objects.toString(variablesTableModel.getValueAt(row, 0), "").trim();
-			String value = Objects.toString(variablesTableModel.getValueAt(row, 1), "").trim();
+			String name = Objects.toString(
+					variablesTableModel.getValueAt(row, 0),
+					""
+			).trim();
+
+			String value = Objects.toString(
+					variablesTableModel.getValueAt(row, 1),
+					""
+			).trim();
 
 			if (name.isEmpty()) {
 				continue;
 			}
 
-			String method = null;
-			String raw = value;
-
-			if (value != null &&
-					(value.startsWith("generateEmail(")
-							|| value.startsWith("generatePhoneNumber(")
-							|| value.startsWith("addUuid("))) {
-
-				int idx = value.indexOf('(');
-				int last = value.lastIndexOf(')');
-				if (idx > 0 && last > idx) {
-					method = value.substring(0, idx);
-					raw = value.substring(idx + 1, last);
-				}
-			} else if ("generateEmail()".equals(value) || "generatePhoneNumber()".equals(value)) {
-				int idx = value.indexOf('(');
-				method = value.substring(0, idx);
-				raw = "";
-			}
-
-			fromTable.put(name, new LocalVariables(name, raw, method));
+			// ВАЖНО: здесь put, а не putIfAbsentOrEmpty.
+			// Таблица — источник истины после ручного редактирования.
+			fromTable.put(name, toLocalVariable(name, value));
 		}
 
 		variables.clear();
@@ -149,7 +215,9 @@ public class VariablesService extends AbstractTableSettingsPanel {
 	public String getVariableValueByName(String variable) {
 		String variableName = variable;
 
-		if (variableName != null && variableName.startsWith("${") && variableName.endsWith("}")) {
+		if (variableName != null
+				&& variableName.startsWith("${")
+				&& variableName.endsWith("}")) {
 			variableName = variableName.substring(2, variableName.length() - 1);
 		}
 
@@ -176,6 +244,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			variablesTableModel.setRowCount(0);
 			variablesTableModel.fireTableDataChanged();
 		}
+
 		if (variablesTable != null) {
 			variablesTable.revalidate();
 			variablesTable.repaint();
@@ -208,6 +277,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 		for (LocalVariables v : variables.values()) {
 			String display;
+
 			if (v.getMethod() != null && !"addUuid".equals(v.getMethod())) {
 				display = v.getMethod() + "()";
 			} else if ("addUuid".equals(v.getMethod())) {
@@ -224,6 +294,7 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 	public void refreshTableFromVariables() {
 		loadVariablesIntoTable();
+
 		if (variablesTable != null) {
 			variablesTable.revalidate();
 			variablesTable.repaint();
@@ -235,11 +306,13 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 		for (LocalVariables v : variables.values()) {
 			String name = v.getName();
+
 			if (name == null || name.isBlank()) {
 				continue;
 			}
 
 			String base;
+
 			if (v.getMethod() != null && !"addUuid".equals(v.getMethod())) {
 				base = v.getMethod() + "()";
 			} else if ("addUuid".equals(v.getMethod())) {
@@ -285,8 +358,11 @@ public class VariablesService extends AbstractTableSettingsPanel {
 
 			if (!nameToValue.containsKey(varName)) {
 				String formatted = getVariableValueByNameFormatted(varName);
+
 				if (formatted == null) {
-					throw new IllegalArgumentException("Variable '" + varName + "' resolved to null");
+					throw new IllegalArgumentException(
+							"Variable '" + varName + "' resolved to null"
+					);
 				}
 
 				String resolvedFormatted = resolveValue(formatted, nameToValue);
@@ -294,11 +370,9 @@ public class VariablesService extends AbstractTableSettingsPanel {
 			}
 
 			String resolvedValue = nameToValue.get(varName);
-			value = value.substring(0, start) + resolvedValue + value.substring(end + 1);
-		}
-
-		if (value == null) {
-			return null;
+			value = value.substring(0, start)
+					+ resolvedValue
+					+ value.substring(end + 1);
 		}
 
 		if (value.startsWith("addUuid(") && value.endsWith(")")) {
@@ -315,22 +389,13 @@ public class VariablesService extends AbstractTableSettingsPanel {
 	}
 
 	/**
-	 * Удаляет переменную по имени из внутреннего Map и обновляет таблицу.
+	 * Удаляет переменную по имени из внутреннего Map.
 	 */
 	public void removeVariable(String name) {
 		if (name == null || name.isBlank()) {
 			return;
 		}
+
 		variables.remove(name.trim());
-	}
-
-	public void addVariableIfAbsent(LocalVariables variable) {
-		if (variable == null
-				|| variable.getName() == null
-				|| variable.getName().isBlank()) {
-			return;
-		}
-
-		variables.putIfAbsent(variable.getName(), variable);
 	}
 }

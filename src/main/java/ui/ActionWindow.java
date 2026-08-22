@@ -490,7 +490,8 @@ public class ActionWindow extends JFrame {
 						actionTable,
 						tableModel,
 						this::showCustomMethodChooserWithBackendRequests,
-						this::showBackendRequestChooser
+						this::showBackendRequestChooser,
+						this.variablesService
 				)
 		);
 
@@ -1681,7 +1682,7 @@ public class ActionWindow extends JFrame {
 		for (String methodName : methodNames) {
 			java.util.List<LocalVariables> vars = customMethodsService.loadMethodVariables(methodName);
 			for (LocalVariables v : vars) {
-				variablesService.addVariable(v);
+				variablesService.addVariableIfAbsentOrEmpty(v);
 			}
 		}
 	}

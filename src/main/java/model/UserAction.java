@@ -25,6 +25,8 @@ public enum UserAction {
 	SPEC_ACTION(ActionGroup.SPEC_ACTIONS, "specialAction", "Action before test"),
 	SWITCH_TAB(ActionGroup.SPEC_ACTIONS, "switchTab", "Switch to tab"),
 	OPEN(ActionGroup.SPEC_ACTIONS, "open", "Open URL"),
+	MOVE_FULL(ActionGroup.SPEC_ACTIONS, "moveCandidateFinal", "Процессинг кандидата в массовке до финального статуса"),
+	MOVE_TO_JR(ActionGroup.SPEC_ACTIONS, "moveCandidateToJr", "Процессинг кандидата в массовке до привязки к заявке"),
 
 	CUSTOM_METHOD(ActionGroup.CUSTOM_METHOD, "customMethod", "Use ur custom method"),
 	USE_BACKEND_METHOD(ActionGroup.BACKEND_METHOD, "useBackendMethod", "Use saved backend request");

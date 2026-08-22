@@ -1068,7 +1068,11 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		return paths;
 	}
 
-	private void collectLeafPaths(JsonElement element, String prefix, List<String> result) {
+	private void collectLeafPaths(
+			JsonElement element,
+			String prefix,
+			List<String> result
+	) {
 		if (element == null || element.isJsonNull()) {
 			if (!prefix.isEmpty()) {
 				result.add(prefix);
@@ -1077,25 +1081,38 @@ public class BackendRequestsService extends AbstractTableSettingsPanel {
 		}
 
 		if (element.isJsonObject()) {
-			for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
-				String key = entry.getKey();
-				String newPath = prefix.isEmpty() ? key : prefix + "." + key;
-				JsonElement child = entry.getValue();
+			for (Map.Entry<String, JsonElement> entry
+					: element.getAsJsonObject().entrySet()) {
 
-				if (child.isJsonObject()) {
-					collectLeafPaths(child, newPath, result);
-				} else if (child.isJsonArray()) {
-					var arr = child.getAsJsonArray();
-					if (!arr.isEmpty() && arr.get(0).isJsonObject()) {
-						collectLeafPaths(arr.get(0), newPath + "[0]", result);
-					} else {
-						result.add(newPath);
-					}
-				} else {
-					result.add(newPath);
-				}
+				String path = prefix.isEmpty()
+						? entry.getKey()
+						: prefix + "." + entry.getKey();
+
+				collectLeafPaths(entry.getValue(), path, result);
 			}
-		} else if (!prefix.isEmpty()) {
+			return;
+		}
+
+		if (element.isJsonArray()) {
+			JsonArray array = element.getAsJsonArray();
+
+			if (array.isEmpty()) {
+				if (!prefix.isEmpty()) {
+					result.add(prefix);
+				}
+				return;
+			}
+
+			String itemPath = prefix.isEmpty()
+					? "[0]"
+					: prefix + "[0]";
+
+			// Массив используется как шаблон: строим пути по первому элементу.
+			collectLeafPaths(array.get(0), itemPath, result);
+			return;
+		}
+
+		if (!prefix.isEmpty()) {
 			result.add(prefix);
 		}
 	}
